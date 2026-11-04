@@ -292,7 +292,7 @@ namespace varManager.App.Tests
             await Confirm(health);
 
             Assert.True(File.Exists(otherLog));
-            Assert.True(Directory.Exists(empty));
+            Assert.True(Directory.Exists(Path.Combine(batch, "linkedEmpty")));
         }
 
         [Fact]

@@ -18,7 +18,7 @@ The clickable mockup is at https://claude.ai/artifact/2ugrax4vYy63wpfpRVBKWH. Th
 
 ## Resume here
 
-Step 7 is done and pushed. Next: step 8, Health. Drive the real window for every screen: `Named`, `Press` and `WaitFor` over UI Automation, on a temp copy of `varManager.App\bin\Debug\net10.0-windows` with a settings.json pointing at fake folders.
+Step 8 is done and pushed. Next: step 9, Missing. Drive the real window for every screen: `Named`, `Press` and `WaitFor` over UI Automation, on a temp copy of `varManager.App\bin\Debug\net10.0-windows` with a settings.json pointing at fake folders.
 
 Open for step 11: on 4 November the window showed white on this PC with hardware rendering, in the pushed build as well as the new one, and correct with `RenderOptions.ProcessRenderMode = SoftwareOnly`. Earlier screenshots were fine, and the cause isn't known. Retest. If it stays, the user would see a white window, so raise it at step 12.
 
@@ -42,7 +42,7 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - [x] 5. Library: virtualized gallery that loads only on-screen thumbnails, search with author suggestions and tags, type and status filters, detail panel, turn on or off, Move out with undo.
 - [x] 6. Scenes: readiness per profile, one-click Fix, Load in VaM. Also add Load in VaM to the Library's detail panel.
 - [x] 7. Profiles: lean and exclude profiles, timing cards, switch, Profile Check. Also add picks to the Library, with the Build profile button in the job bar.
-- [ ] 8. Health: stale, duplicates, disabled, storage. Nothing fixed without asking.
+- [x] 8. Health: stale, duplicates, disabled, storage. Nothing fixed without asking.
 - [ ] 9. Missing: the same one-click flow. Add a "Not owned" Hub filter, image cache, and author search in place of the Creator dropdown. Also watch the repository, so a var dropped in is scanned by itself, as the old app's `WatchRepository` does.
 - [ ] 10. Parity: list every WinForms button and form, and confirm each has a home in the new app or a stated reason to drop it.
 - [ ] 11. Prove it on fake folders with a verify script like `smoke.ps1`. Include Fix Rebuild Link and temporary links, which `smoke.ps1` has never covered.
@@ -129,4 +129,10 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - The app can time startup and RAM, through an empty request the plugin takes. It can't time a scene load, because the plugin doesn't say when one ends. The empty request is untried on a real VaM.
 - Anything that reads links outside a job uses `VarLinks.ReadInstalled`, which creates nothing. `Installed` creates `___VarsLink___`, and in the moment `Point` has deleted the link that makes `AddonPackages` a real folder, which fails the switch and blocks every later one. A job-end reload could do this after building a profile. Only running 4 test processes at once showed the cause.
 - A test that fails rarely is a bug until shown otherwise. Run it under load to get the real message: 4 `dotnet test` processes at once.
+- Health's review can go stale, so every confirmed change checks again: Repair skips anything that isn't still a broken link, delete takes only the reviewed files, and stale vars move only if the list is the same. A record alone isn't a copy, because its file may be the one that's gone.
+- `___VarTidied___` with no vars means the folder can't be reached, so nothing counts as gone.
+- A `.disabled` file can hold a whole var. Delete only an empty one.
+- Records can hold a stale `VarPath`, because Update DB only rescans a changed size. `RemoveGone` matches by name anywhere under `___VarTidied___`, and Health does too.
+- Health dropped the mockup's "references only the deep scan found" card: nothing stores that. Old versions other vars still need aren't moved, unlike the old app's option. Say so at step 10.
+- A `sed` mutation with `\r$` can quietly not do what it says. If one survives, retry it with an exact replace before believing it.
 - The compiler drops an unused project reference, so `GetReferencedAssemblies` won't list Core until the app calls it.
