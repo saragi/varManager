@@ -10,6 +10,9 @@ namespace varManager.Ui
         public string VarsPath { get; set; } = "";
         public string VamPath { get; set; } = "";
 
+        /// <summary>Off by default, because the window drew white on the user's PC with it on.</summary>
+        public bool HardwareRendering { get; set; }
+
         public static string DefaultFile => Path.Combine(AppContext.BaseDirectory, "settings.json");
 
         /// <summary>A file that is missing or can't be read gives empty settings, and the app then asks for the folders.</summary>

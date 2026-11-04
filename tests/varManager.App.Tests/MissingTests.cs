@@ -829,6 +829,44 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task The_watch_is_paused_in_settings_and_back_after_leaving()
+        {
+            string settingsFile = Path.Combine(data, "settings.json");
+            new AppSettings { VamPath = vam, VarsPath = vars }.Save(settingsFile);
+            var shell = new ShellViewModel(settingsFile, jobs, () => false, _ => { }, () => 0, hub, TimeSpan.FromMilliseconds(50));
+            shells.Add(shell);
+            await shell.LibraryLoaded.WaitAsync(Timeout);
+
+            shell.OpenSettingsCommand.Execute(null);
+            MakeVar("A.B.1");
+            Thread.Sleep(250);
+            Assert.False(File.Exists(Tidied("A.B.1")));
+
+            shell.CancelSetupCommand.Execute(null);
+            WaitUntil(() => File.Exists(Tidied("A.B.1")));
+            WaitForJob();
+        }
+
+        [Fact]
+        public async Task Leaving_settings_with_a_folder_gone_stays_in_setup()
+        {
+            string gone = Path.Combine(root, "gone");
+            Directory.CreateDirectory(gone);
+            string settingsFile = Path.Combine(data, "settings.json");
+            new AppSettings { VamPath = vam, VarsPath = gone }.Save(settingsFile);
+            var shell = new ShellViewModel(settingsFile, jobs, () => false, _ => { }, () => 0, hub, TimeSpan.FromHours(1));
+            shells.Add(shell);
+            await shell.LibraryLoaded.WaitAsync(Timeout);
+
+            shell.OpenSettingsCommand.Execute(null);
+            Directory.Delete(gone);
+            shell.CancelSetupCommand.Execute(null);
+
+            Assert.True(shell.NeedsSetup);
+            Assert.NotEmpty(shell.SetupProblem);
+        }
+
+        [Fact]
         public void A_var_there_at_startup_is_scanned_too()
         {
             MakeVar("A.B.1");

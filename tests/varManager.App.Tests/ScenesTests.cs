@@ -470,6 +470,30 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public void Clearing_the_cache_ignores_a_moved_working_directory()
+        {
+            string home = Path.Combine(root, "home");
+            string cached = Path.Combine(home, "Cache", "a.txt");
+            Directory.CreateDirectory(Path.GetDirectoryName(cached)!);
+            File.WriteAllText(cached, "x");
+            string keep = Path.Combine(Directory.GetCurrentDirectory(), "Cache", "keep.txt");
+            Directory.CreateDirectory(Path.GetDirectoryName(keep)!);
+            File.WriteAllText(keep, "someone else's");
+            SceneAnalysis.CacheBase = home;
+            try
+            {
+                LibraryHealth.ClearSceneCache();
+            }
+            finally
+            {
+                SceneAnalysis.CacheBase = null;
+            }
+
+            Assert.False(File.Exists(cached));
+            Assert.True(File.Exists(keep));
+        }
+
+        [Fact]
         public void Clearing_a_cache_that_is_gone_is_fine()
         {
             LibraryHealth.ClearSceneCache();

@@ -596,12 +596,8 @@ namespace varManager.Ui
             settings = AppSettings.Load(settingsFile);
             Changed(nameof(VamPath));
             Changed(nameof(VarsPath));
-            CanCancelSetup = false;
-            SetupProblem = "";
-            NeedsSetup = false;
-            Watch(new LibraryPaths(VarsPath, VamPath, dataFolder));
-            if (!Jobs.IsRunning)
-                ReloadLibrary();
+            // Checks the folders again, because one can go while this panel is open.
+            Open();
         }
 
         private void SaveSetup()

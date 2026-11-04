@@ -30,7 +30,10 @@ namespace varManager
             return (varName, entryName);
         }
 
-        public static string CacheRoot => Path.Combine(Directory.GetCurrentDirectory(), "Cache");
+        /// <summary>Where the cache sits. Left empty it follows the working directory, as the old app expects.</summary>
+        public static string CacheBase { get; set; }
+
+        public static string CacheRoot => Path.Combine(CacheBase ?? Directory.GetCurrentDirectory(), "Cache");
 
         public static string CacheFolder(string varName, string entryName)
         {

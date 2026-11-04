@@ -9,6 +9,14 @@ One scripted smoke test of the real app. It covers the first-run path only, and 
 
 **Safety rule:** never point this at a real VaM install, and never click `Move files` on a real library. Everything the script touches lives in a per-run sandbox. It reads the paths from the live preview dialog and refuses to click `Move files` unless they are inside that sandbox. Do not remove that guard.
 
+## The new app
+
+`scripts\smoke_app.ps1` drives the real WPF app through UI Automation on throwaway folders under `%TEMP%\varManager-verify-app`. It covers scanning a dropped var, turning on and off, temporary links across two loads, repairing a broken link, stale vars with undo, a reviewed delete, a lean profile, Profile Check, switching, and that no var file changed. It takes about a minute, and `-NoBuild` uses the existing build. The Missing page asks the real Hub, and the check passes whatever the Hub answers.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .claude\skills\verify\scripts\smoke_app.ps1
+```
+
 ## Doctor
 
 Run this first, and whenever anything looks off. It is read-only, and it exits with the number of failed checks.

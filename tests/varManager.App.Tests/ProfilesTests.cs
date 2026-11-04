@@ -930,6 +930,28 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task Saving_settings_waits_for_a_running_job()
+        {
+            MakeVar("A.B.1");
+            Update();
+            ShellViewModel shell = await Shell();
+            string other = Path.Combine(root, "vars2");
+            Directory.CreateDirectory(other);
+            shell.OpenSettingsCommand.Execute(null);
+            shell.VarsPath = other;
+            using var gate = new ManualResetEventSlim();
+            Task busy = jobs.Start("Busy", "done", _ => gate.Wait(Timeout))!;
+
+            shell.SaveSetupCommand.Execute(null);
+
+            Assert.True(shell.NeedsSetup);
+            Assert.NotEmpty(shell.SetupProblem);
+            Assert.Equal(vars, AppSettings.Load(Path.Combine(data, "settings.json")).VarsPath);
+            gate.Set();
+            await busy.WaitAsync(Timeout);
+        }
+
+        [Fact]
         public async Task Leaving_settings_picks_up_a_change_made_while_they_were_open()
         {
             MakeVar("A.B.1");

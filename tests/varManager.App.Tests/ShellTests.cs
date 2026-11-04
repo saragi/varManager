@@ -96,6 +96,17 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public void Hardware_rendering_stays_off_unless_asked_for()
+        {
+            SaveSettings();
+            Assert.False(AppSettings.Load(settingsFile).HardwareRendering);
+
+            new AppSettings { VamPath = vam, VarsPath = vars, HardwareRendering = true }.Save(settingsFile);
+
+            Assert.True(AppSettings.Load(settingsFile).HardwareRendering);
+        }
+
+        [Fact]
         public void Settings_round_trip_and_leave_no_part_file()
         {
             SaveSettings();
@@ -289,6 +300,8 @@ namespace varManager.App.Tests
         {
             SaveSettings();
             ShellViewModel shell = Shell();
+            // The startup read raises changes from another thread, which an unlocked list can't take.
+            Assert.True(shell.LibraryLoaded.Wait(Timeout));
             using var release = new ManualResetEventSlim();
             Task job = jobs.Start("Scan", "Done.", _ => release.Wait(Timeout))!;
             var changes = new List<string?>();
