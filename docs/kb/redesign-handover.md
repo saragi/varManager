@@ -10,9 +10,9 @@ The clickable mockup is at https://claude.ai/artifact/2ugrax4vYy63wpfpRVBKWH. Th
 - The real library is migrated: repository `D:\X\VarRepository`, app `D:\X\varManagerApp`, VaM `D:\X\VaM`, with `AddonPackages` a link to the `default` switch.
 - The WinForms app has lean profiles, exclude profiles, Hub fixes and the Missing window. It is the app the user runs today, and it must keep working until the new app replaces it.
 - Logic with no UI is in `varManager.Core`. The WinForms app links those files.
-- `varManager.App` has its shell: theme, top bar, side nav, job bar and a first-run setup panel. Pages are titles only. Update DB is a disabled button until step 4 finishes.
+- `varManager.App` has its shell: theme, top bar, side nav, job bar and a first-run setup panel. Pages are titles only. Update DB works on `LibraryStore`, and the real button was pressed on fake folders.
 - `tests\varManager.App.Tests` runs the Core tests on .NET 10 too. All pass there.
-- `LibraryStore` (SQLite) and `AccessDatabase.ImportOnce` exist, but nothing calls them yet. Step 4 must call the import at startup, once the app knows its paths. Add reads to `LibraryStore` as screens need them. It has only `LoadVars` and `Count` so far.
+- `LibraryStore` is the new app's database. Add reads to it as screens need them. `savedepens` has no reads or writes yet.
 - Import proof on a copy of the real `varManager.mdb`: all 147,943 rows in 5 tables matched, it took 1.3 s, and `LoadVars` read 5,791 vars in 27 ms. The copy was deleted afterwards.
 
 ## SDK
@@ -29,12 +29,12 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - [x] 1. Confirm the SDK. Create `varManager.App` (WPF, `net10.0-windows`) referencing `varManager.Core`, with a test project that can target it.
 - [x] 2. Add a SQLite store to Core, with a one-time import from `varManager.mdb` that only reads the Access file. Keep the schema simple. Prove it on a copy.
 - [x] 3. Move logic out of `Form1.cs` into Core, one area per commit, keeping WinForms working. Moved: Tidy (`VarTidier`, `LibraryFolders`), reading a var for Update DB (`VarScanner`), install and link (`VarLinks`, and `Comm` now lives in Core), switches and the rescan request (`VarSwitches`, `VamBridge`), scenes and previews (`SceneAnalysis`, `ScenePreviews`, load requests in `VamBridge`), dependency analysis (`DependencyAnalysis`). `Form1.cs` went from 4,230 to about 2,880 lines. What stays there is tied to the Access DataSet, or is UI.
-- [ ] 4. Build the WPF shell from the mockup: dark look, side nav, profile switcher, Update DB, Launch VaM, bottom job bar instead of popups. Update DB needs its own version on `LibraryStore`, because the WinForms loop and its writes use the Access DataSet: tidy, scan with `VarScanner`, save, drop records of vars that are gone, rebuild install status, link `varsMigrated.txt`. Also run the one-time import at startup. Done so far: the look, nav, profile switcher, Launch VaM, job bar (`JobRunner`), settings (`AppSettings`, in settings.json beside the exe) and first-run setup. Left: Update DB, the import, catching an exception from `VarSwitches.Point` in `SelectedSwitch`, and a global handler so an unexpected error shows in the job bar instead of closing the app.
+- [x] 4. Build the WPF shell from the mockup: dark look, side nav, profile switcher, Update DB, Launch VaM, bottom job bar instead of popups. Update DB is `LibraryUpdate`, on `LibraryStore`. The import runs at startup when `varManager.mdb` sits beside the program and `library.db` doesn't exist yet.
 - [ ] 5. Library: virtualized gallery that loads only on-screen thumbnails, search with author suggestions and tags, type and status filters, detail panel, Move out with undo.
 - [ ] 6. Scenes: readiness per profile, one-click Fix, Load in VaM.
 - [ ] 7. Profiles: lean and exclude profiles, timing cards, switch, Profile Check.
 - [ ] 8. Health: stale, duplicates, disabled, storage. Nothing fixed without asking.
-- [ ] 9. Missing: the same one-click flow. Add a "Not owned" Hub filter, image cache, and author search in place of the Creator dropdown.
+- [ ] 9. Missing: the same one-click flow. Add a "Not owned" Hub filter, image cache, and author search in place of the Creator dropdown. Also watch the repository, so a var dropped in is scanned by itself, as the old app's `WatchRepository` does.
 - [ ] 10. Parity: list every WinForms button and form, and confirm each has a home in the new app or a stated reason to drop it.
 - [ ] 11. Prove it on fake folders with a verify script like `smoke.ps1`. Include Fix Rebuild Link and temporary links, which `smoke.ps1` has never covered.
 - [ ] 12. Stop. Tell the user it's ready and how to try it. Don't run it on the real library and don't replace `D:\X\varManagerApp` without their approval.
@@ -94,4 +94,6 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - A script that mutates source to prove a test must not have its output piped through `Select-Object -First`: that stops it before its restore step. Check the file afterwards.
 - A mutation that survives means the test is wrong, not that the code is fine. A broken zip header made a whole var invalid, which took a different path from the one the test was meant to reach.
 - `RemoveGone` trusts the vars folder. A wrong path with a few vars in it would drop the other records. They rebuild with Update DB, but that took 106 minutes on the real library. Health in step 8 should warn before a large removal.
+- For step 12: the new app expects `varManager.mdb`, `varsMigrated.txt` and `varsForInstall.txt` beside itself, in its data folder. Anything the old app left waiting in its own folder needs copying with them.
+- In `JobRunner`, `IsRunning` must stay the last thing set, so a waiter sees the finished state.
 - The compiler drops an unused project reference, so `GetReferencedAssemblies` won't list Core until the app calls it.
