@@ -28,7 +28,7 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - [x] 0. Review commit `558c942` and the handover commit with the loop below, then push.
 - [x] 1. Confirm the SDK. Create `varManager.App` (WPF, `net10.0-windows`) referencing `varManager.Core`, with a test project that can target it.
 - [x] 2. Add a SQLite store to Core, with a one-time import from `varManager.mdb` that only reads the Access file. Keep the schema simple. Prove it on a copy.
-- [ ] 3. Move logic out of `Form1.cs` into Core, one area per commit, keeping WinForms working. Done: Tidy (`VarTidier`, `LibraryFolders`), reading a var for Update DB (`VarScanner`), install and link (`VarLinks`, and `Comm` now lives in Core). Left: the Update DB loop and its database writes, which wait for the new store; switches; scenes and previews (`ReExtractedPreview` still has its own zip code); dependency analysis.
+- [ ] 3. Move logic out of `Form1.cs` into Core, one area per commit, keeping WinForms working. Done: Tidy (`VarTidier`, `LibraryFolders`), reading a var for Update DB (`VarScanner`), install and link (`VarLinks`, and `Comm` now lives in Core), switches and the rescan request (`VarSwitches`, `VamBridge`). Left: the Update DB loop and its database writes, which wait for the new store; scenes and previews (`ReExtractedPreview` still has its own zip code); dependency analysis.
 - [ ] 4. Build the WPF shell from the mockup: dark look, side nav, profile switcher, Update DB, Launch VaM, bottom job bar instead of popups.
 - [ ] 5. Library: virtualized gallery that loads only on-screen thumbnails, search with author suggestions and tags, type and status filters, detail panel, Move out with undo.
 - [ ] 6. Scenes: readiness per profile, one-click Fix, Load in VaM.
@@ -82,4 +82,6 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - Smoke's log check ignores the overlong entry's error on purpose, through `Get-LogErrors`.
 - Don't chain `git commit` after a smoke run or a `git add` with `;`. Check the result first. A failed `git add` still lets the commit run with whatever was staged.
 - `git mv` a file, then stage only its new path. The old path no longer matches, and `git add` fails on it.
+- NTFS tunneling can restore a file's creation time when it is deleted and recreated within about 15 seconds, so a test can't use creation time to prove a link wasn't recreated. Use last-write time.
+- A failed `VarSwitches.Point` leaves AddonPackages deleted, because it removes the old link first. The old app did too. The new app should show this clearly and offer a retry.
 - The compiler drops an unused project reference, so `GetReferencedAssemblies` won't list Core until the app calls it.
