@@ -25,13 +25,18 @@ namespace varManager
         private bool downlistHide = true;
         Dictionary<string, string> downloadUrls = new Dictionary<string, string>();
         private const int intPerPage = 48;
+        private const string SearchPrompt = "Search...";
+        private readonly System.Windows.Forms.Timer searchTimer = new System.Windows.Forms.Timer { Interval = 400 };
+        private string lastSearch = "";
+        private int latestRequest;
         private InvokeAddLoglist addlog;
         public FormHub()
         {
             InitializeComponent();
             addlog = new InvokeAddLoglist(UpdateAddLoglist);
-            httpClient = new HttpClient();
+            httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
             cancellationToken = new CancellationToken();
+            searchTimer.Tick += SearchTimer_Tick;
         }
         private void buttonScanHub_Click(object sender, EventArgs e)
         {
@@ -57,65 +62,65 @@ namespace varManager
         }
         private async void AllMissingDepends()
         {
-           
-            this.BeginInvoke(addlog, new Object[] { "Search for dependencies...", LogLevel.INFO });
-           
-            List<string> missingvars = form1.MissingDependencies();
-            if (missingvars.Count > 0)
+            UpdateAddLoglist("Search for dependencies...", LogLevel.INFO);
+            try
             {
-                string packages = string.Join(",", missingvars);
-                this.BeginInvoke(addlog, new Object[] { " Search downloadable dependencies in the HUB.", LogLevel.INFO });
-                var reponse = await FindPackages(packages);
-                JSONNode jsonResult = JSON.Parse(reponse);
-                JSONClass packageArray = jsonResult["packages"] as JSONClass;
-                // List<string> downloadurls = new List<string>();
-                //Dictionary< string, string> downloadurls = new Dictionary<string, string>();
-                if (packageArray.Count > 0)
+                List<string> missingvars = form1.MissingDependencies();
+                if (missingvars.Count == 0)
                 {
-                    this.BeginInvoke(addlog, new Object[] { $"{packageArray.Count} return records will be analyzed", LogLevel.INFO });
-                    foreach (var package in packageArray.Childs)
-                    {
-                        string downloadurl = package["downloadUrl"];
-                        string filename = package["filename"];
-                        if (!string.IsNullOrEmpty(downloadurl) && downloadurl != "null")
-                        {
-                            if (!string.IsNullOrEmpty(filename) && filename != "null")
-                            {
-                                filename = filename.Substring(0, filename.IndexOf(".var"));
-                                if (!form1.FindByvarName(filename))
-                                {
-                                    this.BeginInvoke(addlog, new Object[] { $"Find {filename} in the HUB", LogLevel.INFO });
-                                    //if (!downloadUrls.ContainsKey(filename))
-                                    downloadUrls[filename] = downloadurl;
-                                }
-                            }
-                        }
-                    }
-                    //downloadurls = downloadurls.Distinct();
+                    UpdateAddLoglist("No missing dependencies", LogLevel.INFO);
+                    return;
                 }
-                if (downloadUrls.Count > 0)
-                {
-                    this.BeginInvoke(addlog, new Object[] { $"Total {downloadUrls.Count} download links found", LogLevel.INFO });
-                    ShowDownList();
-                    DrawDownloadListView();
-                    // listBoxDownList.Items.AddRange(downloadurls.ToArray());
-                    //textBoxDownList.Text += string.Join("\r\n", downloadurls);
-                    /*
-                    string hubvars = Guid.NewGuid().ToString() + ".txt";
-                    StreamWriter sw = new StreamWriter(hubvars);
-                    foreach (var downloadurl in downloadurls)
-                    {
-                        sw.WriteLine(downloadurl);
-                    }
-                    sw.Close();
-                    System.Diagnostics.Process.Start(hubvars);
-                    */
+                UpdateAddLoglist(" Search downloadable dependencies in the HUB.", LogLevel.INFO);
+                AddDownloadLinks(await FindPackages(string.Join(",", missingvars)));
+            }
+            catch (Exception ex)
+            {
+                ShowHubError(ex.Message);
+            }
+        }
 
-                }
-                else
+        /// <summary>Adds the links in a findPackages reply for vars not in the library, then shows the list.</summary>
+        private void AddDownloadLinks(string response)
+        {
+            Dictionary<string, string> links = HubParser.DownloadLinks(response);
+            UpdateAddLoglist($"{links.Count} return records will be analyzed", LogLevel.INFO);
+            foreach (KeyValuePair<string, string> link in links)
+            {
+                if (!form1.FindByvarName(link.Key))
                 {
-                    this.BeginInvoke(addlog, new Object[] { "No download link found", LogLevel.INFO });
+                    UpdateAddLoglist($"Find {link.Key} in the HUB", LogLevel.INFO);
+                    downloadUrls[link.Key] = link.Value;
                 }
+            }
+            if (downloadUrls.Count > 0)
+            {
+                UpdateAddLoglist($"Total {downloadUrls.Count} download links found", LogLevel.INFO);
+                ShowDownList();
+                DrawDownloadListView();
+            }
+            else
+            {
+                UpdateAddLoglist("No download link found", LogLevel.INFO);
+            }
+        }
+
+        /// <summary>Safe from any thread, and after the window has closed.</summary>
+        private void ShowHubError(string message)
+        {
+            if (IsDisposed || !IsHandleCreated)
+                return;
+            try
+            {
+                BeginInvoke((Action)(() =>
+                {
+                    labelTotal.Text = "Hub error";
+                    UpdateAddLoglist("Hub request failed: " + message, LogLevel.ERROR);
+                }));
+            }
+            catch (InvalidOperationException)
+            {
+                // The window closed while this was on its way.
             }
         }
 
@@ -143,16 +148,16 @@ namespace varManager
             using (var client = new HttpClient())
             {
                 var response = await client.PostAsync(url, data);
-                string reponse = response.Content.ReadAsStringAsync().Result;
-                return reponse;
+                response.EnsureSuccessStatusCode();
+                return await response.Content.ReadAsStringAsync();
             }
         }
 
-        private void FormHub_Load(object sender, EventArgs e)
+        private async void FormHub_Load(object sender, EventArgs e)
         {
             this.Enabled = false;
             this.UseWaitCursor = true;
-           if(!GetInfoList())
+           if(!await GetInfoList())
             {
                 MessageBox.Show("Error getting HUB information!");
                 this.Close();
@@ -250,7 +255,8 @@ namespace varManager
             comboBoxPriSort.SelectedIndexChanged -= ComboBoxSelectedChanged;
             comboBoxSecSort.SelectedIndexChanged -= ComboBoxSelectedChanged;
             comboBoxPages.SelectedIndexChanged -= ComboBoxSelectedChanged;
-            textBoxSearch.TextChanged -= ComboBoxSelectedChanged;
+            textBoxSearch.TextChanged -= textBoxSearch_TextChanged;
+            searchTimer.Stop();
         }
 
         private void EnableFilterEvent()
@@ -263,7 +269,26 @@ namespace varManager
             comboBoxPriSort.SelectedIndexChanged += ComboBoxSelectedChanged;
             comboBoxSecSort.SelectedIndexChanged += ComboBoxSelectedChanged;
             comboBoxPages.SelectedIndexChanged += ComboBoxSelectedChanged;
-            textBoxSearch.TextChanged += ComboBoxSelectedChanged;
+            textBoxSearch.TextChanged += textBoxSearch_TextChanged;
+        }
+
+        /// <summary>Waits for a pause in typing, so one search sends one request.</summary>
+        private void textBoxSearch_TextChanged(object sender, EventArgs e)
+        {
+            searchTimer.Stop();
+            searchTimer.Start();
+        }
+
+        private void SearchTimer_Tick(object sender, EventArgs e)
+        {
+            searchTimer.Stop();
+            if (SearchText != lastSearch)
+                GenerateHabItems();
+        }
+
+        private string SearchText
+        {
+            get { return textBoxSearch.Text == SearchPrompt ? "" : textBoxSearch.Text; }
         }
 
         private void ClearFilter()
@@ -284,7 +309,7 @@ namespace varManager
             comboBoxPriSort.SelectedIndex = 0;
             comboBoxSecSort.SelectedIndex = 0;
 
-            textBoxSearch.Text = "Search...";
+            textBoxSearch.Text = SearchPrompt;
             textBoxSearch.ForeColor = SystemColors.GrayText;
 
         }
@@ -326,34 +351,29 @@ namespace varManager
         {
             string location = comboBoxHosted.Text, paytype = comboBoxPayType.Text,
              category = comboBoxCategory.Text, username = comboBoxCreator.Text,
-                 tags = comboBoxTags.Text, search = textBoxSearch.Text;
-            if(search == "Search...")
-            {
-                search = "";
-            }
+                 tags = comboBoxTags.Text, search = SearchText;
+            lastSearch = search;
             string sort = comboBoxPriSort.Text;
             if (!string.IsNullOrEmpty(comboBoxSecSort.Text))
                 sort = sort + "," + comboBoxSecSort.Text;
+            // A new filter starts at the first page.
             int page = 1;
-            if (comboBoxPages.Items.Count > 0)
-            {
-                if (comboBoxPages.SelectedIndex >= 0)
-                    page = comboBoxPages.SelectedIndex + 1;
-            }
+            if (!genePages && comboBoxPages.SelectedIndex >= 0)
+                page = comboBoxPages.SelectedIndex + 1;
             // string reponse = Task<int>.Run(() => GetResources(48, location, paytype, category, username, tags, search, sort, page)).Result;
             try { GetResources(intPerPage, location, paytype, category, username, tags, search, sort, page); }
-            catch (Exception)
+            catch (Exception ex)
             {
-
+                ShowHubError(ex.Message);
             }
         }
 
-        private bool GetInfoList()
+        private async Task<bool> GetInfoList()
         {
             bool success = false;
             try
             {
-                string reponse = Task<int>.Run(GetInfo).Result;
+                string reponse = await GetInfo();
                 if(string.IsNullOrEmpty(reponse)) return false;
                 JSONNode jsonResult = JSON.Parse(reponse);
                 JSONArray jArray = jsonResult["category"] as JSONArray;
@@ -425,7 +445,7 @@ namespace varManager
 
         private void buttonRefresh_Click(object sender, EventArgs e)
         {
-            GenerateHabItems();
+            GenerateHabItems(false);
         }
 
         private void GetResources(int perpage = intPerPage,
@@ -459,29 +479,34 @@ namespace varManager
             jns.Add("page", page.ToString());
 
             var data = new StringContent(jns.ToString(), Encoding.UTF8, "application/json");
-            try
-            {
-                GetResponseAsync(url, data);
-            }
-            catch (Exception ex)
-            {
-                throw ex;
-            }
-
+            GetResponseAsync(url, data);
         }
 
         public void GetResponseAsync(string url, StringContent data)
         {
+            int request = Interlocked.Increment(ref latestRequest);
             httpClient.CancelPendingRequests();
             httpClient.PostAsync(url, data).ContinueWith(
               (requestTask) =>
               {
-                  if (requestTask.Status == TaskStatus.RanToCompletion)
+                  if (requestTask.IsCanceled)
                   {
-                      HttpResponseMessage response = requestTask.Result;                    // 确认响应成功，否则抛出异常
-                      if (response.IsSuccessStatusCode)
-                          // 异步读取响应为字符串
-                          response.Content.ReadAsStringAsync().ContinueWith(ResponseTask);
+                      // A newer request cancels this one. Otherwise it timed out.
+                      if (request == latestRequest)
+                          ShowHubError("No reply in time.");
+                  }
+                  else if (requestTask.IsFaulted)
+                  {
+                      ShowHubError(requestTask.Exception.GetBaseException().Message);
+                  }
+                  else if (!requestTask.Result.IsSuccessStatusCode)
+                  {
+                      ShowHubError("Status " + (int)requestTask.Result.StatusCode);
+                  }
+                  else
+                  {
+                      // 异步读取响应为字符串
+                      requestTask.Result.Content.ReadAsStringAsync().ContinueWith(ResponseTask);
                   }
               });
         }
@@ -498,7 +523,7 @@ namespace varManager
 
         private void buttonEmptySearch_Click(object sender, EventArgs e)
         {
-            textBoxSearch.Text = "Search...";
+            textBoxSearch.Text = SearchPrompt;
             textBoxSearch.ForeColor = SystemColors.GrayText;
         }
 
@@ -516,115 +541,39 @@ namespace varManager
                 UpdatAllPackages();
             }
         }
-        struct PackVerDownID
-        {
-            public int ver;
-            public string downloadid;
-
-            public PackVerDownID(int ver, string downloadid)
-            {
-                this.ver = ver;
-                this.downloadid = downloadid;
-            }
-        }
         private async void UpdatAllPackages()
         {
-            this.BeginInvoke(addlog, new Object[] { "Search for upgradable vars...", LogLevel.INFO });
-            var reponse = await GetHubPackages();
-            JSONClass jsonPackages = JSON.Parse(reponse) as JSONClass;
-            this.BeginInvoke(addlog, new Object[] { $"Total {jsonPackages.Count} Packages found in the HUB.", LogLevel.INFO }); 
-            Dictionary<string, PackVerDownID> hubPackages = new Dictionary<string, PackVerDownID>();
-            foreach (string package in jsonPackages.Keys)
+            UpdateAddLoglist("Search for upgradable vars...", LogLevel.INFO);
+            try
             {
-                string  packageIdenty = package;
-                if (packageIdenty.EndsWith(".var"))
-                    packageIdenty = packageIdenty.Substring(0, packageIdenty.Length - 4);
-                int splitindex = packageIdenty.LastIndexOf('.');
-                if (splitindex >= 0)
+                string reponse = await GetHubPackages();
+                // The list is large, so read it away from the window's thread.
+                Dictionary<string, int> hubPackages = await Task.Run(() => HubParser.LatestVersions(reponse));
+                UpdateAddLoglist($"Total {hubPackages.Count} Packages found in the HUB.", LogLevel.INFO);
+
+                List<string> toBeUpdVars = new List<string>();
+                foreach (var hubpackage in hubPackages)
                 {
-                    string packageName= packageIdenty.Substring(0, splitindex);
-                    int version = -1;
-                    int.TryParse(packageIdenty.Substring(splitindex + 1), out version);
-                    if (hubPackages.ContainsKey(packageName))
+                    string varlastname = form1.VarExistName(hubpackage.Key + ".latest");
+                    if (varlastname != "missing" && hubpackage.Value > HubParser.VersionOf(varlastname))
                     {
-                        if (version > hubPackages[packageName].ver)
-                        {
-                            string downid = jsonPackages[package].Value;
-                            hubPackages[packageName]= new PackVerDownID(version, downid);
-                        }
-                    }
-                    else
-                    {
-                        string downid = jsonPackages[package].Value;
-                        hubPackages.Add(packageName, new PackVerDownID(version, downid));
+                        UpdateAddLoglist($"Find the upgradeable package,{varlastname} ", LogLevel.INFO);
+                        toBeUpdVars.Add(hubpackage.Key + ".latest");
                     }
                 }
+                if (toBeUpdVars.Count == 0)
+                {
+                    UpdateAddLoglist("No upgradable vars found", LogLevel.INFO);
+                    return;
+                }
+                UpdateAddLoglist($"Total {toBeUpdVars.Count} upgradable var files found in the HUB.", LogLevel.INFO);
+                AddDownloadLinks(await FindPackages(string.Join(",", toBeUpdVars)));
             }
-            List<string> toBeUpdVars= new List<string>(); 
-            foreach (var hubpackage in hubPackages)
+            catch (Exception ex)
             {
-                string varlastname = form1.VarExistName(hubpackage.Key + ".latest");
-                if (varlastname != "missing")
-                {
-                    int splitindex = varlastname.LastIndexOf('.');
-                    if (splitindex >= 0)
-                    {
-                        int version = -1;
-                        int.TryParse(varlastname.Substring(splitindex + 1), out version);
-                        if (hubpackage.Value.ver > version)
-                        {
-                            this.BeginInvoke(addlog, new Object[] { $"Find the upgradeable package,{varlastname} ", LogLevel.INFO });
-                            toBeUpdVars.Add(hubpackage.Key + ".latest");
-                        }
-                    }
-                }
-            }
-            if (toBeUpdVars.Count > 0)
-            {
-                string packages = string.Join(",", toBeUpdVars);
-                this.BeginInvoke(addlog, new Object[] { $"Total {toBeUpdVars.Count} upgradable var files found in the HUB.", LogLevel.INFO });
-                reponse = await FindPackages(packages);
-                JSONNode jsonResult = JSON.Parse(reponse);
-                JSONClass packageArray = jsonResult["packages"] as JSONClass;
-                //List<string> downloadurls = new List<string>();
-                if (packageArray.Count > 0)
-                {
-                    this.BeginInvoke(addlog, new Object[] { $"{packageArray.Count} return records will be analyzed", LogLevel.INFO });
-                    foreach (var package in packageArray.Childs)
-                    {
-                        string downloadurl = package["downloadUrl"];
-                        string filename = package["filename"];
-                        if (!string.IsNullOrEmpty(downloadurl) && downloadurl != "null")
-                        {
-                            if (!string.IsNullOrEmpty(filename) && filename != "null")
-                            {
-                                filename = filename.Substring(0, filename.IndexOf(".var"));
-                                if (!form1.FindByvarName(filename))
-                                {
-                                    this.BeginInvoke(addlog, new Object[] { $"Find {filename} in the HUB", LogLevel.INFO });
-                                    if (!downloadUrls.ContainsKey(filename))
-                                        downloadUrls.Add(filename, downloadurl);
-                                }
-                            }
-                        }
-                    }
-                    //downloadurls = downloadurls.Distinct().ToList();
-                }
-                if (downloadUrls.Count > 0)
-                {
-                    this.BeginInvoke(addlog, new Object[] { $"Total {downloadUrls.Count} updatable download links found", LogLevel.INFO });
-                    ShowDownList();
-                    DrawDownloadListView();
-                    
-                }
-                else
-                {
-                    this.BeginInvoke(addlog, new Object[] { "No download link found", LogLevel.WARNING });
-                }
+                ShowHubError(ex.Message);
             }
         }
-
-     
 
         private static async Task<string> GetHubPackages()
         {
@@ -633,8 +582,8 @@ namespace varManager
             using (var client = new HttpClient())
             {
                 var response = await client.GetAsync(url);
-                string reponse = response.Content.ReadAsStringAsync().Result;
-                return reponse;
+                response.EnsureSuccessStatusCode();
+                return await response.Content.ReadAsStringAsync();
             }
         }
 
@@ -660,7 +609,7 @@ namespace varManager
 
         private void textBoxSearch_Enter(object sender, EventArgs e)
         {
-            if(textBoxSearch.Text=="Search...")
+            if(textBoxSearch.Text==SearchPrompt)
             {
                 textBoxSearch.Text = "";
             }
@@ -669,9 +618,9 @@ namespace varManager
 
         private void textBoxSearch_Leave(object sender, EventArgs e)
         {
-            if (string.IsNullOrWhiteSpace(textBoxSearch.Text)||textBoxSearch.Text == "Search...")
+            if (string.IsNullOrWhiteSpace(textBoxSearch.Text)||textBoxSearch.Text == SearchPrompt)
             {
-                textBoxSearch.Text = "Search...";
+                textBoxSearch.Text = SearchPrompt;
                 textBoxSearch.ForeColor = SystemColors.GrayText;
             }
         }
@@ -711,6 +660,8 @@ namespace varManager
                     e.Cancel = true;
                 }
             }
+            if (!e.Cancel)
+                searchTimer.Dispose();
         }
 
         public void RefreshResource(string response)
@@ -718,6 +669,8 @@ namespace varManager
             JSONNode jsonResult = JSON.Parse(response);
 
             JSONClass pagination = jsonResult["pagination"] as JSONClass;
+            if (pagination == null)
+                throw new InvalidDataException("The Hub returned no results.");
             int totalFound = int.Parse(pagination["total_found"].Value);
 
             labelTotal.Text = $"Total: {totalFound}";
@@ -770,7 +723,7 @@ namespace varManager
                                     string varlastname = form1.VarExistName(hubpackageName + ".latest");
                                     if (varlastname != "missing")
                                     {
-                                        int lastversion = int.Parse(varlastname.Substring(filename.LastIndexOf('.') + 1));
+                                        int lastversion = HubParser.VersionOf(varlastname);
                                         if (lastversion >= hubversion)
                                         {
                                             if (inrepons < 0)
@@ -816,11 +769,26 @@ namespace varManager
         {
             try
             {
-                InvokeRefreshResource refreshResource = new InvokeRefreshResource(RefreshResource);
+                InvokeRefreshResource refreshResource = new InvokeRefreshResource(TryRefreshResource);
                 string response = responseTask.Result;
                 this.BeginInvoke(refreshResource, new Object[] { response });
             }
-            catch (Exception) { }
+            catch (Exception ex)
+            {
+                ShowHubError(ex.GetBaseException().Message);
+            }
+        }
+
+        private void TryRefreshResource(string response)
+        {
+            try
+            {
+                RefreshResource(response);
+            }
+            catch (Exception ex)
+            {
+                ShowHubError(ex.Message);
+            }
         }
 
         private static async Task<string> GetResponse(string url, StringContent data)
@@ -828,12 +796,11 @@ namespace varManager
             //using (var client = new HttpClient())
             //{
             string strresponse = "";
-            httpClient.Timeout = TimeSpan.FromSeconds(60);
             try
             {
                 var response = await httpClient.PostAsync(url, data, cancellationToken);
 
-                strresponse = response.Content.ReadAsStringAsync().Result;
+                strresponse = await response.Content.ReadAsStringAsync();
             }
             catch
             {
