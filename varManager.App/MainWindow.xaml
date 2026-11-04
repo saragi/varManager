@@ -62,6 +62,8 @@
                             Visibility="{Binding DataContext.IsLibraryPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
             <ui:ScenesView Grid.Column="1" DataContext="{Binding Scenes}"
                            Visibility="{Binding DataContext.IsScenesPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
+            <ui:ProfilesView Grid.Column="1" DataContext="{Binding Profiles}"
+                             Visibility="{Binding DataContext.IsProfilesPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
             <StackPanel Grid.Column="1" Margin="20" Visibility="{Binding IsOtherPage, Converter={StaticResource Visible}}">
                 <TextBlock Text="{Binding SelectedPage.Name}" FontSize="22" FontWeight="SemiBold" />
             </StackPanel>
@@ -90,6 +92,10 @@
         <Border Grid.Row="2" Background="{StaticResource Bar}" BorderBrush="{StaticResource Edge}" BorderThickness="0,1,0,0"
                 Padding="20,8" MinHeight="60">
             <DockPanel LastChildFill="False">
+                <Button DockPanel.Dock="Right" Content="Build profile" Style="{StaticResource PrimaryButton}" Command="{Binding BuildProfileCommand}" Margin="12,0,0,0"
+                        Visibility="{Binding Picks.HasPicks, Converter={StaticResource Visible}}" />
+                <TextBlock DockPanel.Dock="Right" Text="{Binding Picks.CountText}" Style="{StaticResource MutedText}" Margin="12,0,0,0" VerticalAlignment="Center"
+                           Visibility="{Binding Picks.HasPicks, Converter={StaticResource Visible}}" />
                 <Button DockPanel.Dock="Right" Content="Undo move" Command="{Binding Library.UndoMoveCommand}" Margin="12,0,0,0"
                         IsEnabled="{Binding Jobs.IsIdle}" Visibility="{Binding Library.CanUndo, Converter={StaticResource Visible}, FallbackValue=Collapsed}" />
                 <Button DockPanel.Dock="Right" Content="Cancel" Command="{Binding CancelCommand}"

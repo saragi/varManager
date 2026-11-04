@@ -124,6 +124,7 @@ namespace varManager.Ui
     public sealed class LibraryTile : PictureTile
     {
         private bool isSelected;
+        private bool isPicked;
 
         public LibraryTile(LibraryItem item, ThumbnailLoader thumbnails, SynchronizationContext? ui)
             : base(item.PreviewPath, thumbnails, ui)
@@ -144,6 +145,16 @@ namespace varManager.Ui
             set
             {
                 isSelected = value;
+                Changed();
+            }
+        }
+
+        public bool IsPicked
+        {
+            get => isPicked;
+            set
+            {
+                isPicked = value;
                 Changed();
             }
         }
@@ -212,6 +223,7 @@ namespace varManager.Ui
         private readonly Action<IReadOnlyList<string>> tempLinksStale;
         private readonly SynchronizationContext? ui;
         private readonly Func<IReadOnlyCollection<string>> linkedVars;
+        private readonly PickList picks;
         private readonly string storeFile;
         private readonly string varsPath;
         private readonly HashSet<string> closedAuthors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -234,8 +246,10 @@ namespace varManager.Ui
         private int reloads;
 
         public LibraryViewModel(string storeFile, LibraryPaths paths, JobRunner jobs, Func<IReadOnlyCollection<string>> linkedVars,
-            Action<IReadOnlyList<string>> tempLinksStale, SynchronizationContext? ui)
+            Action<IReadOnlyList<string>> tempLinksStale, SynchronizationContext? ui, PickList? picks = null)
         {
+            this.picks = picks ?? new PickList();
+            this.picks.PicksChanged += (sender, e) => PicksMoved();
             this.tempLinksStale = tempLinksStale;
             this.storeFile = storeFile;
             this.paths = paths;
@@ -245,6 +259,7 @@ namespace varManager.Ui
             this.ui = ui;
             undoFolder = MoveOut.LatestHolding(varsPath);
             ToggleCommand = new Command(Toggle);
+            TogglePickCommand = new Command(TogglePick);
             LoadCommand = new Command(Load);
             PlanMoveCommand = new Command(PlanMove);
             ConfirmMoveCommand = new Command(ConfirmMove);
@@ -274,6 +289,7 @@ namespace varManager.Ui
         public ICommand ToggleAuthorCommand { get; }
         public ICommand SelectCommand { get; }
         public ICommand ToggleCommand { get; }
+        public ICommand TogglePickCommand { get; }
         public ICommand LoadCommand { get; }
         public ICommand PlanMoveCommand { get; }
         public ICommand ConfirmMoveCommand { get; }
@@ -348,6 +364,7 @@ namespace varManager.Ui
                 Changed();
                 Changed(nameof(HasSelection));
                 Changed(nameof(ToggleLabel));
+                Changed(nameof(PickLabel));
                 Changed(nameof(CanLoad));
                 Changed(nameof(CanMove));
                 Changed(nameof(BlockedText));
@@ -390,6 +407,7 @@ namespace varManager.Ui
         }
 
         public bool CanLoad => selected?.Item.FirstScene != null;
+        public string PickLabel => selected?.IsPicked == true ? "Remove from picks" : "Add to profile picks";
         public bool IsBlocked => selected != null && usage.NeedersOf(selected.Item.VarName).Any();
         public bool CanMove => selected != null && !IsBlocked && movePlan == null;
         public bool HasMovePlan => movePlan != null;
@@ -473,7 +491,7 @@ namespace varManager.Ui
             index = newIndex;
             dependencies = newDependencies;
             usage = newUsage;
-            tiles = items.ToDictionary(i => i.VarName, i => new LibraryTile(i, thumbnails, ui), StringComparer.OrdinalIgnoreCase);
+            tiles = items.ToDictionary(i => i.VarName, i => new LibraryTile(i, thumbnails, ui) { IsPicked = picks.Contains(i.VarName) }, StringComparer.OrdinalIgnoreCase);
             Selected = keep != null && tiles.TryGetValue(keep, out LibraryTile? tile) ? tile : null;
             RefreshSuggestions();
             Apply();
@@ -548,6 +566,24 @@ namespace varManager.Ui
                 string text = done == 1 ? "Turned on 1 var." : $"Turned on {done} vars.";
                 return failed == 0 ? text : $"{text} {failed} could not be linked.";
             });
+        }
+
+        private void TogglePick()
+        {
+            if (selected != null)
+                picks.Toggle(selected.Item.VarName);
+        }
+
+        private void PicksMoved()
+        {
+            var picked = new HashSet<string>(picks.Names, StringComparer.OrdinalIgnoreCase);
+            foreach (LibraryTile tile in tiles.Values)
+            {
+                bool isPicked = picked.Contains(tile.Item.VarName);
+                if (tile.IsPicked != isPicked)
+                    tile.IsPicked = isPicked;
+            }
+            Changed(nameof(PickLabel));
         }
 
         private void Load()

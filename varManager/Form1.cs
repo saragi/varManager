@@ -236,7 +236,7 @@ namespace varManager
 
         private static string ProfilePath(string name)
         {
-            return Path.Combine(Settings.Default.varspath, profilesDirName, name + ".profile");
+            return LeanProfiles.ProfilePath(Settings.Default.varspath, name);
         }
 
         private static string SwitchLinkPath(string name)
@@ -247,18 +247,7 @@ namespace varManager
         /// <summary>Packages VaM needs in every profile: session plugins, the default scene and base.txt.</summary>
         private static List<string> BaseReferences()
         {
-            HashSet<string> references = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            string[] sources =
-            {
-                Path.Combine(Settings.Default.vampath, "Custom", "PluginPresets", "Plugins_UserDefaults.vap"),
-                Path.Combine(Settings.Default.vampath, "Saves", "scene", "MeshedVR", "default.json"),
-            };
-            foreach (string source in sources.Where(File.Exists))
-                references.UnionWith(DependencyScanner.Extract(source, File.ReadAllText(source)));
-            string baseList = Path.Combine(Settings.Default.varspath, profilesDirName, "base.txt");
-            if (File.Exists(baseList))
-                references.UnionWith(File.ReadAllLines(baseList).Select(line => line.Trim()).Where(line => line.Length > 0));
-            return references.OrderBy(reference => reference, StringComparer.OrdinalIgnoreCase).ToList();
+            return LeanProfiles.BaseReferences(Settings.Default.vampath, Settings.Default.varspath);
         }
 
         private ProfilePlan PlanProfile(LeanProfile profile)
@@ -277,11 +266,7 @@ namespace varManager
         /// <summary>What VaM loads on the default switch, from the same places the installed scan reads.</summary>
         private List<string> DefaultSwitchVars()
         {
-            string switchPath = Path.Combine(Settings.Default.vampath, addonPacksSwitch, "default");
-            return LeanProfiles.ActiveLinks(Path.Combine(switchPath, installLinkDirName), SearchOption.AllDirectories)
-                .Concat(LeanProfiles.ActiveLinks(switchPath, SearchOption.TopDirectoryOnly))
-                .Where(VarLookup.Contains)
-                .ToList();
+            return LeanProfiles.SwitchVars(Settings.Default.vampath, VarSwitches.Default).Where(VarLookup.Contains).ToList();
         }
 
         private string UnusedSwitchName(string name)

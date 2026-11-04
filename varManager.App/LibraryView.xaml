@@ -105,6 +105,10 @@
                                     <Border Style="{StaticResource StateTag}">
                                         <TextBlock Text="{Binding StateText}" Style="{StaticResource StateTagText}" />
                                     </Border>
+                                    <Border HorizontalAlignment="Right" VerticalAlignment="Top" Margin="6" Padding="6,1" CornerRadius="4" Background="{StaticResource Accent}"
+                                            Visibility="{Binding IsPicked, Converter={StaticResource Visible}}">
+                                        <TextBlock Text="Picked" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource OnAccent}" />
+                                    </Border>
                                 </Grid>
                                 <StackPanel Margin="10,8">
                                     <TextBlock Text="{Binding Title}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
@@ -281,6 +285,7 @@
                         </Grid>
                         <Button Content="{Binding ToggleLabel}" Style="{StaticResource PrimaryButton}" Command="{Binding ToggleCommand}"
                                 IsEnabled="{Binding DataContext.Jobs.IsIdle, RelativeSource={RelativeSource AncestorType=Window}}" Margin="0,0,0,8" />
+                        <Button Content="{Binding PickLabel}" Command="{Binding TogglePickCommand}" Margin="0,0,0,8" />
                         <Button Content="Load in VaM" Command="{Binding LoadCommand}" Margin="0,0,0,8"
                                 IsEnabled="{Binding DataContext.Jobs.IsIdle, RelativeSource={RelativeSource AncestorType=Window}}"
                                 Visibility="{Binding CanLoad, Converter={StaticResource Visible}}" />

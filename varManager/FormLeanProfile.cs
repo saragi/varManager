@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
 namespace varManager
@@ -42,7 +40,7 @@ namespace varManager
 
             EventHandler refresh = (s, e) =>
             {
-                create.Enabled = IsValidName(ProfileName);
+                create.Enabled = LeanProfiles.IsValidName(ProfileName);
                 details.Text = create.Enabled ? preview(ProfileName) : "Enter a name other than default, without characters Windows doesn't allow in file names.";
             };
             nameBox.TextChanged += refresh;
@@ -61,13 +59,6 @@ namespace varManager
             get { return nameBox.Text.Trim(); }
         }
 
-        internal static bool IsValidName(string name)
-        {
-            return name.Length > 0 && !name.EndsWith(".")
-                && !string.Equals(name, "default", StringComparison.OrdinalIgnoreCase)
-                && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0
-                && !Regex.IsMatch(name, @"^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$", RegexOptions.IgnoreCase);
-        }
     }
 
     /// <summary>Picks what a profile leaves out of the default switch, and asks for its name.</summary>
@@ -109,7 +100,7 @@ namespace varManager
 
             EventHandler refresh = (s, e) =>
             {
-                bool validName = FormLeanProfile.IsValidName(ProfileName);
+                bool validName = LeanProfiles.IsValidName(ProfileName);
                 create.Enabled = validName && list.CheckedItems.Count > 0;
                 if (!validName)
                     details.Text = "Enter a name other than default, without characters Windows doesn't allow in file names.";

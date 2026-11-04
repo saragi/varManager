@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace varManager
 {
@@ -64,6 +65,46 @@ namespace varManager
         private const string DirectPrefix = "direct\t";
         private const string BasePrefix = "base\t";
         private const string ExcludePrefix = "exclude\t";
+
+        public static string ProfilePath(string varsPath, string name)
+        {
+            return Path.Combine(varsPath, LibraryFolders.Profiles, name + ".profile");
+        }
+
+        /// <summary>False for default, and for anything Windows won't take as a folder name.</summary>
+        public static bool IsValidName(string name)
+        {
+            return name.Length > 0 && !name.EndsWith(".")
+                && !string.Equals(name, VarSwitches.Default, StringComparison.OrdinalIgnoreCase)
+                && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0
+                && !Regex.IsMatch(name, @"^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$", RegexOptions.IgnoreCase);
+        }
+
+        /// <summary>Packages VaM needs in every profile: session plugins, the default scene and base.txt.</summary>
+        public static List<string> BaseReferences(string vamPath, string varsPath)
+        {
+            HashSet<string> references = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string[] sources =
+            {
+                Path.Combine(vamPath, "Custom", "PluginPresets", "Plugins_UserDefaults.vap"),
+                Path.Combine(vamPath, "Saves", "scene", "MeshedVR", "default.json"),
+            };
+            foreach (string source in sources.Where(File.Exists))
+                references.UnionWith(DependencyScanner.Extract(source, File.ReadAllText(source)));
+            string baseList = Path.Combine(varsPath, LibraryFolders.Profiles, "base.txt");
+            if (File.Exists(baseList))
+                references.UnionWith(File.ReadAllLines(baseList).Select(line => line.Trim()).Where(line => line.Length > 0));
+            return references.OrderBy(reference => reference, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        /// <summary>What VaM loads on a switch, from the same places the installed scan reads.</summary>
+        public static List<string> SwitchVars(string vamPath, string name)
+        {
+            string links = VarSwitches.LinkFolder(vamPath, name);
+            return ActiveLinks(links, SearchOption.AllDirectories)
+                .Concat(ActiveLinks(Path.GetDirectoryName(links), SearchOption.TopDirectoryOnly))
+                .ToList();
+        }
 
         public static ProfilePlan Plan(LeanProfile profile, VarIndex index,
             Func<string, IEnumerable<string>> referencesOf, Func<string, long> sizeOf)

@@ -60,15 +60,18 @@ namespace varManager.Ui
         private bool needsSetup;
         private LibraryViewModel? library;
         private ScenesViewModel? scenes;
+        private ProfilesViewModel? profiles;
         private readonly TempLinkRemoval tempLinks = new TempLinkRemoval();
+        private readonly Func<long> vamMemory;
 
         public ShellViewModel(string settingsFile, JobRunner jobs)
             : this(settingsFile, jobs, VamBridge.IsRunning, StartVam)
         {
         }
 
-        public ShellViewModel(string settingsFile, JobRunner jobs, Func<bool> vamRunning, Action<string> startVam)
+        public ShellViewModel(string settingsFile, JobRunner jobs, Func<bool> vamRunning, Action<string> startVam, Func<long>? vamMemory = null)
         {
+            this.vamMemory = vamMemory ?? StartupProbe.VamMemory;
             this.settingsFile = settingsFile;
             this.vamRunning = vamRunning;
             this.startVam = startVam;
@@ -80,6 +83,7 @@ namespace varManager.Ui
             LaunchCommand = new Command(Launch);
             UpdateCommand = new Command(UpdateDb);
             GoToMissingCommand = new Command(() => SelectedPage = Pages[^1]);
+            BuildProfileCommand = new Command(() => SelectedPage = Pages[2]);
             CancelCommand = new Command(jobs.Cancel);
             SaveSetupCommand = new Command(SaveSetup);
             Open();
@@ -100,9 +104,12 @@ namespace varManager.Ui
 
         public ObservableCollection<string> Switches { get; } = new ObservableCollection<string>();
 
+        public PickList Picks { get; } = new PickList();
+
         public ICommand LaunchCommand { get; }
         public ICommand UpdateCommand { get; }
         public ICommand GoToMissingCommand { get; }
+        public ICommand BuildProfileCommand { get; }
         public ICommand CancelCommand { get; }
         public ICommand SaveSetupCommand { get; }
 
@@ -114,13 +121,15 @@ namespace varManager.Ui
                 Set(ref selectedPage, value);
                 Changed(nameof(IsLibraryPage));
                 Changed(nameof(IsScenesPage));
+                Changed(nameof(IsProfilesPage));
                 Changed(nameof(IsOtherPage));
             }
         }
 
         public bool IsLibraryPage => selectedPage == Pages[0];
         public bool IsScenesPage => selectedPage == Pages[1];
-        public bool IsOtherPage => !IsLibraryPage && !IsScenesPage;
+        public bool IsProfilesPage => selectedPage == Pages[2];
+        public bool IsOtherPage => !IsLibraryPage && !IsScenesPage && !IsProfilesPage;
 
         public LibraryViewModel? Library
         {
@@ -132,6 +141,12 @@ namespace varManager.Ui
         {
             get => scenes;
             private set => Set(ref scenes, value);
+        }
+
+        public ProfilesViewModel? Profiles
+        {
+            get => profiles;
+            private set => Set(ref profiles, value);
         }
 
         /// <summary>The latest library read, which also brings the linked count up to date.</summary>
@@ -246,6 +261,7 @@ namespace varManager.Ui
         private async Task ReadLibrary(LibraryViewModel reading)
         {
             Task scenesRead = ReadScenes();
+            Task profilesRead = ReadProfiles();
             try
             {
                 await reading.Reload().ConfigureAwait(true);
@@ -259,6 +275,59 @@ namespace varManager.Ui
                     Jobs.Say("Could not read the library: " + ex.Message);
             }
             await scenesRead.ConfigureAwait(true);
+            await profilesRead.ConfigureAwait(true);
+        }
+
+        private async Task ReadProfiles()
+        {
+            if (Profiles == null)
+                return;
+            try
+            {
+                await Profiles.Reload().ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                if (selectedSwitch != null)
+                    Jobs.Say("Could not read the profiles: " + ex.Message);
+            }
+        }
+
+        // Brings the list up to date without emptying it, because the box would lose its selection.
+        private void SwitchTo(string name)
+        {
+            List<string> names = VarSwitches.Names(VamPath);
+            foreach (string gone in Switches.Except(names, StringComparer.OrdinalIgnoreCase).ToList())
+                Switches.Remove(gone);
+            foreach (string added in names.Except(Switches, StringComparer.OrdinalIgnoreCase))
+                Switches.Add(added);
+
+            if (string.Equals(name, selectedSwitch, StringComparison.OrdinalIgnoreCase))
+            {
+                ReloadLibrary();
+                VamBridge.RequestRescan(VamPath);
+                return;
+            }
+            SelectedSwitch = name;
+        }
+
+        private async Task MeasureLaunch(string? profile)
+        {
+            if (profile == null)
+                return;
+            string vars = VarsPath;
+            try
+            {
+                StartupReading? reading = await StartupProbe.Measure(VamPath, vamMemory, TimeSpan.FromSeconds(1), TimeSpan.FromMinutes(5), default).ConfigureAwait(true);
+                if (reading == null)
+                    return;
+                ProfileTimings.Record(vars, profile, reading.Startup, reading.RamBytes);
+                await ReadProfiles().ConfigureAwait(true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A timing is only a nicety, so it never gets in the way of VaM.
+            }
         }
 
         private async Task ReadScenes()
@@ -338,9 +407,10 @@ namespace varManager.Ui
             Changed(nameof(SelectedSwitch));
             string packs = VarSwitches.AddonPackages(VamPath);
             var paths = new LibraryPaths(VarsPath, VamPath, dataFolder);
-            Library = new LibraryViewModel(StoreFile, paths, Jobs, () => VarLinks.Installed(packs).Keys, ForgetTempLinks, SynchronizationContext.Current);
+            Library = new LibraryViewModel(StoreFile, paths, Jobs, () => VarLinks.Installed(packs).Keys, ForgetTempLinks, SynchronizationContext.Current, Picks);
             Scenes = new ScenesViewModel(StoreFile, paths, Jobs, () => VarLinks.Installed(packs).Keys,
                 () => SelectedPage = Pages[^1], ForgetTempLinks, SynchronizationContext.Current);
+            Profiles = new ProfilesViewModel(StoreFile, paths, Jobs, Picks, () => selectedSwitch, SwitchTo, () => SelectedPage = Pages[0]);
             ImportOldDatabase();
             if (!Jobs.IsRunning)
                 ReloadLibrary();
@@ -375,6 +445,7 @@ namespace varManager.Ui
             {
                 startVam(VamPath);
                 Jobs.Say("VaM is starting.");
+                _ = MeasureLaunch(selectedSwitch);
             }
             catch (Win32Exception ex)
             {
