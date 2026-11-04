@@ -28,7 +28,7 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - [x] 0. Review commit `558c942` and the handover commit with the loop below, then push.
 - [x] 1. Confirm the SDK. Create `varManager.App` (WPF, `net10.0-windows`) referencing `varManager.Core`, with a test project that can target it.
 - [x] 2. Add a SQLite store to Core, with a one-time import from `varManager.mdb` that only reads the Access file. Keep the schema simple. Prove it on a copy.
-- [ ] 3. Move logic out of `Form1.cs` into Core, one area per commit, keeping WinForms working: Tidy, Update DB scan, install and link, switches, scenes and previews, dependency analysis.
+- [ ] 3. Move logic out of `Form1.cs` into Core, one area per commit, keeping WinForms working. Done: Tidy (`VarTidier`, `LibraryFolders`). Left: Update DB scan, install and link, switches, scenes and previews, dependency analysis.
 - [ ] 4. Build the WPF shell from the mockup: dark look, side nav, profile switcher, Update DB, Launch VaM, bottom job bar instead of popups.
 - [ ] 5. Library: virtualized gallery that loads only on-screen thumbnails, search with author suggestions and tags, type and status filters, detail panel, Move out with undo.
 - [ ] 6. Scenes: readiness per profile, one-click Fix, Load in VaM.
@@ -76,4 +76,5 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - Access defaults number columns to 0, so an omitted `filesize` is 0, not NULL.
 - `Microsoft.Data.Sqlite` below 10.0.14 pulls in a `SQLitePCLRaw.lib.e_sqlite3` with a known high severity vulnerability (NU1903). Don't downgrade it.
 - `git push` sometimes fails with a GitHub 500. Retry it, and confirm with `git status -sb` before reporting a push.
+- `LogLevel` lives in the WinForms app, so Core reports through callbacks, such as `Action<string> problem`. The caller wraps those in `BeginInvoke`.
 - The compiler drops an unused project reference, so `GetReferencedAssemblies` won't list Core until the app calls it.
