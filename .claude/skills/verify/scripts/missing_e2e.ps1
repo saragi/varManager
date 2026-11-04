@@ -1,5 +1,8 @@
 # End to end on throwaway folders: drop a var, let the app scan it, then Get all from the real Hub.
+# Build Release first. Exits non-zero when a check fails.
 $ErrorActionPreference = 'Stop'
+if (-not (Test-Path 'D:\varManager\varManager\bin\Release\varManager.exe')) { throw 'Build Release first' }
+function Need([bool]$ok, [string]$name) { "$(if ($ok) { 'PASS' } else { 'FAIL' }) $name"; if (-not $ok) { throw "Check failed: $name" } }
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing, System.IO.Compression
 Add-Type -Namespace W -Name U5 -MemberDefinition '[DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);'
 $base = Join-Path $env:TEMP 'varManager-missing-e2e'
@@ -39,12 +42,11 @@ $env:__COMPAT_LAYER = 'RunAsInvoker'
 $p = Start-Process "$app\varManager.exe" -WorkingDirectory $app -PassThru
 try {
   $missing = Wait-El $p '^Missing' 40
-  if (-not $missing) { 'No Missing button'; return }
+  Need ([bool]$missing) 'Missing button shown'
   Start-Sleep -Seconds 4
   New-Var "$vars\E2E.Scene.1.var"
   $tidied = Wait-Path { Get-ChildItem "$vars\___VarTidied___" -Recurse -Filter 'E2E.Scene.1.var' -ErrorAction SilentlyContinue } 45
-  "watcher scanned dropped var: $([bool]$tidied)"
-  if (-not $tidied) { return }
+  Need ([bool]$tidied) 'watcher scanned dropped var'
   Start-Sleep -Seconds 6
   $link = "$vam\AddonPackages\___VarsLink___\E2E.Scene.1.var"
   cmd /c mklink "$link" "$($tidied.FullName)" | Out-Null
@@ -56,20 +58,23 @@ try {
   Start-Sleep -Seconds 2
   $win = (Wins $p) | Where-Object { $_.Current.Name -eq 'Missing' } | Select-Object -First 1
   if ($win) { Shot $win 'e2e-missing.png' }
-  if (-not $get) { (All $p | ForEach-Object { $_.Current.Name } | Where-Object { $_ } | Select-Object -Unique | Select-Object -First 30) -join ' | '; return }
+  if (-not $get) { (All $p | ForEach-Object { $_.Current.Name } | Where-Object { $_ } | Select-Object -Unique | Select-Object -First 30) -join ' | ' }
+  Need ([bool]$get) 'Get all button shown'
   Press $get
   $down = Wait-Path { Get-ChildItem "$vars\___VarTidied___" -Recurse -Filter 'Kamiyama Prod.*.var' -ErrorAction SilentlyContinue } 60
-  "downloaded and tidied: $($down.Name)"
+  Need ([bool]$down) "downloaded and tidied: $($down.Name)"
   $lk = Wait-Path { Get-ChildItem "$vam\AddonPackages\___VarsLink___" -Filter 'Kamiyama Prod.*.var' -ErrorAction SilentlyContinue } 30
-  "linked: $($lk.Name) ($($lk.LinkType))"
+  Need ([bool]$lk) "linked: $($lk.Name) ($($lk.LinkType))"
   # The chain should continue by itself. Stop it early, to keep the download small.
   $chain = Wait-El $p '^Downloaded \d+ of' 60
-  "chain continued: $($chain.Current.Name)"
-  Press (Wait-El $p '^Cancel$' 5)
-  "cancel pressed"
+  Need ([bool]$chain) "chain continued: $($chain.Current.Name)"
+  $cancel = Wait-El $p '^Cancel$' 5
+  Need ([bool]$cancel) 'Cancel button shown'
+  Press $cancel
   Start-Sleep -Seconds 12
   "button after: $((All $p | Where-Object { $_.Current.Name -match '^Missing \d' } | Select-Object -First 1).Current.Name)"
-  "leftover parts: $((Get-ChildItem $vars -Filter *.part -Recurse | Measure-Object).Count)"
+  $parts = (Get-ChildItem $vars -Filter *.part -Recurse | Measure-Object).Count
+  Need ($parts -eq 0) "no leftover parts ($parts)"
   "varsMigrated left: $(Test-Path "$app\varsMigrated.txt")"
   $done = (All $p | ForEach-Object { $_.Current.Name } | Where-Object { $_ -match 'ready on the Hub|Nothing|Not found|Checked|Stored' } | Select-Object -Unique) -join ' | '
   "window says: $done"
