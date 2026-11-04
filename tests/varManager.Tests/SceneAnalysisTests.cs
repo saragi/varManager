@@ -10,6 +10,13 @@ using Xunit;
 
 namespace varManagerTests
 {
+    // The cache folder hangs off the working directory, which these tests change for the whole process.
+    [CollectionDefinition("Working directory", DisableParallelization = true)]
+    public sealed class WorkingDirectoryCollection
+    {
+    }
+
+    [Collection("Working directory")]
     public sealed class SceneAnalysisTests : IDisposable
     {
         private readonly string root = Path.Combine(Path.GetTempPath(), "vmscene-" + Guid.NewGuid().ToString("N"));
@@ -97,6 +104,8 @@ namespace varManagerTests
 
             Assert.Equal(new[] { "A.B.1", "Other.Pack.2" }, SceneAnalysis.ReadDepends(folder));
             Assert.Equal("female", SceneAnalysis.ReadGender(folder));
+            Assert.True(File.Exists(Path.Combine(folder, "posinfo.bin")));
+            Assert.False(Directory.Exists(Path.Combine(folder, "atoms")));
         }
 
         [Theory]
