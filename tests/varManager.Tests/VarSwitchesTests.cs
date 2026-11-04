@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using SimpleJSON;
 using varManager;
 using Xunit;
 
@@ -132,8 +134,44 @@ namespace varManagerTests
         {
             Marker("default");
             VarSwitches.EnsureLink(vam);
+            DateTime created = new DirectoryInfo(packs).CreationTimeUtc;
+            Thread.Sleep(30);
 
             Assert.Equal(SwitchChange.Unchanged, Point("default"));
+
+            Assert.Equal(created, new DirectoryInfo(packs).CreationTimeUtc);
+        }
+
+        [Fact]
+        public void Point_ignores_case_when_comparing_with_the_current_switch()
+        {
+            Marker("lean");
+            Point("Lean");
+
+            Assert.Equal(SwitchChange.Unchanged, Point("LEAN"));
+        }
+
+        [Fact]
+        public void Point_replaces_an_empty_real_folder()
+        {
+            Marker("lean");
+            Directory.CreateDirectory(packs);
+
+            Assert.Equal(SwitchChange.Switched, Point("lean"));
+
+            Assert.Equal("lean", CurrentMarker());
+        }
+
+        [Fact]
+        public void Point_reports_the_windows_error_when_the_link_cant_be_made()
+        {
+            File.WriteAllText(packs, "a file in the way");
+            int error;
+
+            Assert.Equal(SwitchChange.Failed, VarSwitches.Point(vam, "lean", out error));
+
+            Assert.NotEqual(0, error);
+            File.Delete(packs);
         }
 
         [Fact]
@@ -214,8 +252,7 @@ namespace varManagerTests
 
             VamBridge.WriteRescan(vam);
 
-            Assert.Contains("rescan", File.ReadAllText(file));
-            Assert.DoesNotContain("old", File.ReadAllText(file));
+            Assert.Equal("true", JSONNode.Parse(File.ReadAllText(file))["rescan"].Value);
         }
 
         [Fact]
