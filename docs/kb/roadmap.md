@@ -42,7 +42,7 @@ Start after the real migration and real lean-profile use, because daily use may 
 | Scenes | Shows whether each scene is ready in the current profile, or what is missing |
 | Profiles | Build a lean profile from picks, compare timings, switch |
 | Health | Problems first, nothing fixed without asking |
-| Downloads | Queue for missing vars, Hub only |
+| Missing | Everything the library needs, grouped by what fixes it |
 
 The profile switcher, Update DB and Launch VaM are always visible. A job bar at the bottom replaces popups. Turning a package on shows how many dependencies come with it first.
 
@@ -61,6 +61,20 @@ Move out takes a package and the dependencies only it uses out of the library.
 - It is blocked while other vars need the package itself.
 - A dependency stays if any remaining var needs it, including disabled vars, or if a profile, `base.txt` or a scene in `Saves` uses it.
 - Files go to a holding folder with undo. Moving frees no disk space, and deleting from the holding folder is a separate confirmed step.
+
+### Missing
+
+Missing replaces a separate Downloads screen. The rule is as few clicks as possible: the app does the checking, and the user only makes real choices.
+
+- The check runs by itself after every library change, from the database first and then the Hub. The side nav shows the count.
+- One click on `Get all` downloads every Hub package, scans it and links it to the current profile. Work continues in the job bar.
+- `Fix` on a scene or profile does the same for just that scene or profile, and turns on stored vars it needs. No screen opens unless something is left over.
+- Nothing is downloaded when an owned version satisfies the reference, and an older version is never fetched over a newer one.
+- Updates are never automatic, because a new version can change a scene.
+- Hub login is asked once and remembered, if the Hub needs it. This is not checked yet.
+- It only stops to ask when the download won't fit on the disk.
+- The app can read names in a local SharpVaMTools install to show which packages it lists, and `Copy list` exports them. The app doesn't download from mirrors, and that data stays out of this repo.
+- Files added to the repository by hand are found and scanned automatically.
 
 ### Performance rules
 
