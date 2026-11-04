@@ -49,8 +49,6 @@ namespace varManager
         {
             InitializeComponent();
             addlog = new InvokeAddLoglist(UpdateAddLoglist);
-            // UpdDB runs 16 static regexes per zip entry; the default cache of 15 misses on every call.
-            Regex.CacheSize = 64;
             HookIndexInvalidation();
             AddProfileButtons();
             AddMissingButton();
@@ -645,7 +643,6 @@ namespace varManager
             }
         }
 
-        private const long maxScannedEntryBytes = 96L * 1024 * 1024;
         private List<string> varsForInstall = new List<string>();
         private void TidyVars()
         {
@@ -680,39 +677,6 @@ namespace varManager
             return DependencyScanner.Extract("meta.json", jsonstring).ToList();
         }
 
-        /// <summary>Reads meta.json and every scene or preset file, because meta.json can be incomplete.</summary>
-        private List<string> ScanVarDependencies(ZipFile varzipfile, string varName)
-        {
-            HashSet<string> references = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (KeyValuePair<string, HashSet<string>> file in ReadFileReferences(varzipfile))
-                references.UnionWith(file.Value);
-            references.Remove(varName);
-            return references.ToList();
-        }
-
-        private List<KeyValuePair<string, HashSet<string>>> ReadFileReferences(ZipFile varzipfile)
-        {
-            List<KeyValuePair<string, HashSet<string>>> files = new List<KeyValuePair<string, HashSet<string>>>();
-            foreach (ZipEntry entry in varzipfile)
-            {
-                if (!entry.IsFile || !DependencyScanner.IsScannable(entry.Name) || entry.Size > maxScannedEntryBytes)
-                    continue;
-                try
-                {
-                    using (StreamReader reader = new StreamReader(varzipfile.GetInputStream(entry)))
-                    {
-                        files.Add(new KeyValuePair<string, HashSet<string>>(entry.Name, DependencyScanner.Extract(entry.Name, reader.ReadToEnd())));
-                    }
-                }
-                catch (Exception ex)
-                {
-                    // One damaged file must not cost the var its other dependencies.
-                    this.BeginInvoke(addlog, new Object[] { $"{varzipfile.Name}: skipped {entry.Name}, {ex.Message}", LogLevel.WARNING });
-                }
-            }
-            return files;
-        }
-
         /// <summary>Lists which files inside a var reference which packages.</summary>
         public string DescribeVarDependencies(string varName)
         {
@@ -721,10 +685,7 @@ namespace varManager
                 return "Var file not found: " + varfile;
             try
             {
-                using (ZipFile varzipfile = new ZipFile(varfile))
-                {
-                    return DependencyScanner.Describe(ReadFileReferences(varzipfile), VarLookup, varName);
-                }
+                return DependencyScanner.Describe(VarScanner.FileReferences(varfile, LogScanWarning), VarLookup, varName);
             }
             catch (Exception ex)
             {
@@ -1263,254 +1224,18 @@ namespace varManager
                 var varsrow = varManagerDataSet.vars.FindByvarName(basename);
                 if (varsrow == null)
                 {
-                    ZipFile varzipfile;
-                    try
-                    {
-                        varzipfile = new ZipFile(destvarfilename);
-                    }
-                    catch (Exception)
+                    VarScan scan = VarScanner.Read(destvarfilename, Path.Combine(Settings.Default.varspath, previewpicsDirName),
+                        LogScanWarning, message => this.BeginInvoke(addlog, new Object[] { message, LogLevel.ERROR }));
+                    if (scan.Outcome == VarScanOutcome.Invalid)
                     {
                         string notComplRulefilename = Path.Combine(Settings.Default.varspath, notComplyRuleDirName, Path.GetFileName(destvarfilename));
                         string errlog = $"{basename}, Invalid var package structure, move into {notComplyRuleDirName} directory";
-                        //string errorMessage = destvarfilename + " is invalid,please check";
                         this.BeginInvoke(addlog, new Object[] { errlog, LogLevel.WARNING });
                         File.Move(destvarfilename, notComplRulefilename);
                         return;
                     }
-                    using (varzipfile)
-                    {
-                    varsrow = varManagerDataSet.vars.NewvarsRow();
-                    varsrow.varName = basename;
-                    
-                    string[] varnamepart = basename.Split('.');
-                    if (varnamepart.Length == 3)
-                    {
-                        //varsrow.createDate = File.GetCreationTime(destvarfilename);
-                        FileInfo finfo = new FileInfo(destvarfilename);
-                        varsrow.filesize = finfo.Length;
-                        varsrow.creatorName = varnamepart[0];
-                        varsrow.packageName = varnamepart[1];
-                        varsrow.varDate = finfo.LastWriteTime;
-                        int version;
-                        if (!int.TryParse(varnamepart[2], out version))
-                            version = 1;
-                        varsrow.version = version;
-                        varsrow.varPath = curpath;
-                        //ZipFile zipFile = new ZipFile(destvarfilename);
-
-
-                        var metajson = varzipfile.GetEntry("meta.json");
-
-                        if (metajson == null)
-                        {
-                            string notComplRulefilename = Path.Combine(Settings.Default.varspath, notComplyRuleDirName, Path.GetFileName(destvarfilename));
-                            string errlog = $"{basename}, Invalid var package structure, move into {notComplyRuleDirName} directory";
-                            //string errorMessage = destvarfilename + " is invalid,please check";
-                            this.BeginInvoke(addlog, new Object[] { errlog, LogLevel.WARNING });
-                            //varzipfile.Dispose();
-                            varzipfile.Close();
-                            File.Move(destvarfilename, notComplRulefilename);
-                            return;
-                        }
-                        //varsrow.metaDate = metajson.LastWriteTime.DateTime;
-                        varsrow.metaDate = metajson.DateTime;
-                        int countscene = 0, countlook = 0, countclothing = 0, counthair = 0, countplugincs = 0, countplugincslist = 0, countasset = 0, countmorphs = 0, countpose = 0, countskin = 0;
-                        //foreach (var zfile in varzipfile.Entries)
-                        //varzipfile
-                        foreach (ZipEntry zfile in varzipfile)
-                        {
-                            string typename = "";
-                            bool isPreset = false;
-                            try
-                            {
-                                if (Regex.IsMatch(zfile.Name, @"saves/scene/.*?\x2e(?:json)", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-                                {
-                                    typename = "scenes";
-                                    countscene++;
-                                }
-                                if (Regex.IsMatch(zfile.Name, @"saves/person/appearance/.*?\x2e(?:json|vac)", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-                                {
-                                    typename = "looks";
-                                    isPreset = zfile.Name.EndsWith(".json");
-                                    countlook++;
-                                }
-                                if (Regex.IsMatch(zfile.Name, @"custom/atom/person/(?:general|appearance)/.*?\x2e(?:json|vap)", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-                                {
-                                    typename = "looks";
-                                    isPreset = true;
-                                    countlook++;
-                                }
-                                if (Regex.IsMatch(zfile.Name, @"custom/clothing/.*?\x2e(?:vam|vap)", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-                                {
-                                    typename = "clothing";
-                                    isPreset = false;
-                                    countclothing++;
-                                }
-                                if (Regex.IsMatch(zfile.Name, @"custom/atom/person/clothing/.*?\x2e(?:vam|vap)", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-                                {
-                                    typename = "clothing";
-                                    isPreset = zfile.Name.EndsWith(".vap");
-                                    countclothing++;
-                                }
-                                if (Regex.IsMatch(zfile.Name, @"custom/hair/.*?\x2e(?:vam|vap)", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-                                {
-                                    typename = "hairstyle";
-                                    isPreset = false;
-                                    counthair++;
-                                }
-                                if (Regex.IsMatch(zfile.Name, @"custom/atom/person/hair/.*?\x2e(?:vam|vap)", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-                                {
-                                    typename = "hairstyle";
-                                    isPreset = zfile.Name.EndsWith(".vap");
-                                    counthair++;
-                                }
-                                if (Regex.IsMatch(zfile.Name, @"custom/scripts/.*?\x2e(?:cs)", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-                                {
-                                    countplugincs++;
-                                }
-                                if (Regex.IsMatch(zfile.Name, @"custom/atom/person/scripts/.*?\x2e(?:cs)", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-                                {
-                                    countplugincs++;
-                                }
-                                if (Regex.IsMatch(zfile.Name, @"custom/scripts/.*?\x2e(?:cslist)", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-                                {
-                                    countplugincslist++;
-                                }
-                                if (Regex.IsMatch(zfile.Name, @"custom/atom/person/scripts/.*?\x2e(?:cslist)", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-                                {
-                                    countplugincslist++;
-                                }
-                                if (Regex.IsMatch(zfile.Name, @"custom/assets/.*?\x2e(?:assetbundle)", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-                                {
-                                    typename = "assets";
-                                    countasset++;
-                                }
-                                if (Regex.IsMatch(zfile.Name, @"custom/atom/person/morphs/.*?\x2e(?:vmi|vap)", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-                                {
-                                    typename = "morphs";
-                                    isPreset = zfile.Name.EndsWith(".vap");
-                                    countmorphs++;
-                                }
-                                if (Regex.IsMatch(zfile.Name, @"custom/atom/person/pose/.*?\x2e(?:vap)", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-                                {
-                                    typename = "pose";
-                                    isPreset = true;
-                                    countpose++;
-                                }
-                                if (Regex.IsMatch(zfile.Name, @"saves/person/pose/.*?\x2e(?:json|vac)", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-                                {
-                                    typename = "pose";
-                                    isPreset = zfile.Name.EndsWith(".json");
-                                    countpose++;
-                                }
-                                if (Regex.IsMatch(zfile.Name, @"custom/atom/person/skin/.*?\x2e(?:vap)", RegexOptions.IgnoreCase | RegexOptions.Singleline))
-                                {
-                                    typename = "skin";
-                                    isPreset = true;
-                                    countskin++;
-                                }
-                                if (typename != "")
-                                {
-                                    int jpgcount = 0;
-                                    switch (typename)
-                                    {
-                                        case "scenes": jpgcount = countscene; break;
-                                        case "looks": jpgcount = countlook; break;
-                                        case "clothing": jpgcount = countclothing; break;
-                                        case "hairstyle": jpgcount = counthair; break;
-                                        case "assets": jpgcount = countasset; break;
-                                        case "morphs": jpgcount = countmorphs; break;
-                                        case "pose": jpgcount = countpose; break;
-                                        case "skin": jpgcount = countskin; break;
-                                    }
-                                    string jpgfile = zfile.Name.Substring(0, zfile.Name.LastIndexOf('.')) + ".jpg";
-                                    var jpg = varzipfile.GetEntry(jpgfile);
-                                    string jpgname = "";
-                                    if (jpg != null)
-                                    {
-                                        string namejpg = Path.GetFileNameWithoutExtension(jpg.Name).ToLower();
-
-                                        string typepath = Path.Combine(Settings.Default.varspath, previewpicsDirName, typename, Path.GetFileNameWithoutExtension(destvarfilename));
-                                        if (!Directory.Exists(typepath))
-                                            Directory.CreateDirectory(typepath);
-                                        jpgname = typename + jpgcount.ToString("000") + "_" + namejpg + ".jpg";
-                                        string jpgextratname = Path.Combine(typepath, typename + jpgcount.ToString("000") + "_" + namejpg + ".jpg");
-                                        if (!File.Exists(jpgextratname))
-                                        {
-                                            using (FileStream streamWriter = File.Create(jpgextratname))
-                                            {
-                                                var sr = varzipfile.GetInputStream(jpg);
-
-                                                int size = 2048;
-                                                byte[] data = new byte[2048];
-                                                while (true)
-                                                {
-                                                    size = sr.Read(data, 0, data.Length);
-                                                    if (size > 0)
-                                                    {
-                                                        streamWriter.Write(data, 0, size);
-                                                    }
-                                                    else
-                                                    {
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    // string ext = zfile.FullName.Substring(zfile.FullName.LastIndexOf('.')).ToLower();
-                                    // if (ext == ".vap" || ext == ".json")
-                                    if (typename == "scenes" || typename == "looks" || typename == "clothing" || typename == "hairstyle" || typename == "morphs" || typename == "pose" || typename == "skin")
-                                        varManagerDataSet.scenes.AddscenesRow(basename, typename, isPreset, zfile.Name, jpgname);
-                                }
-
-                            }
-                            catch (ArgumentException ex)
-                            {
-                                this.BeginInvoke(addlog, new Object[] { zfile.Name + " " + ex.Message, LogLevel.ERROR });
-                            }
-                        }
-                        scenesTableAdapter.Update(varManagerDataSet.scenes);
-                        varManagerDataSet.scenes.AcceptChanges();
-                        varsrow.scenes = countscene;
-                        varsrow.looks = countlook;
-                        varsrow.clothing = countclothing;
-                        varsrow.hairstyle = counthair;
-                        varsrow.morphs = countmorphs;
-                        varsrow.pose = countpose;
-                        varsrow.skin = countskin;
-                        if (countplugincslist > 0)
-                            varsrow.plugins = countplugincslist;
-                        else
-                            varsrow.plugins = countplugincs;
-                        varsrow.assets = countasset;
-                        varManagerDataSet.vars.AddvarsRow(varsrow);
-                        varsTableAdapter.Update(varManagerDataSet.vars);
-                        varManagerDataSet.vars.AcceptChanges();
-
-
-                        List<string> dependencies = new List<string>();
-
-                        try
-                        {
-                            dependencies = ScanVarDependencies(varzipfile, basename);
-                        }
-                        catch (Exception ex)
-                        {
-                            this.BeginInvoke(addlog, new Object[] { destvarfilename + " get dependencies failed " + ex.Message, LogLevel.ERROR });
-
-                        }
-                        var dependencierows = varManagerDataSet.dependencies.Where(q => q.varName == basename).ToList();
-                        for (int i = dependencierows.Count() - 1; i >= 0; i--)
-                        {
-                            dependencierows[i].Delete();
-                        }
-                        foreach (string dependencie in dependencies)
-                            varManagerDataSet.dependencies.AdddependenciesRow(basename, dependencie);
-                        dependenciesTableAdapter.Update(varManagerDataSet.dependencies);
-                        varManagerDataSet.dependencies.AcceptChanges();
-                    }
-                    }
+                    if (scan.Outcome == VarScanOutcome.Scanned)
+                        SaveVarScan(basename, curpath, scan);
                 }
                 else
                 {
@@ -1536,6 +1261,51 @@ namespace varManager
                 this.BeginInvoke(addlog, new Object[] { destvarfilename + " " + ex.Message, LogLevel.ERROR });
             }
         }
+        private void LogScanWarning(string message)
+        {
+            this.BeginInvoke(addlog, new Object[] { message, LogLevel.WARNING });
+        }
+
+        private void SaveVarScan(string basename, string curpath, VarScan scan)
+        {
+            foreach (VarItem item in scan.Items)
+                varManagerDataSet.scenes.AddscenesRow(basename, item.Type, item.IsPreset, item.EntryName, item.Preview);
+            scenesTableAdapter.Update(varManagerDataSet.scenes);
+            varManagerDataSet.scenes.AcceptChanges();
+
+            var varsrow = varManagerDataSet.vars.NewvarsRow();
+            varsrow.varName = basename;
+            varsrow.filesize = scan.FileSize;
+            varsrow.creatorName = scan.CreatorName;
+            varsrow.packageName = scan.PackageName;
+            varsrow.varDate = scan.VarDate;
+            varsrow.version = scan.Version;
+            varsrow.varPath = curpath;
+            varsrow.metaDate = scan.MetaDate;
+            varsrow.scenes = scan.Scenes;
+            varsrow.looks = scan.Looks;
+            varsrow.clothing = scan.Clothing;
+            varsrow.hairstyle = scan.Hairstyle;
+            varsrow.morphs = scan.Morphs;
+            varsrow.pose = scan.Pose;
+            varsrow.skin = scan.Skin;
+            varsrow.plugins = scan.Plugins;
+            varsrow.assets = scan.Assets;
+            varManagerDataSet.vars.AddvarsRow(varsrow);
+            varsTableAdapter.Update(varManagerDataSet.vars);
+            varManagerDataSet.vars.AcceptChanges();
+
+            var dependencierows = varManagerDataSet.dependencies.Where(q => q.varName == basename).ToList();
+            for (int i = dependencierows.Count() - 1; i >= 0; i--)
+            {
+                dependencierows[i].Delete();
+            }
+            foreach (string dependencie in scan.Dependencies)
+                varManagerDataSet.dependencies.AdddependenciesRow(basename, dependencie);
+            dependenciesTableAdapter.Update(varManagerDataSet.dependencies);
+            varManagerDataSet.dependencies.AcceptChanges();
+        }
+
         private bool UpdDB()
         {
             InvokeProgress mi = new InvokeProgress(UpdateProgress);

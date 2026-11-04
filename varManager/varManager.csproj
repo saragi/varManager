@@ -342,6 +342,9 @@
     <Compile Include="..\varManager.Core\VarTidier.cs">
       <Link>Core\VarTidier.cs</Link>
     </Compile>
+    <Compile Include="..\varManager.Core\VarScanner.cs">
+      <Link>Core\VarScanner.cs</Link>
+    </Compile>
     <Compile Include="..\varManager.Core\HubDownloader.cs">
       <Link>Core\HubDownloader.cs</Link>
     </Compile>
