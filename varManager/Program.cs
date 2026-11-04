@@ -42,32 +42,42 @@ namespace varManager
                 MessageBox.Show("VaM.exe was not found in the configured folder: " + vampath);
                 return;
             }
+            MigrationUndoResult result;
             try
             {
-                MigrationUndoResult result = LibraryMigration.Rollback(logPath, Path.Combine(vampath, "AddonPackages"),
+                result = LibraryMigration.Rollback(logPath, Path.Combine(vampath, "AddonPackages"),
                     Path.Combine(vampath, Form1.addonPacksSwitch, "default"),
                     new[] { Form1.installLinkDirName, Form1.missingVarLinkDirName, Form1.tempVarLinkDirName });
-                ShowResult(result, logPath);
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Rollback stopped: " + ex.Message + "\r\nIt is safe to run it again.");
+                return;
             }
+            ShowResult(result, logPath);
         }
 
         private static void ShowResult(MigrationUndoResult result, string logPath)
         {
             string message = $"Restored {result.Restored} files. Failed: {result.Failed.Count}.";
-            if (result.Failed.Count > 0)
+            // Files have already moved, so a problem here must not hide the counts above.
+            try
             {
-                string failedList = logPath + ".failed.txt";
-                File.WriteAllLines(failedList, result.Failed);
-                message += "\r\nFailed files are listed in: " + failedList;
+                if (result.Failed.Count > 0)
+                {
+                    string failedList = logPath + ".failed.txt";
+                    File.WriteAllLines(failedList, result.Failed);
+                    message += "\r\nFailed files are listed in: " + failedList;
+                }
+                string tidied = Path.Combine(Settings.Default.varspath, Form1.tidiedDirName);
+                int remaining = Directory.Exists(tidied) ? Directory.GetFiles(tidied, "*.var", SearchOption.AllDirectories).Length : 0;
+                if (remaining > 0)
+                    message += $"\r\n{remaining} vars remain in the repository.";
             }
-            string tidied = Path.Combine(Settings.Default.varspath, Form1.tidiedDirName);
-            int remaining = Directory.Exists(tidied) ? Directory.GetFiles(tidied, "*.var", SearchOption.AllDirectories).Length : 0;
-            if (remaining > 0)
-                message += $"\r\n{remaining} vars stay in the repository, because they were not part of this migration.";
+            catch (Exception ex)
+            {
+                message += "\r\nCould not finish the report: " + ex.Message;
+            }
             MessageBox.Show(message);
         }
     }

@@ -326,21 +326,23 @@ namespace varManager
             if (linked && !Directory.Exists(defaultSwitchPath))
                 throw new DirectoryNotFoundException("The default switch was not found: " + defaultSwitchPath);
 
-            // Every switch links into the repository, and those targets are about to move.
-            string switches = Path.GetDirectoryName(defaultSwitchPath);
-            if (Directory.Exists(switches))
+            if (linked || Directory.Exists(defaultSwitchPath))
             {
-                foreach (string switchPath in Directory.GetDirectories(switches))
+                // Every switch links into the repository, and those targets are about to move.
+                foreach (string switchPath in Directory.GetDirectories(Path.GetDirectoryName(defaultSwitchPath)))
                 {
                     foreach (string linkDirName in linkDirNames)
                         RemoveLinks(Path.Combine(switchPath, linkDirName));
                 }
+                if (linked)
+                    addon.Delete();
+                // Checked apart from the link, so a rerun can finish an interrupted rollback,
+                // even if an empty AddonPackages was created in between.
+                if (Directory.Exists(addonPackagesPath) && !Directory.EnumerateFileSystemEntries(addonPackagesPath).Any())
+                    Directory.Delete(addonPackagesPath);
+                if (!Directory.Exists(addonPackagesPath))
+                    Directory.Move(defaultSwitchPath, addonPackagesPath);
             }
-            if (linked)
-                addon.Delete();
-            // Checked apart from the link, so a rerun can finish an interrupted rollback.
-            if (!Directory.Exists(addonPackagesPath) && Directory.Exists(defaultSwitchPath))
-                Directory.Move(defaultSwitchPath, addonPackagesPath);
             return Undo(logPath);
         }
 
