@@ -134,12 +134,12 @@ namespace varManagerTests
         {
             Marker("default");
             VarSwitches.EnsureLink(vam);
-            DateTime created = new DirectoryInfo(packs).CreationTimeUtc;
+            DateTime written = new DirectoryInfo(packs).LastWriteTimeUtc;
             Thread.Sleep(30);
 
             Assert.Equal(SwitchChange.Unchanged, Point("default"));
 
-            Assert.Equal(created, new DirectoryInfo(packs).CreationTimeUtc);
+            Assert.Equal(written, new DirectoryInfo(packs).LastWriteTimeUtc);
         }
 
         [Fact]
