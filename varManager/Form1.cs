@@ -3301,8 +3301,14 @@ namespace varManager
                     DirectoryInfo diswitch = new DirectoryInfo(Path.Combine(packsSwitchpath, curswitch));
                     diswitch.MoveTo(Path.Combine(packsSwitchpath, newName));
                     comboBoxPacksSwitch.Items[comboBoxPacksSwitch.SelectedIndex] = newName;
-                    this.varpacksSwitch(newName);
-                    LeanProfiles.RenameFiles(ProfilePath(curswitch), ProfilePath(newName));
+                    try
+                    {
+                        this.varpacksSwitch(newName);
+                    }
+                    finally
+                    {
+                        LeanProfiles.RenameFiles(ProfilePath(curswitch), ProfilePath(newName));
+                    }
                 }
             }
         }

@@ -240,6 +240,7 @@ namespace varManagerTests
             LeanProfiles.Save(Profile(new[] { "A.A.1" }), oldPath);
             LeanProfiles.Save(Profile(new[] { "B.B.1" }), oldPath);
             LeanProfiles.Save(Profile(new[] { "Leftover.L.1" }), newPath);
+            LeanProfiles.Save(Profile(new[] { "Leftover.L.2" }), newPath);
             LeanProfiles.RenameFiles(oldPath, newPath);
             Assert.False(File.Exists(oldPath));
             Assert.Equal(new[] { "B.B.1" }, LeanProfiles.Load(newPath).Direct);
@@ -247,9 +248,32 @@ namespace varManagerTests
         }
 
         [Fact]
-        public void RenameFiles_of_a_plain_switch_does_nothing()
+        public void RenameFiles_of_a_plain_switch_creates_nothing()
         {
-            LeanProfiles.RenameFiles(Path.Combine(root, "none", "a.profile"), Path.Combine(root, "none", "b.profile"));
+            string folder = Path.Combine(root, "none");
+            LeanProfiles.RenameFiles(Path.Combine(folder, "a.profile"), Path.Combine(folder, "b.profile"));
+            Assert.False(Directory.Exists(folder));
+        }
+
+        [Fact]
+        public void RenameFiles_clears_stale_files_at_the_new_name()
+        {
+            string newPath = Path.Combine(root, "profiles", "new.profile");
+            LeanProfiles.Save(Profile(new[] { "Stale.S.1" }), newPath);
+            LeanProfiles.RenameFiles(Path.Combine(root, "profiles", "plain.profile"), newPath);
+            Assert.False(File.Exists(newPath));
+        }
+
+        [Fact]
+        public void RenameFiles_moves_a_lone_prior_version()
+        {
+            string oldPath = Path.Combine(root, "profiles", "old.profile");
+            string newPath = Path.Combine(root, "profiles", "new.profile");
+            LeanProfiles.Save(Profile(new[] { "A.A.1" }), oldPath);
+            LeanProfiles.Save(Profile(new[] { "B.B.1" }), oldPath);
+            File.Delete(oldPath);
+            LeanProfiles.RenameFiles(oldPath, newPath);
+            Assert.True(File.Exists(LeanProfiles.PreviousPath(newPath)));
         }
 
         [Fact]

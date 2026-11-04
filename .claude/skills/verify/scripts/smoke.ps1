@@ -512,6 +512,7 @@ namespace Smoke {
     [Win]::Click((Find-Child $deleteBox '^&?Yes$'))
     Start-Sleep -Seconds 3
     Check (-not (Test-Path -LiteralPath $profileFile)) 'Del removes the profile file'
+    Check (-not (Test-Path -LiteralPath "$profileFile.previous")) 'Del removes the prior profile version'
     Check (-not (Test-Path -LiteralPath (Split-Path $leanLinks))) 'Del removes the switch folder'
     Check (Test-Path -LiteralPath $tidied) 'Del leaves var files in place'
     Check (([string](Get-Item -LiteralPath $Pack).Target) -match 'default$') 'AddonPackages returns to the default switch'

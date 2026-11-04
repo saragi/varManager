@@ -163,10 +163,9 @@ namespace varManager
         /// <summary>Moves a profile and its prior version, replacing leftovers at the new name.</summary>
         public static void RenameFiles(string oldPath, string newPath)
         {
-            if (!File.Exists(oldPath))
-                return;
             DeleteFiles(newPath);
-            File.Move(oldPath, newPath);
+            if (File.Exists(oldPath))
+                File.Move(oldPath, newPath);
             if (File.Exists(PreviousPath(oldPath)))
                 File.Move(PreviousPath(oldPath), PreviousPath(newPath));
         }
