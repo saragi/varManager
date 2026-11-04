@@ -350,6 +350,12 @@
     <Compile Include="..\varManager.Core\VarLinks.cs">
       <Link>Core\VarLinks.cs</Link>
     </Compile>
+    <Compile Include="..\varManager.Core\VarSwitches.cs">
+      <Link>Core\VarSwitches.cs</Link>
+    </Compile>
+    <Compile Include="..\varManager.Core\VamBridge.cs">
+      <Link>Core\VamBridge.cs</Link>
+    </Compile>
     <Compile Include="..\varManager.Core\HubDownloader.cs">
       <Link>Core\HubDownloader.cs</Link>
     </Compile>

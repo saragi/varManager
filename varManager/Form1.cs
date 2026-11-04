@@ -241,7 +241,7 @@ namespace varManager
 
         private static string SwitchLinkPath(string name)
         {
-            return Path.Combine(Settings.Default.vampath, addonPacksSwitch, name, installLinkDirName);
+            return VarSwitches.LinkFolder(Settings.Default.vampath, name);
         }
 
         /// <summary>Packages VaM needs in every profile: session plugins, the default scene and base.txt.</summary>
@@ -286,10 +286,7 @@ namespace varManager
 
         private string UnusedSwitchName(string name)
         {
-            string candidate = name;
-            for (int number = 2; comboBoxPacksSwitch.Items.Cast<string>().Contains(candidate, StringComparer.OrdinalIgnoreCase); number++)
-                candidate = name + " " + number;
-            return candidate;
+            return VarSwitches.UnusedName(comboBoxPacksSwitch.Items.Cast<string>(), name);
         }
 
         /// <summary>Applies links first, so a failure leaves the saved profile describing the last good state.</summary>
@@ -647,7 +644,7 @@ namespace varManager
 
         private static string AddonPackagesPath
         {
-            get { return Path.Combine(Settings.Default.vampath, "AddonPackages"); }
+            get { return VarSwitches.AddonPackages(Settings.Default.vampath); }
         }
 
         private static bool ExistAddonpackagesVar()
@@ -943,64 +940,14 @@ namespace varManager
             StartBackgroundJob("FillDataTables");
             //
 
-            string packsSwitchpath = new DirectoryInfo(Path.Combine(Settings.Default.vampath, addonPacksSwitch)).FullName.ToLower();
             comboBoxPreviewType.SelectedIndex = 0;
-           
 
-
-            DirectoryInfo dipacksswitch = Directory.CreateDirectory(packsSwitchpath);
-            DirectoryInfo[] packswitchdirs = dipacksswitch.GetDirectories("*", SearchOption.TopDirectoryOnly);
-            List<string> packnames = new List<string>();
-            foreach (DirectoryInfo dipack in packswitchdirs)
+            foreach (string packname in VarSwitches.Names(Settings.Default.vampath))
+                comboBoxPacksSwitch.Items.Add(packname);
+            string currentSwitch = VarSwitches.EnsureLink(Settings.Default.vampath);
+            if (comboBoxPacksSwitch.Items.IndexOf(currentSwitch) >= 0)
             {
-                packnames.Add(dipack.Name);
-            }
-            if (packnames.IndexOf("default") == -1)
-            {
-                Directory.CreateDirectory(Path.Combine(packsSwitchpath, "default"));
-                packnames.Add("default");
-            }
-            comboBoxPacksSwitch.Items.Add("default");
-            foreach (string packname in packnames)
-            {
-                if (packname != "default")
-                    comboBoxPacksSwitch.Items.Add(packname);
-            }
-
-            DirectoryInfo dipackpath = new DirectoryInfo(packpath);
-
-            if (dipackpath.Exists)
-            {
-                if (!dipackpath.Attributes.HasFlag(FileAttributes.ReparsePoint))
-                {
-                    Comm.DirectoryMoveAll(packpath, Path.Combine(packsSwitchpath, "default"));
-                }
-            }
-            dipackpath = new DirectoryInfo(packpath);
-            if (dipackpath.Exists)
-            {
-                if (!dipackpath.Attributes.HasFlag(FileAttributes.ReparsePoint))
-                {
-                    dipackpath.MoveTo(Path.Combine(Settings.Default.vampath, $"AddonPackages_{DateTime.Now.ToString("yyyyMMddHHmmss")}"));
-                }
-
-            }
-            dipackpath = new DirectoryInfo(packpath);
-            if (!dipackpath.Exists)
-            {
-                Comm.CreateSymbolicLink(packpath, Path.Combine(packsSwitchpath, "default"), Comm.SYMBOLIC_LINK_FLAG.Directory | Comm.SYMBOLIC_LINK_FLAG.AllowUnprivilegedCreate);
-            }
-
-            DirectoryInfo diswitch = new DirectoryInfo(Comm.ReparsePoint(packpath));
-            if (!diswitch.Exists)
-            {
-                dipackpath.Delete();
-                Comm.CreateSymbolicLink(packpath, Path.Combine(packsSwitchpath, "default"), Comm.SYMBOLIC_LINK_FLAG.Directory | Comm.SYMBOLIC_LINK_FLAG.AllowUnprivilegedCreate);
-            }
-            diswitch = new DirectoryInfo(Comm.ReparsePoint(packpath));
-            if (comboBoxPacksSwitch.Items.IndexOf(diswitch.Name) >= 0)
-            {
-                comboBoxPacksSwitch.SelectedItem = diswitch.Name;
+                comboBoxPacksSwitch.SelectedItem = currentSwitch;
             }
             //TimeSpan ts5 = DateTime.Now - dtstart;
             //dtstart = DateTime.Now;
@@ -3007,58 +2954,24 @@ namespace varManager
 
         private void varpacksSwitch(string sw)
         {
-            string packsSwitchpath = new DirectoryInfo(Path.Combine(Settings.Default.vampath, addonPacksSwitch)).FullName.ToLower();
-            DirectoryInfo diswitch = new DirectoryInfo(Path.Combine(packsSwitchpath, sw));
             this.BeginInvoke(addlog, new Object[] { $"Point the Addonpackages symbo-link to '{sw}'", LogLevel.INFO });
-            if (!diswitch.Exists) diswitch.Create();
-            DirectoryInfo dipack = new DirectoryInfo(Path.Combine(Settings.Default.vampath, "AddonPackages"));
-            if (dipack.Exists)
+            int errorCode;
+            SwitchChange change = VarSwitches.Point(Settings.Default.vampath, sw, out errorCode);
+            if (change == SwitchChange.Failed)
             {
-                if (Comm.ReparsePoint(dipack.FullName).ToLower() != diswitch.FullName.ToLower())
-                {
-                    dipack.Delete();
-                    if (!Comm.CreateSymbolicLink(dipack.FullName, diswitch.FullName, Comm.SYMBOLIC_LINK_FLAG.Directory | Comm.SYMBOLIC_LINK_FLAG.AllowUnprivilegedCreate))
-                    {
-                        MessageBox.Show("Error: create AddonPackages symbolic link. " +
-                                "(Error Code: " + Marshal.GetLastWin32Error() + ")");
-                    }
-                    else
-                    {
-                       
-                        UpdateVarsInstalled();
-                        RescanPackages();
-                    }
-                }
+                MessageBox.Show("Error: create AddonPackages symbolic link. " +
+                        "(Error Code: " + errorCode + ")");
             }
-            else
+            else if (change == SwitchChange.Switched)
             {
-                if (!Comm.CreateSymbolicLink(dipack.FullName, diswitch.FullName, Comm.SYMBOLIC_LINK_FLAG.Directory | Comm.SYMBOLIC_LINK_FLAG.AllowUnprivilegedCreate))
-                {
-                    MessageBox.Show("Error: create AddonPackages symbolic link. " +
-                            "(Error Code: " + Marshal.GetLastWin32Error() + ")");
-                }
-                else
-                {
-                    UpdateVarsInstalled();
-                    RescanPackages();
-                }
+                UpdateVarsInstalled();
+                RescanPackages();
             }
         }
 
         private static void RescanPackages()
         {
-            var vamproc = Process.GetProcessesByName("vam");
-            if (vamproc.Length > 0)
-            {
-                string loadscenefile = Path.Combine(Settings.Default.vampath, "Custom\\PluginData\\feelfar\\loadscene.json");
-                if (File.Exists(loadscenefile)) File.Delete(loadscenefile);
-                Directory.CreateDirectory(Path.Combine(Settings.Default.vampath, "Custom\\PluginData\\feelfar"));
-                JSONClass jc = new JSONClass();
-                jc["rescan"] = "true";
-                StreamWriter swLoad = new StreamWriter(loadscenefile);
-                swLoad.Write(jc.ToString());
-                swLoad.Close();
-            }
+            VamBridge.RequestRescan(Settings.Default.vampath);
         }
 
         private void buttonPacksAdd_Click(object sender, EventArgs e)
@@ -3086,9 +2999,7 @@ namespace varManager
             {
                 if (MessageBox.Show($"Will delete {curswitch} AddonPackagesSwitch, sure?", "delete switch", MessageBoxButtons.YesNo) == DialogResult.Yes)
                 {
-                    string packsSwitchpath = new DirectoryInfo(Path.Combine(Settings.Default.vampath, addonPacksSwitch)).FullName.ToLower();
-                    DirectoryInfo diswitch = new DirectoryInfo(Path.Combine(packsSwitchpath, curswitch));
-                    diswitch.Delete(true);
+                    VarSwitches.Delete(Settings.Default.vampath, curswitch);
                     LeanProfiles.DeleteFiles(ProfilePath(curswitch));
                     comboBoxPacksSwitch.Items.Remove(curswitch);
                     comboBoxPacksSwitch.SelectedItem = "default";
@@ -3107,9 +3018,7 @@ namespace varManager
                 if (formSwitchRename.ShowDialog() == DialogResult.OK)
                 {
                     string newName = formSwitchRename.NewName;
-                    string packsSwitchpath = new DirectoryInfo(Path.Combine(Settings.Default.vampath, addonPacksSwitch)).FullName.ToLower();
-                    DirectoryInfo diswitch = new DirectoryInfo(Path.Combine(packsSwitchpath, curswitch));
-                    diswitch.MoveTo(Path.Combine(packsSwitchpath, newName));
+                    VarSwitches.Rename(Settings.Default.vampath, curswitch, newName);
                     comboBoxPacksSwitch.Items[comboBoxPacksSwitch.SelectedIndex] = newName;
                     try
                     {
