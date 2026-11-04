@@ -22,6 +22,8 @@ namespace MVRPlugin
         // is called right after creation
 
         private DateTime dtspan;
+        private bool processingLoadFile;
+        private const string LoadSceneFile = "Custom\\PluginData\\feelfar\\loadscene.json";
         private Atom coreControl;
         public override void Init()
         {
@@ -61,20 +63,32 @@ namespace MVRPlugin
         {
             try
             {
-                if ((DateTime.Now - dtspan).Seconds >= 2)
+                if (processingLoadFile || (DateTime.Now - dtspan).TotalSeconds < 2)
+                    return;
+                dtspan = DateTime.Now;
+                if (SuperController.singleton.isLoading)
+                    return;
+                if (FileManagerSecure.FileExists(LoadSceneFile))
+                    StartCoroutine(ProcessLoadFile());
+            }
+            catch (Exception e)
+            {
+                SuperController.LogError("Exception caught: " + e);
+            }
+        }
+
+        private IEnumerator ProcessLoadFile()
+        {
+            processingLoadFile = true;
+            try
+            {
+                string loadscenetxt = LoadSceneFile;
                 {
-                    dtspan = DateTime.Now;
-                    if (SuperController.singleton.isLoading) return;
-
-
-                    string loadscenetxt = "Custom\\PluginData\\feelfar\\loadscene.json";
-                    if (FileManagerSecure.FileExists(loadscenetxt))
-                    {
                         SuperController.LogMessage("find loadscene.json");
 
                         JSONClass atomforload = (JSONClass)JSON.Parse(FileManagerSecure.ReadAllText(loadscenetxt));
                         //SuperController.LogMessage(atomforload.ToString());
-                        Thread.Sleep(1000);
+                        yield return new WaitForSeconds(1f);
                         FileManagerSecure.DeleteFile(loadscenetxt);
                         bool rescan = false;
                         if (atomforload.HasKey("rescan"))
@@ -119,7 +133,7 @@ namespace MVRPlugin
                         {
                             while (SuperController.singleton.isLoading)
                             {
-                                Thread.Sleep(1000);
+                                yield return new WaitForSeconds(1f);
                             }
                             string scenetype = "";
                             if (resource.HasKey("type"))
@@ -191,7 +205,7 @@ namespace MVRPlugin
                                         {
                                             while (SuperController.singleton.isLoading)
                                             {
-                                                Thread.Sleep(1000);
+                                                yield return new WaitForSeconds(1f);
                                             }
                                             //Thread.Sleep(2000);
                                             string scenetype = "";
@@ -291,13 +305,11 @@ namespace MVRPlugin
                             if (!findatom)
                                 SuperController.LogError("Error load Preset,Unable to match the right atom");
                         }
-                    }
                 }
-
             }
-            catch (Exception e)
+            finally
             {
-                SuperController.LogError("Exception caught: " + e);
+                processingLoadFile = false;
             }
         }
         protected IEnumerator AddAtoms(List<JSONClass> jatoms, bool setSubScene = false)

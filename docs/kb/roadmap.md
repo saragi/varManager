@@ -1,0 +1,33 @@
+# Roadmap
+
+Goal: make VaM faster through lean, reliable symlink profiles, without rewriting var files.
+
+| Release | Focus |
+|---|---|
+| 0 | Measure, fix the build, safety bugs, fast lookups, tests, plugin fixes, safe migration |
+| 1 | Reliable dependencies: `.minN`, case-insensitive matching, resolution status, deep scan, scan cache, per-file details |
+| 2 | Lean profiles: create from selection, direct vs dependency tracking, keep-enabled base set, preview, orphan cleanup, undo, health check, launch with profile |
+| 3 | Library health and storage: storage and unused reports, cleanup suggestions, issues view, corruption and duplicate checks |
+| 4 | SQLite, .NET 10, parallel scanning, background thumbnails, drop permanent admin if possible |
+| 5 | Browsing: search filters, labels, `.hide` and `.fav` sync, content gallery, dependency graph |
+| 6 | Hub downloads: parallel dependencies, sizes and cancel, search by exact package name |
+
+## Migration requirements
+
+An existing real `AddonPackages` needs all of this before varManager takes it over:
+
+- Dry-run preview and a move log
+- Handling for `.var.disabled` files, which may hold real content
+- Handling for preview images and `.depend.txt` companion files
+- Repository on the same drive as VaM, so moves are instant and need no extra space
+- A test on a small copy first
+
+## Decisions
+
+- varManager is the only owner of the library.
+- Vars are never rewritten. No editing, repackaging or in-place deduplication.
+- Enable and disable through links, not by moving files.
+- Built-in downloads use the VaM Hub only.
+- No AI features, LAN mode or Electron rewrite.
+- VaM internals aren't patched. VPB can be tested alongside varManager later. It is GPL-3.0, so reuse ideas only.
+- Upstream `feelfar/varManager` shows no license on GitHub. Ask its author before publishing builds.

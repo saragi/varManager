@@ -54,9 +54,13 @@ namespace MVRPlugin
             }
         }
         Dictionary<int, Mmd2TimelinePersonAtom> mmdPersons;
+        private float nextLoadFileCheck;
         // Update is called with each rendered frame by Unity
         void Update()
         {
+            if (Time.unscaledTime < nextLoadFileCheck)
+                return;
+            nextLoadFileCheck = Time.unscaledTime + 2f;
             StartCoroutine(LoopWaitLoadFile());
         }
 

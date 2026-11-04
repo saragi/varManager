@@ -5,7 +5,7 @@ VisualStudioVersion = 17.1.32407.343
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "varManager", "varManager\varManager.csproj", "{EA2A1B27-CA81-4DBF-8E10-97A0243B6184}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DgvFilterPopup", "..\DgvFilterPopup\DgvFilterPopup\DgvFilterPopup.csproj", "{4B9BE5FD-303E-4270-9C4D-FA3BDE6C34EB}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DgvFilterPopup", "ThirdParty\DgvFilterPopup\DgvFilterPopup.csproj", "{4B9BE5FD-303E-4270-9C4D-FA3BDE6C34EB}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DragNDrop", "DragNDrop\DragNDrop.csproj", "{C7E21F05-C166-4DCC-8429-EC8A4C1A67B6}"
 EndProject
