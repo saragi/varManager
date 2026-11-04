@@ -10,7 +10,7 @@ The clickable mockup is at https://claude.ai/artifact/2ugrax4vYy63wpfpRVBKWH. Th
 - The real library is migrated: repository `D:\X\VarRepository`, app `D:\X\varManagerApp`, VaM `D:\X\VaM`, with `AddonPackages` a link to the `default` switch.
 - The WinForms app has lean profiles, exclude profiles, Hub fixes and the Missing window. It is the app the user runs today, and it must keep working until the new app replaces it.
 - Logic with no UI is in `varManager.Core`. The WinForms app links those files.
-- `varManager.App` exists as an empty WPF window. It opens and closes cleanly, and doesn't use Core yet.
+- `varManager.App` has its shell: theme, top bar, side nav, job bar and a first-run setup panel. Pages are titles only. Update DB is a disabled button until step 4 finishes.
 - `tests\varManager.App.Tests` runs the Core tests on .NET 10 too. All pass there.
 - `LibraryStore` (SQLite) and `AccessDatabase.ImportOnce` exist, but nothing calls them yet. Step 4 must call the import at startup, once the app knows its paths. Add reads to `LibraryStore` as screens need them. It has only `LoadVars` and `Count` so far.
 - Import proof on a copy of the real `varManager.mdb`: all 147,943 rows in 5 tables matched, it took 1.3 s, and `LoadVars` read 5,791 vars in 27 ms. The copy was deleted afterwards.
@@ -29,7 +29,7 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - [x] 1. Confirm the SDK. Create `varManager.App` (WPF, `net10.0-windows`) referencing `varManager.Core`, with a test project that can target it.
 - [x] 2. Add a SQLite store to Core, with a one-time import from `varManager.mdb` that only reads the Access file. Keep the schema simple. Prove it on a copy.
 - [x] 3. Move logic out of `Form1.cs` into Core, one area per commit, keeping WinForms working. Moved: Tidy (`VarTidier`, `LibraryFolders`), reading a var for Update DB (`VarScanner`), install and link (`VarLinks`, and `Comm` now lives in Core), switches and the rescan request (`VarSwitches`, `VamBridge`), scenes and previews (`SceneAnalysis`, `ScenePreviews`, load requests in `VamBridge`), dependency analysis (`DependencyAnalysis`). `Form1.cs` went from 4,230 to about 2,880 lines. What stays there is tied to the Access DataSet, or is UI.
-- [ ] 4. Build the WPF shell from the mockup: dark look, side nav, profile switcher, Update DB, Launch VaM, bottom job bar instead of popups. Update DB needs its own version on `LibraryStore`, because the WinForms loop and its writes use the Access DataSet: tidy, scan with `VarScanner`, save, drop records of vars that are gone, rebuild install status, link `varsMigrated.txt`. Also run the one-time import at startup, and find or choose the app's settings for the repository and VaM paths.
+- [ ] 4. Build the WPF shell from the mockup: dark look, side nav, profile switcher, Update DB, Launch VaM, bottom job bar instead of popups. Update DB needs its own version on `LibraryStore`, because the WinForms loop and its writes use the Access DataSet: tidy, scan with `VarScanner`, save, drop records of vars that are gone, rebuild install status, link `varsMigrated.txt`. Also run the one-time import at startup. Done so far: the look, nav, profile switcher, Launch VaM, job bar (`JobRunner`), settings (`AppSettings`, in settings.json beside the exe) and first-run setup. Left: Update DB, the import, catching an exception from `VarSwitches.Point` in `SelectedSwitch`, and a global handler so an unexpected error shows in the job bar instead of closing the app.
 - [ ] 5. Library: virtualized gallery that loads only on-screen thumbnails, search with author suggestions and tags, type and status filters, detail panel, Move out with undo.
 - [ ] 6. Scenes: readiness per profile, one-click Fix, Load in VaM.
 - [ ] 7. Profiles: lean and exclude profiles, timing cards, switch, Profile Check.
@@ -87,4 +87,8 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - `SceneAnalysis.CacheFolder` hangs off the working directory, as the old app did. The new app must set a fixed cache folder rather than depend on where it was started. `FormScenes.cs` keeps its own copy of this path, with a `(save).` special case.
 - Tests that change the working directory go in the `Working directory` collection, so they never run beside other classes.
 - `DependentSaved`, `FixSavseDependencies` and the StaleVars moves still use the Access tables, so the new app needs `savedepens` reads and writes on `LibraryStore`.
+- A global `TextBlock` style in WPF overrides a button's `Foreground`, because a button's text is a `TextBlock`. Set text colour on the window instead.
+- A `ComboBox` ignores a property change raised while its binding is still setting the value. Disable the box, or post the change. `ShellViewModel.RevertSwitchBox` does the second.
+- The new app won't migrate. It refuses a real AddonPackages folder and sends the user to the old app. Step 10 must decide if that stays.
+- To see the new app, copy `varManager.App\bin\Debug\net10.0-windows` to a temp folder with a settings.json pointing at fake folders, then take a screenshot with `PrintWindow`. Tests can't catch XAML problems such as bad contrast.
 - The compiler drops an unused project reference, so `GetReferencedAssemblies` won't list Core until the app calls it.
