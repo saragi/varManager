@@ -25,6 +25,7 @@ namespace varManager.App.Tests
         private readonly JobRunner jobs = new JobRunner(null);
         private readonly FakeHub hub = new FakeHub();
         private readonly List<string> copied = new List<string>();
+        private readonly List<ShellViewModel> shells = new List<ShellViewModel>();
         private int count = -1;
 
         private sealed class FakeHub : IHubSource
@@ -37,10 +38,22 @@ namespace varManager.App.Tests
 
             public List<string> Downloaded { get; } = new List<string>();
             public bool Down { get; set; }
+            public Exception? FindError { get; set; }
+            public Action? OnDownload { get; set; }
+
+            /// <summary>Holds the next Find until released.</summary>
+            public TaskCompletionSource<bool>? Gate { get; set; }
+
             public long Size { get; set; } = 1000;
 
-            public Task<List<HubPackage>> Find(IEnumerable<string> references)
+            public async Task<List<HubPackage>> Find(IEnumerable<string> references)
             {
+                TaskCompletionSource<bool>? gate = Gate;
+                Gate = null;
+                if (gate != null)
+                    await gate.Task;
+                if (FindError != null)
+                    throw FindError;
                 if (Down)
                     throw new IOException("no network");
                 var found = new List<HubPackage>();
@@ -52,7 +65,7 @@ namespace varManager.App.Tests
                     if (newest != null)
                         found.Add(new HubPackage(newest, "https://hub.example/" + newest, Size));
                 }
-                return Task.FromResult(found);
+                return found;
             }
 
             public Task<string> PackageList()
@@ -65,6 +78,7 @@ namespace varManager.App.Tests
                 var result = new DownloadResult();
                 foreach (HubPackage package in packages)
                 {
+                    OnDownload?.Invoke();
                     token.ThrowIfCancellationRequested();
                     Downloaded.Add(package.Name);
                     if (Broken.Contains(package.Name))
@@ -101,6 +115,8 @@ namespace varManager.App.Tests
 
         public void Dispose()
         {
+            foreach (ShellViewModel shell in shells)
+                shell.Dispose();
             string packs = Path.Combine(vam, "AddonPackages");
             DateTime deadline = DateTime.UtcNow + Timeout;
             while (true)
@@ -250,6 +266,51 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task A_hub_timeout_is_a_hub_problem_and_not_a_stuck_page()
+        {
+            MakeVar("A.B.1", "Hub.Pack.1:/Custom/a.vap");
+            Update();
+            hub.FindError = new TaskCanceledException("timed out");
+
+            MissingViewModel missing = await Open();
+
+            Assert.Contains("The Hub couldn't be reached", missing.StatusText);
+            Assert.NotEqual("Checking", missing.Title);
+        }
+
+        [Fact]
+        public async Task A_broken_store_says_so_and_does_not_stick_on_checking()
+        {
+            File.WriteAllText(storeFile, "not a database, and long enough to be read as one");
+
+            MissingViewModel missing = await Open();
+
+            Assert.Equal("Could not check", missing.Title);
+            Assert.NotEqual("Checking the Hub.", missing.StatusText);
+        }
+
+        [Fact]
+        public async Task A_slow_earlier_check_does_not_overwrite_a_later_one()
+        {
+            MakeVar("Linked.Pack.1", "Gone.One.1:/Custom/a.vap");
+            MakeVar("Stored.Pack.1", "Gone.Two.1:/Custom/a.vap");
+            Update();
+            Link("Linked.Pack.1");
+            MissingViewModel missing = await Open();
+            var gate = new TaskCompletionSource<bool>();
+            hub.Gate = gate;
+
+            Task slow = missing.Check();
+            WaitUntil(() => hub.Gate == null);
+            missing.ScopePills.Single(pill => pill.Label == "This profile").Command.Execute(null);
+            await missing.Checked.WaitAsync(Timeout);
+            gate.SetResult(true);
+            await slow.WaitAsync(Timeout);
+
+            Assert.Equal(1, Group(missing, "Not found anywhere").Count);
+        }
+
+        [Fact]
         public async Task A_tidy_library_says_nothing_is_missing()
         {
             MakeVar("A.B.1");
@@ -300,6 +361,113 @@ namespace varManager.App.Tests
 
             Assert.True(File.Exists(Tidied("Hub.Pack.1")));
             Assert.False(IsLinked("Hub.Pack.1"));
+        }
+
+        [Fact]
+        public async Task Only_what_stored_gets_linked_when_part_of_a_batch_fails()
+        {
+            MakeVar("A.B.1", "Good.Pack.1:/Custom/a.vap\",\"b\":\"Bad.Pack.1:/Custom/a.vap");
+            Update();
+            Link("A.B.1");
+            hub.Packages["Good.Pack.1"] = "";
+            hub.Packages["Bad.Pack.1"] = "";
+            hub.Broken.Add("Bad.Pack.1");
+            MissingViewModel missing = await Open();
+
+            missing.GetAllCommand.Execute(null);
+            WaitForJob();
+
+            Assert.True(IsLinked("Good.Pack.1"));
+            Assert.False(IsLinked("Bad.Pack.1"));
+            Assert.Equal("Stored 1, failed 1. First problem: broken", jobs.Note);
+        }
+
+        [Fact]
+        public async Task Cancelling_during_a_download_stops_the_job()
+        {
+            MakeVar("A.B.1", "Hub.Pack.1:/Custom/a.vap");
+            Update();
+            Link("A.B.1");
+            hub.Packages["Hub.Pack.1"] = "";
+            hub.OnDownload = jobs.Cancel;
+            MissingViewModel missing = await Open();
+
+            missing.GetAllCommand.Execute(null);
+            WaitForJob();
+
+            Assert.EndsWith("stopped.", jobs.Note);
+            Assert.False(IsLinked("Hub.Pack.1"));
+        }
+
+        [Fact]
+        public async Task Get_all_in_profile_scope_ignores_what_unlinked_vars_need()
+        {
+            MakeVar("A.B.1", "Hub.One.1:/Custom/a.vap");
+            MakeVar("C.D.1", "Hub.Two.1:/Custom/a.vap");
+            Update();
+            Link("A.B.1");
+            hub.Packages["Hub.One.1"] = "";
+            hub.Packages["Hub.Two.1"] = "";
+            MissingViewModel missing = await Open();
+            missing.ScopePills.Single(pill => pill.Label == "This profile").Command.Execute(null);
+            await missing.Checked.WaitAsync(Timeout);
+
+            missing.GetAllCommand.Execute(null);
+            WaitForJob();
+
+            Assert.Equal(new[] { "Hub.One.1" }, hub.Downloaded);
+        }
+
+        [Fact]
+        public async Task Updates_in_profile_scope_leave_packages_it_doesnt_link()
+        {
+            MakeVar("Linked.Pack.1");
+            MakeVar("Stored.Pack.1");
+            Update();
+            Link("Linked.Pack.1");
+            hub.Packages["Linked.Pack.2"] = "";
+            hub.Packages["Stored.Pack.2"] = "";
+            MissingViewModel missing = await Open();
+            missing.ScopePills.Single(pill => pill.Label == "This profile").Command.Execute(null);
+            await missing.Checked.WaitAsync(Timeout);
+
+            Group(missing, "Updates on the Hub").Action!.Execute(null);
+            WaitForJob();
+
+            Assert.Equal(new[] { "Linked.Pack.2" }, hub.Downloaded);
+        }
+
+        [Fact]
+        public async Task An_update_older_than_an_unlinked_newer_version_is_not_offered()
+        {
+            MakeVar("Beta.Pack.2");
+            MakeVar("Beta.Pack.5");
+            Update();
+            Link("Beta.Pack.2");
+            hub.Packages["Beta.Pack.4"] = "";
+            MissingViewModel missing = await Open();
+
+            missing.ScopePills.Single(pill => pill.Label == "This profile").Command.Execute(null);
+            await missing.Checked.WaitAsync(Timeout);
+
+            Assert.Equal(0, Group(missing, "Updates on the Hub").Count);
+        }
+
+        [Fact]
+        public async Task Turn_on_all_in_profile_scope_works_from_what_is_linked()
+        {
+            MakeVar("A.B.1", "Stored.Pack.1:/Custom/a.vap");
+            MakeVar("Stored.Pack.1");
+            Update();
+            Link("A.B.1");
+            MissingViewModel missing = await Open();
+            missing.ScopePills.Single(pill => pill.Label == "This profile").Command.Execute(null);
+            await missing.Checked.WaitAsync(Timeout);
+
+            Group(missing, "Turned off in your library").Action!.Execute(null);
+            WaitForJob();
+
+            Assert.True(IsLinked("Stored.Pack.1"));
         }
 
         [Fact]
@@ -484,6 +652,7 @@ namespace varManager.App.Tests
             string settingsFile = Path.Combine(data, "settings.json");
             new AppSettings { VamPath = vam, VarsPath = vars }.Save(settingsFile);
             var shell = new ShellViewModel(settingsFile, jobs, () => false, _ => { }, () => 0, hub, TimeSpan.FromHours(1));
+            shells.Add(shell);
             await shell.LibraryLoaded.WaitAsync(Timeout);
             Assert.Equal("1", shell.Pages[^1].Badge);
             Assert.Empty(shell.Missing!.Groups);
@@ -501,6 +670,7 @@ namespace varManager.App.Tests
             string settingsFile = Path.Combine(data, "settings.json");
             new AppSettings { VamPath = vam, VarsPath = vars }.Save(settingsFile);
             var shell = new ShellViewModel(settingsFile, jobs, () => false, _ => { }, () => 0, hub, TimeSpan.FromMilliseconds(100));
+            shells.Add(shell);
             await shell.LibraryLoaded.WaitAsync(Timeout);
 
             MakeVar("A.B.1");
@@ -509,6 +679,46 @@ namespace varManager.App.Tests
             WaitForJob();
             using LibraryStore store = LibraryStore.Open(storeFile);
             Assert.Equal(1, store.Count("vars"));
+        }
+
+        [Fact]
+        public void A_var_created_after_start_wakes_the_watch()
+        {
+            int scans = 0;
+            using var watch = new RepositoryWatch(vars, () => false, () => Interlocked.Increment(ref scans), null, TimeSpan.FromMilliseconds(20));
+            Thread.Sleep(150);
+            Assert.Equal(0, scans);
+
+            MakeVar("A.B.1");
+
+            WaitUntil(() => Volatile.Read(ref scans) >= 1);
+        }
+
+        [Fact]
+        public void A_var_renamed_into_place_wakes_the_watch()
+        {
+            int scans = 0;
+            using var watch = new RepositoryWatch(vars, () => false, () => Interlocked.Increment(ref scans), null, TimeSpan.FromMilliseconds(20));
+            WriteVar(Path.Combine(vars, "A.B.1.var.part"), "");
+            Thread.Sleep(150);
+            Assert.Equal(0, scans);
+
+            File.Move(Path.Combine(vars, "A.B.1.var.part"), Path.Combine(vars, "A.B.1.var"));
+
+            WaitUntil(() => Volatile.Read(ref scans) >= 1);
+        }
+
+        [Fact]
+        public void A_closed_watch_does_nothing()
+        {
+            int scans = 0;
+            var watch = new RepositoryWatch(vars, () => false, () => Interlocked.Increment(ref scans), null, TimeSpan.FromMilliseconds(20));
+
+            watch.Dispose();
+            MakeVar("A.B.1");
+            Thread.Sleep(150);
+
+            Assert.Equal(0, scans);
         }
 
         [Fact]
@@ -568,10 +778,13 @@ namespace varManager.App.Tests
         {
             string folder = Path.Combine(root, "gone");
             Directory.CreateDirectory(folder);
-            using var watch = new RepositoryWatch(folder, () => false, () => { }, null, TimeSpan.FromMilliseconds(20));
+            int scans = 0;
+            using var watch = new RepositoryWatch(folder, () => false, () => Interlocked.Increment(ref scans), null, TimeSpan.FromMilliseconds(100));
 
             Directory.Delete(folder);
-            Thread.Sleep(100);
+            Thread.Sleep(300);
+
+            Assert.Equal(0, scans);
         }
     }
 }

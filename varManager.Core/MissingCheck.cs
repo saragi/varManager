@@ -56,6 +56,16 @@ namespace varManager
             return profileOnly ? linked : names;
         }
 
+        /// <summary>
+        /// Owned vars of the packages in scope, in every version. An update is measured against the newest
+        /// owned version, linked or not, so an older one is never fetched over it.
+        /// </summary>
+        public IReadOnlyList<string> UpdateCandidates(bool profileOnly)
+        {
+            var packages = new HashSet<string>(ScopeVars(profileOnly).Select(MissingPlanner.PackageOf), StringComparer.OrdinalIgnoreCase);
+            return names.Where(name => packages.Contains(MissingPlanner.PackageOf(name))).ToList();
+        }
+
         public MissingReport Plan(bool profileOnly)
         {
             return MissingPlanner.Plan(ScopeVars(profileOnly), name => dependencies.DependenciesOf(name), vars, linked);
@@ -105,7 +115,7 @@ namespace varManager
         private const long ReservedBytes = 1L << 30;
 
         /// <summary>Asks the Hub about what the library lacks. A Hub that can't be reached isn't an error here.</summary>
-        public static async Task<MissingState> Run(MissingLibrary library, bool profileOnly, IHubSource hub, ISet<string> listed)
+        public static async Task<MissingState> Run(MissingLibrary library, bool profileOnly, IHubSource hub, ISet<string> listed, CancellationToken token)
         {
             var view = new MissingState { Report = library.Plan(profileOnly) };
             view.Sources.NotFound.AddRange(view.Report.Needed);
@@ -115,10 +125,11 @@ namespace varManager
                 view.Offered = await hub.Find(view.Report.Needed.Select(item => item.Package + ".latest")).ConfigureAwait(false);
                 string packageList = await hub.PackageList().ConfigureAwait(false);
                 Dictionary<string, int> versions = HubParser.LatestVersions(packageList);
-                view.Updates = (await hub.Find(MissingPlanner.UpdateRequests(library.ScopeVars(profileOnly), versions)).ConfigureAwait(false))
+                view.Updates = (await hub.Find(MissingPlanner.UpdateRequests(library.UpdateCandidates(profileOnly), versions)).ConfigureAwait(false))
                     .Where(package => !library.Owns(package.Name)).ToList();
             }
-            catch (Exception ex) when (!(ex is OperationCanceledException))
+            // HttpClient reports a timeout as a cancellation, so only the job's own token counts as one.
+            catch (Exception ex) when (!token.IsCancellationRequested)
             {
                 view.HubProblem = "The Hub couldn't be reached: " + ex.Message;
                 return view;
@@ -155,7 +166,7 @@ namespace varManager
             while (true)
             {
                 token.ThrowIfCancellationRequested();
-                MissingState view = Check(storeFile, paths, profileOnly, hub, listed);
+                MissingState view = Check(storeFile, paths, profileOnly, hub, listed, token);
                 if (view.HubProblem != null)
                     return view.HubProblem;
 
@@ -192,7 +203,7 @@ namespace varManager
         public static string GetUpdates(string storeFile, LibraryPaths paths, bool profileOnly, IHubSource hub, ISet<string> listed,
             Func<string, long> freeSpace, Action<int, int> progress, CancellationToken token)
         {
-            MissingState view = Check(storeFile, paths, profileOnly, hub, listed);
+            MissingState view = Check(storeFile, paths, profileOnly, hub, listed, token);
             if (view.HubProblem != null)
                 return view.HubProblem;
             string noRoom = NoRoom(view.Updates, paths.VarsPath, freeSpace);
@@ -217,12 +228,12 @@ namespace varManager
             return off.Count == 1 ? "Turned on 1 var." : $"Turned on {off.Count} vars.";
         }
 
-        private static MissingState Check(string storeFile, LibraryPaths paths, bool profileOnly, IHubSource hub, ISet<string> listed)
+        private static MissingState Check(string storeFile, LibraryPaths paths, bool profileOnly, IHubSource hub, ISet<string> listed, CancellationToken token)
         {
             MissingLibrary library;
             using (LibraryStore store = LibraryStore.Open(storeFile))
                 library = new MissingLibrary(store, paths);
-            return Run(library, profileOnly, hub, listed).GetAwaiter().GetResult();
+            return Run(library, profileOnly, hub, listed, token).GetAwaiter().GetResult();
         }
 
         private static string NoRoom(IReadOnlyCollection<HubPackage> packages, string folder, Func<string, long> freeSpace)

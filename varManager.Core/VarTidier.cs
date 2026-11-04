@@ -25,7 +25,6 @@ namespace varManager
             return IsVarName(Path.GetFileNameWithoutExtension(path));
         }
 
-        // Real var files in the repository that aren't in a sorted folder yet.
         /// <summary>A var still being copied can't be opened exclusively.</summary>
         public static bool RepositoryVarsReady(string varsPath)
         {
@@ -47,6 +46,7 @@ namespace varManager
             return true;
         }
 
+        // Real var files in the repository that aren't in a sorted folder yet.
         public static List<string> RepositoryVars(string varsPath)
         {
             return Directory.GetFiles(varsPath, "*.var", SearchOption.AllDirectories)

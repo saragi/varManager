@@ -57,7 +57,7 @@ namespace varManager.Ui
     }
 
     /// <summary>The parts of the window that are always there: profile, buttons, side nav and job bar.</summary>
-    public sealed class ShellViewModel : INotifyPropertyChanged
+    public sealed class ShellViewModel : INotifyPropertyChanged, IDisposable
     {
         private readonly string settingsFile;
         private readonly Func<bool> vamRunning;
@@ -111,6 +111,11 @@ namespace varManager.Ui
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
+
+        public void Dispose()
+        {
+            watch?.Dispose();
+        }
 
         public JobRunner Jobs { get; }
 
@@ -329,13 +334,13 @@ namespace varManager.Ui
             try
             {
                 await Missing.Count().ConfigureAwait(true);
-                if (IsMissingPage)
-                    await Missing.Check().ConfigureAwait(true);
             }
             catch (Exception ex)
             {
                 Jobs.Say("Could not check what's missing: " + ex.Message);
             }
+            if (IsMissingPage)
+                await CheckMissing().ConfigureAwait(true);
         }
 
         private async Task CheckMissing()
@@ -464,12 +469,16 @@ namespace varManager.Ui
 
         private void UpdateDb()
         {
+            UpdateDb(new LibraryPaths(VarsPath, VamPath, dataFolder));
+        }
+
+        private void UpdateDb(LibraryPaths paths)
+        {
             if (importFailed)
             {
                 Jobs.Say("The old database wasn't imported, so Update DB is off. Restart to try the import again.");
                 return;
             }
-            var paths = new LibraryPaths(VarsPath, VamPath, dataFolder);
             Jobs.Start("Update DB", context =>
             {
                 using LibraryStore store = LibraryStore.Open(StoreFile);
@@ -489,6 +498,8 @@ namespace varManager.Ui
 
         private void Open()
         {
+            watch?.Dispose();
+            watch = null;
             string? problem = settings.Problem();
             SetupProblem = problem ?? "";
             NeedsSetup = problem != null;
@@ -510,8 +521,8 @@ namespace varManager.Ui
             Profiles = new ProfilesViewModel(StoreFile, paths, Jobs, Picks, () => selectedSwitch, SwitchTo, () => SelectedPage = Pages[0]);
             Health = new HealthViewModel(StoreFile, paths, Jobs, () => SelectedPage = Pages[^1]);
             Missing = new MissingViewModel(StoreFile, paths, Jobs, hub, text => System.Windows.Clipboard.SetText(text), ShowMissingCount);
-            watch?.Dispose();
-            watch = new RepositoryWatch(VarsPath, () => Jobs.IsRunning, UpdateDb, SynchronizationContext.Current, watchWait);
+            // Scans the folders this was opened with, not ones typed into setup and not saved.
+            watch = new RepositoryWatch(VarsPath, () => Jobs.IsRunning, () => UpdateDb(paths), SynchronizationContext.Current, watchWait);
             ImportOldDatabase();
             if (!Jobs.IsRunning)
                 ReloadLibrary();

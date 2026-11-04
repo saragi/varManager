@@ -14,6 +14,7 @@ namespace varManager.Ui
         private readonly TimeSpan wait;
         private readonly FileSystemWatcher watcher;
         private readonly Timer timer;
+        private volatile bool disposed;
 
         public RepositoryWatch(string folder, Func<bool> busy, Action scan, SynchronizationContext? ui, TimeSpan wait)
         {
@@ -33,13 +34,22 @@ namespace varManager.Ui
 
         public void Dispose()
         {
+            disposed = true;
             watcher.Dispose();
             timer.Dispose();
         }
 
         private void Restart()
         {
-            timer.Change(wait, Timeout.InfiniteTimeSpan);
+            try
+            {
+                if (!disposed)
+                    timer.Change(wait, Timeout.InfiniteTimeSpan);
+            }
+            catch (ObjectDisposedException)
+            {
+                // A file event was already on its way when this closed.
+            }
         }
 
         private void Post()
@@ -52,6 +62,8 @@ namespace varManager.Ui
 
         private void Tick()
         {
+            if (disposed)
+                return;
             try
             {
                 // Asks again later, because a job or a var still copying only means not yet.

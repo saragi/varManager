@@ -155,18 +155,29 @@ namespace varManager.Ui
                 return;
             }
             StatusText = "Checking the Hub.";
-            MissingState checkedView = await Task.Run(async () =>
+            try
             {
-                listed ??= MissingCheck.ListedPackages(paths.VamPath);
-                MissingLibrary library;
-                using (LibraryStore store = LibraryStore.Open(storeFile))
-                    library = new MissingLibrary(store, paths);
-                return await MissingCheck.Run(library, scope, hub, listed).ConfigureAwait(false);
-            }).ConfigureAwait(true);
-            if (check != checks)
-                return;
-            view = checkedView;
-            Show();
+                MissingState checkedView = await Task.Run(async () =>
+                {
+                    listed ??= MissingCheck.ListedPackages(paths.VamPath);
+                    MissingLibrary library;
+                    using (LibraryStore store = LibraryStore.Open(storeFile))
+                        library = new MissingLibrary(store, paths);
+                    return await MissingCheck.Run(library, scope, hub, listed, default).ConfigureAwait(false);
+                }).ConfigureAwait(true);
+                if (check != checks)
+                    return;
+                view = checkedView;
+                Show();
+            }
+            catch (Exception ex)
+            {
+                // Nothing else would ever take "Checking" off the page.
+                if (check != checks)
+                    return;
+                Title = "Could not check";
+                StatusText = ex.Message;
+            }
         }
 
         private void SetScope(bool profile)
