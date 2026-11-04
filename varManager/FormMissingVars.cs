@@ -328,7 +328,7 @@ namespace varManager
                 }
                 else
                 {
-                    if (Form1.ComplyVarName(dependentName))
+                    if (VarTidier.IsVarName(dependentName))
                     {
                         form1.LocateVar(dependentName);
                         form1.SelectVarInList(dependentName);

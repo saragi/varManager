@@ -28,21 +28,21 @@ namespace varManager
         private static readonly byte[] s_creatorNameUtf8 = Encoding.UTF8.GetBytes("creatorName");
         //private static ReadOnlySpan<byte> Utf8Bom => new byte[] { 0xEF, 0xBB, 0xBF };
         private static SimpleLogger simpLog = new SimpleLogger();
-        internal static string tidiedDirName = "___VarTidied___";
-        private static string redundantDirName = "___VarRedundant___";
-        private static string notComplyRuleDirName = "___VarnotComplyRule___";
-        private static string previewpicsDirName = "___PreviewPics___";
-        private static string staleVarsDirName = "___StaleVars___";
-        private static string oldVersionVarsDirName = "___OldVersionVars___";
-        private static string deleVarsDirName = "___DeletedVars___";
-        private static string profilesDirName = "___Profiles___";
+        internal static string tidiedDirName = LibraryFolders.Tidied;
+        private static string redundantDirName = LibraryFolders.Redundant;
+        private static string notComplyRuleDirName = LibraryFolders.NotComplyRule;
+        private static string previewpicsDirName = LibraryFolders.PreviewPics;
+        private static string staleVarsDirName = LibraryFolders.StaleVars;
+        private static string oldVersionVarsDirName = LibraryFolders.OldVersionVars;
+        private static string deleVarsDirName = LibraryFolders.DeletedVars;
+        private static string profilesDirName = LibraryFolders.Profiles;
         private const string migratedVarsFile = "varsMigrated.txt";
 
-        internal static string addonPacksSwitch = "___AddonPacksSwitch ___";
+        internal static string addonPacksSwitch = LibraryFolders.AddonPacksSwitch;
 
-        internal static string installLinkDirName = "___VarsLink___";
-        internal static string missingVarLinkDirName = "___MissingVarLink___";
-        internal static string tempVarLinkDirName = "___TempVarLink___";
+        internal static string installLinkDirName = LibraryFolders.VarsLink;
+        internal static string missingVarLinkDirName = LibraryFolders.MissingVarLink;
+        internal static string tempVarLinkDirName = LibraryFolders.TempVarLink;
         //private varManagerDataSet.dependenciesDataTable installedDependencies = new varManagerDataSet.dependenciesDataTable();
         private InvokeAddLoglist addlog;
         public Form1()
@@ -195,7 +195,7 @@ namespace varManager
             if (!CanFocus || folderWatchPaused || backgroundWorkerInstall.IsBusy || !RepositoryVarsReady())
                 return;
             repositoryTimer.Stop();
-            if (GetVarspathVars().Count > 0)
+            if (VarTidier.RepositoryVars(Settings.Default.varspath).Count > 0)
                 StartAutomaticUpdate();
         }
 
@@ -645,209 +645,34 @@ namespace varManager
             }
         }
 
-        public static bool ComplyVarFile(string varfile)
-        {
-            string varfilename = Path.GetFileNameWithoutExtension(varfile);
-            return ComplyVarName(varfilename);
-        }
-
-        public static bool ComplyVarName(string varname)
-        {
-            string[] varnamepart = varname.Split('.');
-
-            if (varnamepart.Length == 3)
-            {
-                //int version = 0;
-                if (Regex.IsMatch(varnamepart[2], "^[0-9]+$"))
-                //if (int.TryParse(varnamepart[2], out version))
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
         private const long maxScannedEntryBytes = 96L * 1024 * 1024;
         private List<string> varsForInstall = new List<string>();
         private void TidyVars()
         {
-            List<string> vars = GetVarspathVars();
-            List<string> varsUsed = GetAddonpackagesVars();
-            varsForInstall.Clear();
-            if (File.Exists("varsForInstall.txt"))
-                varsForInstall.AddRange(File.ReadAllLines("varsForInstall.txt"));
-            foreach (var varins in varsUsed)
-            {
-                if (ComplyVarFile(varins))
-                    varsForInstall.Add(Path.GetFileNameWithoutExtension(varins));
-            }
+            List<string> vars = VarTidier.RepositoryVars(Settings.Default.varspath);
+            List<string> varsUsed = VarTidier.LooseAddonVars(AddonPackagesPath).ToList();
+            IEnumerable<string> saved = File.Exists("varsForInstall.txt") ? File.ReadAllLines("varsForInstall.txt") : new string[0];
+            varsForInstall = VarTidier.MergeInstallList(saved, varsUsed);
             File.Delete("varsForInstall.txt");
-            varsForInstall = varsForInstall.Distinct().ToList();
             File.WriteAllLines("varsForInstall.txt", varsForInstall);
 
             vars.AddRange(varsUsed);
 
-            TidyVars(vars);
-            // System.Diagnostics.Process.Start(tidypath);
-        }
-
-        private void TidyVars(List<string> vars)
-        {
-            string tidypath = Path.Combine(Settings.Default.varspath, tidiedDirName);
-            if (!Directory.Exists(tidypath))
-                Directory.CreateDirectory(tidypath);
-            string redundantpath = Path.Combine(Settings.Default.varspath, redundantDirName);
-            if (!Directory.Exists(redundantpath))
-                Directory.CreateDirectory(redundantpath);
-            string notComplRulepath = Path.Combine(Settings.Default.varspath, notComplyRuleDirName);
-            if (!Directory.Exists(notComplRulepath))
-                Directory.CreateDirectory(notComplRulepath);
             InvokeProgress mi = new InvokeProgress(UpdateProgress);
             this.BeginInvoke(addlog, new Object[] { "Tidy Vars...", LogLevel.INFO });
-            int curVarfile = 0;
-            foreach (string varfile in vars)
-            {
-                if (ComplyVarFile(varfile))
-                {
-                    FileInfo pathInfo = new FileInfo(varfile);
-                    string varfilename = Path.GetFileNameWithoutExtension(varfile);
-                    //if (pathInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
-                    //{
-                    //string errlog = $"{varfile} is a symlink,Please check and process it appropriately";
-                    //this.BeginInvoke(addlog, new Object[] { errlog,LogLevel.ERROR });
-                    //varsForInstall.Remove(varfilename);
-                    //continue;
-                    //}
-
-                    string[] varnamepart = varfilename.Split('.');
-                    string createrpath = Path.Combine(tidypath, varnamepart[0]);
-                    if (!Directory.Exists(createrpath))
-                        Directory.CreateDirectory(createrpath);
-                    string destvarfilename = Path.Combine(createrpath, Path.GetFileName(varfile));
-                    if (File.Exists(destvarfilename))
-                    {
-                        string errlog = $"{varfile} has same filename in tidy directory,moved into the {redundantDirName} directory";
-                        this.BeginInvoke(addlog, new Object[] { errlog ,LogLevel.ERROR});
-                        string redundantfilename = Path.Combine(redundantpath, Path.GetFileName(varfile));
-
-                        int count = 1;
-
-                        string fileNameOnly = Path.GetFileNameWithoutExtension(redundantfilename);
-                        string extension = Path.GetExtension(redundantfilename);
-                        string path = Path.GetDirectoryName(redundantfilename);
-
-                        while (File.Exists(redundantfilename))
-                        {
-                            string tempFileName = string.Format("{0}({1})", fileNameOnly, count++);
-                            redundantfilename = Path.Combine(path, tempFileName + extension);
-                        }
-
-                        try
-                        {
-                            File.Move(varfile, redundantfilename);
-                        }
-                        catch (Exception ex)
-                        {
-                            this.BeginInvoke(addlog, new Object[] { $"move {varfile} failed, {ex.Message}", LogLevel.ERROR });
-                        }
-                    }
-                    else
-                    {
-                        try
-                        {
-                            File.Move(varfile, destvarfilename);
-                        }
-                        catch (Exception ex)
-                        {
-                            this.BeginInvoke(addlog, new Object[] { $"move {varfile} failed, {ex.Message}" ,LogLevel.ERROR });
-                        }
-                        //OpenAsZip(destvarfilename);
-                    }
-                }
-                else
-                {
-                    string errlog = $"{varfile} not comply Var filename rule, move into {notComplyRuleDirName} directory";
-                    this.BeginInvoke(addlog, new Object[] { errlog, LogLevel.ERROR });
-                    string notComplRulefilename = Path.Combine(notComplRulepath, Path.GetFileName(varfile));
-
-                    int count = 1;
-
-                    string fileNameOnly = Path.GetFileNameWithoutExtension(notComplRulefilename);
-                    string extension = Path.GetExtension(notComplRulefilename);
-                    string path = Path.GetDirectoryName(notComplRulefilename);
-
-                    while (File.Exists(notComplRulefilename))
-                    {
-                        string tempFileName = string.Format("{0}({1})", fileNameOnly, count++);
-                        notComplRulefilename = Path.Combine(path, tempFileName + extension);
-                    }
-                    try
-                    {
-                        File.Move(varfile, notComplRulefilename);
-                    }
-                    catch (Exception ex)
-                    {
-                        this.BeginInvoke(addlog, new Object[] { $"move {varfile} failed, {ex.Message}", LogLevel.ERROR });
-                    }
-                }
-                this.BeginInvoke(mi, new Object[] { curVarfile, vars.Count() });
-                curVarfile++;
-            }
+            VarTidier.Tidy(vars, Settings.Default.varspath,
+                problem => this.BeginInvoke(addlog, new Object[] { problem, LogLevel.ERROR }),
+                (current, total) => this.BeginInvoke(mi, new Object[] { current, total }));
         }
 
-        private static List<string> GetVarspathVars()
+        private static string AddonPackagesPath
         {
-            List<string> varspathVars = new List<string>();
-            foreach (var varins in Directory.GetFiles(Settings.Default.varspath, "*.var", SearchOption.AllDirectories)
-                           .Where(q => q.IndexOf(tidiedDirName) == -1
-                           && q.IndexOf(redundantDirName) == -1
-                           && q.IndexOf(notComplyRuleDirName) == -1
-                           && q.IndexOf(staleVarsDirName) == -1
-                           && q.IndexOf(oldVersionVarsDirName) == -1
-                           && q.IndexOf(deleVarsDirName) == -1))
-            {
-                FileInfo pathInfo = new FileInfo(varins);
-                if (!pathInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
-                {
-                    varspathVars.Add(varins);
-                }
-            }
-            return varspathVars;
+            get { return Path.Combine(Settings.Default.vampath, "AddonPackages"); }
         }
 
         private static bool ExistAddonpackagesVar()
         {
-            string installlinkdir = Path.Combine(Settings.Default.vampath, "AddonPackages", installLinkDirName);
-
-            bool exist = false;
-            foreach (var varins in Directory.GetFiles(Path.Combine(Settings.Default.vampath, "AddonPackages"), "*.var", SearchOption.AllDirectories)
-                          .Where(q => q.IndexOf(installlinkdir) == -1 && q.IndexOf(missingVarLinkDirName) == -1 && q.IndexOf(tempVarLinkDirName) == -1))
-            {
-                FileInfo pathInfo = new FileInfo(varins);
-                if (!pathInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
-                {
-                    exist = true;
-                    break;
-                }
-            }
-            return exist;
-        }
-
-        private static List<string> GetAddonpackagesVars()
-        {
-            string installlinkdir = Path.Combine(Settings.Default.vampath, "AddonPackages", installLinkDirName);
-
-            List<string> varsUsed = new List<string>();
-            foreach (var varins in Directory.GetFiles(Path.Combine(Settings.Default.vampath, "AddonPackages"), "*.var", SearchOption.AllDirectories)
-                          .Where(q => q.IndexOf(installlinkdir) == -1 && q.IndexOf(missingVarLinkDirName) == -1 && q.IndexOf(tempVarLinkDirName) == -1))
-            {
-                FileInfo pathInfo = new FileInfo(varins);
-                if (!pathInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
-                {
-                    varsUsed.Add(varins);
-                }
-            }
-            return varsUsed;
+            return VarTidier.LooseAddonVars(AddonPackagesPath).Any();
         }
 
         private List<string> Getdependencies(string jsonstring)

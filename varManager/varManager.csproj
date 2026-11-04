@@ -336,6 +336,12 @@
     <Compile Include="..\varManager.Core\HubParser.cs">
       <Link>Core\HubParser.cs</Link>
     </Compile>
+    <Compile Include="..\varManager.Core\LibraryFolders.cs">
+      <Link>Core\LibraryFolders.cs</Link>
+    </Compile>
+    <Compile Include="..\varManager.Core\VarTidier.cs">
+      <Link>Core\VarTidier.cs</Link>
+    </Compile>
     <Compile Include="..\varManager.Core\HubDownloader.cs">
       <Link>Core\HubDownloader.cs</Link>
     </Compile>
