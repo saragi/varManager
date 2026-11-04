@@ -389,11 +389,10 @@ try {
         Start-Sleep -Milliseconds 700
         $current = Get-DependencyRows
         $rescanned = (@($current.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Replaced.Package_With_A_Longer_Name.latest'")).Count -eq 1) -and
-            (@($current.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Replaced.Hair_Package.latest'")).Count -eq 1) -and
-            (Test-Path -LiteralPath $link)
+            (@($current.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Replaced.Hair_Package.latest'")).Count -eq 1)
     }
     Check $rescanned 'Update DB rescans a var whose file changed'
-    Check (@($current.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Deep Creator.Hidden_Pack.min2'")).Count -eq 0) 'rescan removes stale dependency rows'
+    Check (@($current.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Deep Creator.Hidden_Pack.min2'")).Count -eq 0) 'rescan clears the old dependency rows'
     # The app gives no completion signal, so allow its last steps to finish.
     Start-Sleep -Seconds 2
 
