@@ -18,7 +18,9 @@ The clickable mockup is at https://claude.ai/artifact/2ugrax4vYy63wpfpRVBKWH. Th
 
 ## Resume here
 
-Steps 0 to 11 are done and pushed. Step 12 is next: stop and tell the user it's ready. `docs/kb/parity.md` lists what still needs their decision.
+Steps 0 to 11 are done and pushed, and the user has been told it's ready. Step 12 waits on them. `docs/kb/parity.md` lists what still needs their decision.
+
+To try it, the user needs a copy of `varManager.App\bin\Release\net10.0-windows` in a new folder, built with `dotnet build varManager.App\varManager.App.csproj -c Release`, and a settings.json beside it, or the setup panel on first start. With fake folders nothing can go wrong. On the real library, close the old app and VaM first and copy `varManager.mdb`, `varsMigrated.txt` and `varsForInstall.txt` beside the new app, so it imports a copy of the database. `D:\X\varManagerApp` stays as it is until the user approves replacing it.
 
 When the loop reaches step 12 with every earlier step ticked, reviewed clean and pushed: tell the user it's ready, then shut the PC down, as the user asked on 4 November. Not before, and not if anything failed or isn't pushed.
 

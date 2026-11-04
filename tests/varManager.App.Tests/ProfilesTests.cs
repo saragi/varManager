@@ -909,7 +909,7 @@ namespace varManager.App.Tests
 
             shell.Picks.Toggle("A.B.1");
             shell.Profiles.Name = "another";
-            await Task.Delay(100);
+            await shell.Profiles.Reload();
             shell.Profiles.SaveCommand.Execute(null);
             await shell.Profiles.Work.WaitAsync(Timeout);
 
