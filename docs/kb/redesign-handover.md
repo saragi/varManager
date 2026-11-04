@@ -18,7 +18,7 @@ The clickable mockup is at https://claude.ai/artifact/2ugrax4vYy63wpfpRVBKWH. Th
 
 ## Resume here
 
-Step 9 is built and committed locally, not pushed. Next: review it, push, tick it, then step 10, Parity. Drive the real window for every screen: `Named`, `Press` and `WaitFor` over UI Automation, on a temp copy of `varManager.App\bin\Debug\net10.0-windows` with a settings.json pointing at fake folders.
+Step 9 is done and pushed. Next: step 10, Parity. Drive the real window for every screen: `Named`, `Press` and `WaitFor` over UI Automation, on a temp copy of `varManager.App\bin\Debug\net10.0-windows` with a settings.json pointing at fake folders.
 
 Open for step 11: on 4 November the window showed white on this PC with hardware rendering, in the pushed build as well as the new one, and correct with `RenderOptions.ProcessRenderMode = SoftwareOnly`. Earlier screenshots were fine, and the cause isn't known. Retest. If it stays, the user would see a white window, so raise it at step 12.
 
@@ -43,7 +43,7 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - [x] 6. Scenes: readiness per profile, one-click Fix, Load in VaM. Also add Load in VaM to the Library's detail panel.
 - [x] 7. Profiles: lean and exclude profiles, timing cards, switch, Profile Check. Also add picks to the Library, with the Build profile button in the job bar.
 - [x] 8. Health: stale, duplicates, disabled, storage. Nothing fixed without asking.
-- [ ] 9. Missing: the same one-click flow. Add a "Not owned" Hub filter, image cache, and author search in place of the Creator dropdown. Also watch the repository, so a var dropped in is scanned by itself, as the old app's `WatchRepository` does.
+- [x] 9. Missing: the same one-click flow. Add a "Not owned" Hub filter, image cache, and author search in place of the Creator dropdown. Also watch the repository, so a var dropped in is scanned by itself, as the old app's `WatchRepository` does.
 - [ ] 10. Parity: list every WinForms button and form, and confirm each has a home in the new app or a stated reason to drop it.
 - [ ] 11. Prove it on fake folders with a verify script like `smoke.ps1`. Include Fix Rebuild Link and temporary links, which `smoke.ps1` has never covered.
 - [ ] 12. Stop. Tell the user it's ready and how to try it. Don't run it on the real library and don't replace `D:\X\varManagerApp` without their approval.
@@ -135,4 +135,10 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - Records can hold a stale `VarPath`, because Update DB only rescans a changed size. `RemoveGone` matches by name anywhere under `___VarTidied___`, and Health does too.
 - Health dropped the mockup's "references only the deep scan found" card: nothing stores that. Old versions other vars still need aren't moved, unlike the old app's option. Say so at step 10.
 - A `sed` mutation with `\r$` can quietly not do what it says. If one survives, retry it with an exact replace before believing it.
+- Downloads go only to https addresses on virtamate.com: `HubBrowse.IsHubUrl`, applied in `RealHub.Find` and `HubBrowse.Downloads`. Real download links are on hub.virtamate.com. Pictures come from a CDN, so they aren't held to it.
+- HttpClient reports a timeout as a cancellation. Only the job's own token means the user cancelled.
+- Opening a store creates it, and an empty one stops the Access import. Anything that reads before an Update DB checks the file exists first.
+- A store's `LoadVars` is sorted by name, so `A.B.10` comes before `A.B.9`. A test of "newest" needs versions like these.
+- The Hub is only asked while Missing is open. The side nav count comes from the database. A real Get from the real Hub worked in the real window on fake folders.
+- The stress run clashes in the two `LibraryStoreTests` import tests, because they compare a shared temp folder. Filter them out when running 4 processes.
 - The compiler drops an unused project reference, so `GetReferencedAssemblies` won't list Core until the app calls it.

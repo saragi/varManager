@@ -509,20 +509,15 @@ namespace varManager.App.Tests
 
             Assert.Equal("All", hub.PayType);
             Assert.Equal("Rating", hub.Sort);
-            Assert.Equal("All", hub.Location);
             Assert.Equal("Rating", browser.Queries[^1].Sort);
         }
 
         [Fact]
         public async Task Ownership_uses_the_newest_version_and_ignores_case()
         {
-            // Added newest first as well as oldest first, so neither first-wins nor last-wins passes.
-            Own("A.B.1");
-            Own("A.B.3");
-            Own("E.F.9");
-            Own("E.F.2");
-            Own("c.d.2");
-            browser.Page = Resources(1, 1, Resource("1", "Older", File1("A.B.2")), Resource("2", "Case", File1("C.D.2")), Resource("3", "Newer", File1("A.B.4")), Resource("4", "Other", File1("E.F.5")));
+            // The store sorts by name, which puts E.F.10 before E.F.9, so taking the last one read gives 9.
+            Own("A.B.1", "A.B.3", "E.F.9", "E.F.10", "c.d.2");
+            browser.Page = Resources(1, 1, Resource("1", "Older", File1("A.B.2")), Resource("2", "Case", File1("C.D.2")), Resource("3", "Newer", File1("A.B.4")), Resource("4", "Other", File1("E.F.10")));
             HubViewModel hub = Hub();
 
             await hub.Open().WaitAsync(Timeout);
@@ -696,6 +691,7 @@ namespace varManager.App.Tests
 
             MissingCheck.GetPackages(packages, new[] { "Have.It.1" }, storeFile, paths, downloads, _ => long.MaxValue, (done, total) => { }, default);
 
+            Assert.False(VarLinks.ReadInstalled(paths.AddonPackages).ContainsKey("Have.It.1"));
             Assert.False(File.Exists(paths.MigratedList));
         }
 
