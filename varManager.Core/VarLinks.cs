@@ -66,6 +66,10 @@ namespace varManager
         public static Dictionary<string, string> Installed(string addonPackagesPath)
         {
             var installed = new Dictionary<string, string>();
+            // Creating the folder below would leave a real AddonPackages where a link belongs, and block every switch.
+            if (!Directory.Exists(addonPackagesPath))
+                return installed;
+
             string linkFolder = Directory.CreateDirectory(Path.Combine(addonPackagesPath, LibraryFolders.VarsLink)).FullName;
             IEnumerable<string> files = Directory.GetFiles(linkFolder, "*.var", SearchOption.AllDirectories)
                 .Concat(Directory.GetFiles(addonPackagesPath, "*.var", SearchOption.TopDirectoryOnly));

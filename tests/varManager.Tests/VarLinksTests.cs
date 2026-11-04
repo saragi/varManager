@@ -143,6 +143,16 @@ namespace varManagerTests
         }
 
         [Fact]
+        public void Installed_with_no_addon_packages_creates_nothing()
+        {
+            string missing = Path.Combine(root, "gone", "AddonPackages");
+
+            Assert.Empty(VarLinks.Installed(missing));
+
+            Assert.False(Directory.Exists(missing));
+        }
+
+        [Fact]
         public void Remove_deletes_the_link_and_keeps_the_var()
         {
             string file = Var("A.B.1");
