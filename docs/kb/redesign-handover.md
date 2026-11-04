@@ -18,7 +18,9 @@ The clickable mockup is at https://claude.ai/artifact/2ugrax4vYy63wpfpRVBKWH. Th
 
 ## Resume here
 
-Step 6 is done and pushed. Next: step 7, Profiles. Drive the real window for every screen: `Named`, `Press` and `WaitFor` over UI Automation, on a temp copy of `varManager.App\bin\Debug\net10.0-windows` with a settings.json pointing at fake folders.
+Step 7 is built and committed locally, not pushed. Review rounds 1 and 2 are done, and their fixes are in. Next: run review round 3 on the commits after `origin/release-0`, fix real findings, push, tick step 7, then go on to step 8. Drive the real window for every screen: `Named`, `Press` and `WaitFor` over UI Automation, on a temp copy of `varManager.App\bin\Debug\net10.0-windows` with a settings.json pointing at fake folders.
+
+Open for step 11: on 4 November the window showed white on this PC with hardware rendering, in the pushed build as well as the new one, and correct with `RenderOptions.ProcessRenderMode = SoftwareOnly`. Earlier screenshots were fine, and the cause isn't known. Retest. If it stays, the user would see a white window, so raise it at step 12.
 
 ## SDK
 
@@ -117,4 +119,10 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - Temp links are removed late, 20 seconds after VaM takes the request. `TempLinkRemoval` keeps one removal waiting, and a newer load replaces it, so an old list can't delete what the newer load needs. A non-scene load has an empty list, so older links wait for the next scene load. A window of milliseconds remains if the old removal fires just before the new load schedules.
 - Anything that links a var for good uses `VarLinks.InstallForGood`, so a leftover temp link doesn't show VaM the package twice.
 - Checks that pass after a failed patch prove nothing. Look at the patch's own result before reading the test run.
+- `Named` finds the first match, so a test package named like a filter pill presses the pill. Give drive packages unusual names, such as `Good.Beach.1`.
+- With hardware rendering failing, `PrintWindow` and a screen copy both give a white window. Render with `RenderTargetBitmap` in a small harness that sets software rendering.
+- After a rename, `AddonPackages` points at nothing until it is repointed. Do that inside the job, because the reload at job end would otherwise fail and its note would replace the result.
+- A finished job reloads before the code after `await job` runs. Tests wait on `ProfilesViewModel.Work`, not a delay.
+- Two openers of a new store used to both create the tables. `CreateSchema` now takes the write lock and looks again.
+- The app can time startup and RAM, through an empty request the plugin takes. It can't time a scene load, because the plugin doesn't say when one ends. The empty request is untried on a real VaM.
 - The compiler drops an unused project reference, so `GetReferencedAssemblies` won't list Core until the app calls it.

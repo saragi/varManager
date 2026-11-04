@@ -98,7 +98,8 @@ namespace varManager
             int kept = 0;
             foreach (FileInfo file in folder.GetFiles())
             {
-                if (file.Attributes.HasFlag(FileAttributes.ReparsePoint) || file.Name.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase))
+                bool marker = file.Length == 0 && file.Name.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase);
+                if (marker || file.Attributes.HasFlag(FileAttributes.ReparsePoint))
                     file.Delete();
                 else
                     kept++;

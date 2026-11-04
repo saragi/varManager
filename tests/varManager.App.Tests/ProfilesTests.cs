@@ -122,17 +122,19 @@ namespace varManager.App.Tests
             await Settle(shell);
         }
 
-        // A finished job reloads, and what follows the job may reload again.
+        // A job's reload starts as it ends, and Work finishes after anything that follows the job,
+        // so once Work is done the newest reload is the last one.
         private static async Task Settle(ShellViewModel shell)
         {
+            await shell.Profiles!.Work.WaitAsync(Timeout);
+            WaitUntil(() => !shell.Jobs.IsRunning);
             Task last;
             do
             {
                 last = shell.LibraryLoaded;
                 await last.WaitAsync(Timeout);
-                await Task.Delay(150);
             }
-            while (last != shell.LibraryLoaded || shell.Jobs.IsRunning);
+            while (last != shell.LibraryLoaded);
         }
 
         private static ProfileTile Card(ShellViewModel shell, string name)
@@ -267,6 +269,23 @@ namespace varManager.App.Tests
 
             profiles.Name = "lean";
             WaitUntil(() => profiles.PlanText.Contains("This replaces the links in lean.") && profiles.PreviewText.Contains("Links to add: 1, links to remove: 2"));
+        }
+
+        [Fact]
+        public async Task The_plan_uses_vars_added_after_it_first_ran()
+        {
+            MakeVar("A.B.1");
+            Update();
+            ShellViewModel shell = await Shell();
+            shell.Picks.Toggle("A.B.1");
+            WaitUntil(() => shell.Profiles!.PlanText.Contains("link 1 var,"));
+
+            MakeVar("New.Pack.1");
+            Update();
+            await shell.Profiles!.Reload();
+            shell.Picks.Toggle("New.Pack.1");
+
+            WaitUntil(() => shell.Profiles.PlanText.Contains("link 2 vars,"));
         }
 
         [Fact]
@@ -637,6 +656,9 @@ namespace varManager.App.Tests
             await Settle(shell);
 
             Assert.True(VarLinks.Installed(paths.AddonPackages).ContainsKey("A.B.1"));
+            Assert.True(File.Exists(LeanProfiles.ProfilePath(vars, "lean")));
+            Assert.Equal("renamed", shell.SelectedSwitch);
+            Assert.Contains("renamed", shell.Switches);
         }
 
         [Fact]
@@ -721,13 +743,16 @@ namespace varManager.App.Tests
             Directory.CreateDirectory(Path.GetDirectoryName(real)!);
             File.WriteAllText(real, "real");
             File.WriteAllText(Path.Combine(Links("lean"), "A.B.1.var.disabled"), "");
+            string notMarker = Path.Combine(top, "real.disabled");
+            File.WriteAllText(notMarker, "real");
 
             shell.Profiles!.DeleteCommand.Execute(Card(shell, "lean"));
             shell.Profiles.ConfirmDeleteCommand.Execute(null);
-            WaitUntil(() => jobs.Note.Contains("1 real files"));
+            WaitUntil(() => jobs.Note.Contains("2 real files"));
             await Settle(shell);
 
             Assert.True(File.Exists(real));
+            Assert.True(File.Exists(notMarker));
             Assert.False(Directory.Exists(Links("lean")));
             Assert.True(File.Exists(Tidied("A.B.1")));
         }
@@ -793,17 +818,24 @@ namespace varManager.App.Tests
         }
 
         [Fact]
-        public async Task A_replaced_page_stops_following_the_picks()
+        public async Task Saving_setup_again_leaves_the_old_pages_behind()
         {
             MakeVar("A.B.1");
             Update();
             ShellViewModel shell = await Shell();
-            ProfilesViewModel old = shell.Profiles!;
+            LibraryViewModel oldLibrary = shell.Library!;
+            ProfilesViewModel oldProfiles = shell.Profiles!;
+            oldLibrary.Columns = 10;
+            LibraryTile oldTile = oldLibrary.Rows.OfType<TileRow>().SelectMany(row => row.Tiles).Single();
 
-            old.Detach();
+            shell.SaveSetupCommand.Execute(null);
+            await Settle(shell);
+            Assert.NotSame(oldProfiles, shell.Profiles);
             shell.Picks.Toggle("A.B.1");
 
-            Assert.Empty(old.PickRows);
+            Assert.Empty(oldProfiles.PickRows);
+            Assert.False(oldTile.IsPicked);
+            Assert.Equal(new[] { "A.B.1" }, shell.Profiles!.PickRows);
         }
 
         [Fact]
@@ -947,6 +979,26 @@ namespace varManager.App.Tests
             Assert.Equal("Not measured", launching.Profiles!.Cards.Single(card => card.Name == "default").Ram);
             Assert.Equal("lean", shell.SelectedSwitch);
             Assert.True(ProfileTimings.Load(vars)["lean"].StartupSeconds > 0);
+        }
+
+        [Fact]
+        public async Task A_second_launch_replaces_the_first_timer()
+        {
+            ShellViewModel shell = await ShellWithLean();
+            string settingsFile = Path.Combine(data, "settings.json");
+            var launching = new ShellViewModel(settingsFile, jobs, () => false, _ => { }, () => 1);
+            await launching.LibraryLoaded.WaitAsync(Timeout);
+            string request = VamBridge.RequestFile(vam);
+
+            launching.LaunchCommand.Execute(null);
+            launching.SelectedSwitch = "default";
+            launching.LaunchCommand.Execute(null);
+            File.Delete(request);
+
+            WaitUntil(() => ProfileTimings.Load(vars).ContainsKey("default"));
+            await Task.Delay(1500);
+            Assert.False(ProfileTimings.Load(vars).ContainsKey("lean"));
+            await Settle(launching);
         }
 
         [Fact]
