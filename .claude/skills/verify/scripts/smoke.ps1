@@ -285,7 +285,7 @@ try {
 
     # Alpha depends on disabled Beta, so the unlinked check below proves dependencies aren't followed.
     New-FakeVar (Join-Path $Pack 'Smoke.Alpha.1.var') 'Smoke' 'Alpha' 'Smoke.Alpha.1' 'Smoke.Beta.1'
-    New-FakeVar (Join-Path $Pack 'Smoke.Beta.1.var.disabled') 'Smoke' 'Beta'
+    New-FakeVar (Join-Path $Pack 'Smoke.Beta.1.var.disabled') 'Smoke' 'Beta' 'Smoke.Extra.1'
     Set-Content -LiteralPath (Join-Path $Pack 'readme.txt') -Value 'verify seed: not a var'
     $alphaHash = (Get-FileHash (Join-Path $Pack 'Smoke.Alpha.1.var')).Hash
     $before = Get-TreeListing $VaM
@@ -419,7 +419,7 @@ try {
     Check (@($rows.Select("varName = 'Smoke.Beta.1'")).Count -eq 1) 'database row for the disabled var'
     $dependencies = Get-DependencyRows
     $dependencies | Select-Object varName, dependency | Format-Table -AutoSize | Out-File -LiteralPath (Join-Path $Evidence 'dependencies-table.txt') -Encoding utf8
-    Check (@($dependencies.Select("varName = 'Smoke.Beta.1' AND dependency = 'Smoke.Alpha.1'")).Count -eq 1) 'deep scan finds a reference to another var'
+    Check (@($dependencies.Select("varName = 'Smoke.Beta.1' AND dependency = 'Smoke.Extra.1'")).Count -eq 1) 'deep scan finds a reference to another var'
     $logFile = Join-Path $App 'varManager.log'
     Check (-not (Select-String -LiteralPath $logFile -Pattern 'ERROR|FATAL' -Quiet)) 'app log has no errors'
 
@@ -526,8 +526,16 @@ namespace Smoke {
     Check (([string](Get-Item -LiteralPath $Pack).Target) -match 'default$') 'AddonPackages returns to the default switch'
 
     # An exclude profile is default minus the selected var, and Profile Check treats it as a profile.
-    [void][Smoke.Mouse]::PostMessage($gridHandle, 0x0201, [IntPtr]1, $point)
-    [void][Smoke.Mouse]::PostMessage($gridHandle, 0x0202, [IntPtr]::Zero, $point)
+    # Alpha no longer needs Beta here, so with Beta linked in default, leaving Beta out must keep Alpha.
+    # A broken link must not block it.
+    $defaultLinks = Join-Path $VaM '___AddonPacksSwitch ___\default\___VarsLink___'
+    $betaFile = (Get-ChildItem -LiteralPath (Split-Path (Split-Path $tidied)) -Recurse -Filter 'Smoke.Beta.1.var').FullName
+    $defaultBeta = Join-Path $defaultLinks 'Smoke.Beta.1.var'
+    $defaultGhost = Join-Path $defaultLinks 'Ghost.Gone.1.var'
+    cmd /c mklink "$defaultBeta" "$betaFile" | Out-Null
+    cmd /c mklink "$defaultGhost" (Join-Path $Vars 'no-such-file.var') | Out-Null
+    [void][Smoke.Mouse]::PostMessage($gridHandle, 0x0201, [IntPtr]1, $rowTwo)
+    [void][Smoke.Mouse]::PostMessage($gridHandle, 0x0202, [IntPtr]::Zero, $rowTwo)
     Start-Sleep -Seconds 1
     [Win]::Click((Find-Child $main '^Exclude Profile$'))
     $excludeForm = Wait-Window '^Exclude profile$' 'exclude profile window' 15
@@ -540,15 +548,26 @@ namespace Smoke {
     $deadline = (Get-Date).AddSeconds(20)
     while ((Get-Date) -lt $deadline -and -not (Test-Path -LiteralPath $trimFile)) { Start-Sleep -Milliseconds 300 }
     Start-Sleep -Seconds 3
-    Check ((Get-Content -LiteralPath $trimFile) -contains "exclude`tSmoke.Alpha.1") 'exclude profile records the exclusion'
-    Check (-not (Test-Path -LiteralPath (Join-Path $trimLinks 'Smoke.Alpha.1.var'))) 'exclude profile leaves the var unlinked'
-    Check (Test-Path -LiteralPath (Join-Path $VaM '___AddonPacksSwitch ___\default\___VarsLink___\Smoke.Alpha.1.var')) 'exclude profile leaves default alone'
+    Check ((Get-Content -LiteralPath $trimFile) -contains "exclude`tSmoke.Beta.1") 'exclude profile records the exclusion'
+    Check (-not (Test-Path -LiteralPath (Join-Path $trimLinks 'Smoke.Beta.1.var'))) 'exclude profile leaves the var unlinked'
+    $trimAlpha = Join-Path $trimLinks 'Smoke.Alpha.1.var'
+    Check (Test-Path -LiteralPath $trimAlpha) 'exclude profile links the rest of default'
+    Check (-not (Test-Path -LiteralPath (Join-Path $trimLinks 'Ghost.Gone.1.var'))) 'exclude profile skips a broken default link'
+    Check (Test-Path -LiteralPath $defaultBeta) 'exclude profile leaves default alone'
     Check (([string](Get-Item -LiteralPath $Pack).Target) -match 'trimmed$') 'AddonPackages points at the exclude profile'
     Check ((Get-FileHash -LiteralPath $tidied).Hash -eq $alphaHash) 'exclude profile leaves var files unchanged'
     [Win]::Click((Find-Child $main '^Profile Check$'))
     $checkForm = Wait-Window '^Profile check$' 'exclude profile check window' 15
     [Win]::Click((Find-Child $checkForm '^Close$'))
     Start-Sleep -Seconds 1
+    [IO.File]::Delete($trimAlpha)
+    [Win]::Click((Find-Child $main '^Profile Check$'))
+    $checkForm = Wait-Window '^Profile check$' 'exclude profile repair window' 15
+    [Win]::Click((Find-Child $checkForm '^Repair$'))
+    Start-Sleep -Seconds 3
+    Check (Test-Path -LiteralPath $trimAlpha) 'Repair restores a link in an exclude profile'
+    [IO.File]::Delete($defaultBeta)
+    [IO.File]::Delete($defaultGhost)
     [Win]::Click((Find-Child $main '^Del$'))
     $deleteBox = Wait-Window '^delete switch$' 'delete exclude switch confirmation' 10
     [Win]::Click((Find-Child $deleteBox '^&?Yes$'))

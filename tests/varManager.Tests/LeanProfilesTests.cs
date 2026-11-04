@@ -317,8 +317,9 @@ namespace varManagerTests
             LeanProfile profile = new LeanProfile();
             profile.Exclude.AddRange(exclude);
             profile.Base.AddRange(baseVars ?? new string[0]);
+            Dictionary<string, string[]> anyCase = new Dictionary<string, string[]>(references, StringComparer.OrdinalIgnoreCase);
             return LeanProfiles.PlanExcluding(profile, linked, Index(library ?? linked),
-                name => references.TryGetValue(name, out string[] found) ? found : new string[0], name => 1);
+                name => anyCase.TryGetValue(name, out string[] found) ? found : new string[0], name => 1);
         }
 
         [Fact]
@@ -464,6 +465,96 @@ namespace varManagerTests
             Assert.Contains("Also left out", text);
             Assert.Contains("A.Plugin.1 needed by B.Other.1", text);
             Assert.DoesNotContain("Vars:", text);
+        }
+
+        [Fact]
+        public void Excluding_matches_names_in_any_case()
+        {
+            ProfilePlan plan = Excluding(new[] { "a.scene.1" }, new[] { "A.Scene.1", "B.Other.1" }, new Dictionary<string, string[]>());
+
+            Assert.Equal(new[] { "B.Other.1" }, plan.Closure.Vars);
+            Assert.Empty(plan.AlreadyOff);
+        }
+
+        [Fact]
+        public void Excluding_keeps_everything_a_kept_exclusion_needs()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.X.1" }, new[] { "A.X.1", "A.D.1", "A.E.1", "B.Y.1" },
+                new Dictionary<string, string[]>
+                {
+                    ["B.Y.1"] = new[] { "A.X.1" },
+                    ["A.X.1"] = new[] { "A.D.1" },
+                    ["A.D.1"] = new[] { "A.E.1" }
+                });
+
+            Assert.Equal(new[] { "A.D.1", "A.E.1", "A.X.1", "B.Y.1" }, plan.Closure.Vars);
+            Assert.Empty(plan.AlsoLeftOut);
+        }
+
+        [Fact]
+        public void Excluding_counts_a_substitute_version_as_used()
+        {
+            ProfilePlan plan = Excluding(new[] { "C.Scene.1" }, new[] { "A.Hair.1", "B.Scene.1", "C.Scene.1" },
+                new Dictionary<string, string[]>
+                {
+                    ["B.Scene.1"] = new[] { "A.Hair.2" },
+                    ["C.Scene.1"] = new[] { "A.Hair.1" }
+                });
+
+            Assert.Contains("A.Hair.1", plan.Closure.Vars);
+            Assert.Equal("A.Hair.1", plan.Closure.Substitutions["A.Hair.2"]);
+        }
+
+        [Fact]
+        public void Excluding_ignores_missing_references_of_dropped_vars()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Scene.1" }, new[] { "A.Scene.1", "B.Other.1" },
+                new Dictionary<string, string[]> { ["A.Scene.1"] = new[] { "Gone.Pack.1" } });
+
+            Assert.Empty(plan.Closure.Missing);
+        }
+
+        [Fact]
+        public void Excluding_one_version_keeps_the_others()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Scene.1" }, new[] { "A.Scene.1", "A.Scene.2" },
+                new Dictionary<string, string[]> { ["A.Scene.1"] = new[] { "A.Scene.latest" } });
+
+            Assert.Equal(new[] { "A.Scene.2" }, plan.Closure.Vars);
+            Assert.Empty(plan.AlsoLeftOut);
+        }
+
+        [Fact]
+        public void Changing_only_exclusions_keeps_the_prior_version()
+        {
+            string path = Path.Combine(root, "trim.profile");
+            LeanProfile first = new LeanProfile();
+            first.Exclude.Add("A.One.1");
+            LeanProfile second = new LeanProfile();
+            second.Exclude.Add("A.Two.1");
+
+            LeanProfiles.Save(first, path);
+            LeanProfiles.Save(second, path);
+
+            Assert.Equal(new[] { "A.One.1" }, LeanProfiles.Load(LeanProfiles.PreviousPath(path)).Exclude);
+            Assert.Equal(new[] { "A.Two.1" }, LeanProfiles.Load(path).Exclude);
+        }
+
+        [Fact]
+        public void ActiveLinks_counts_only_what_VaM_would_load()
+        {
+            string nested = Path.Combine(links, "Moved");
+            Directory.CreateDirectory(nested);
+            Link(Path.Combine(links, "A.Top.1.var"), Var("A.Top.1"));
+            Link(Path.Combine(nested, "A.Nested.1.var"), Var("A.Nested.1"));
+            Link(Path.Combine(links, "A.Broken.1.var"), Target("A.Broken.1"));
+            Link(Path.Combine(links, "A.Off.1.var"), Var("A.Off.1"));
+            File.WriteAllText(Path.Combine(links, "A.Off.1.var.disabled"), "");
+            File.WriteAllText(Path.Combine(links, "A.Real.1.var"), "content");
+
+            Assert.Equal(new[] { "A.Nested.1", "A.Top.1" },
+                LeanProfiles.ActiveLinks(links, SearchOption.AllDirectories).OrderBy(name => name));
+            Assert.Equal(new[] { "A.Top.1" }, LeanProfiles.ActiveLinks(links, SearchOption.TopDirectoryOnly));
         }
     }
 }

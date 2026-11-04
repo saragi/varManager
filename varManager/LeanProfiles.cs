@@ -89,7 +89,10 @@ namespace varManager
                 .Select(resolution => resolution.VarName);
             Func<string, IEnumerable<string>> uses = name => resolved(referencesOf(name));
 
-            List<string> related = Walk(excluded, uses).Keys.Where(name => !excluded.Contains(name)).ToList();
+            // A var can name its own package, and that doesn't make other versions its dependencies.
+            Func<string, IEnumerable<string>> usesOtherPackages = name => uses(name)
+                .Where(next => !string.Equals(PackageOf(next), PackageOf(name), StringComparison.OrdinalIgnoreCase));
+            List<string> related = Walk(excluded, usesOtherPackages).Keys.Where(name => !excluded.Contains(name)).ToList();
             IEnumerable<string> roots = linked.Except(excluded, StringComparer.OrdinalIgnoreCase)
                 .Except(related, StringComparer.OrdinalIgnoreCase)
                 .Concat(resolved(profile.Base));
@@ -113,6 +116,12 @@ namespace varManager
                 .Select(name => name + " needed by " + (wanted[name] ?? "the base set")));
             plan.AlreadyOff.AddRange(profile.Exclude.Where(name => !linked.Contains(name)).OrderBy(name => name, StringComparer.OrdinalIgnoreCase));
             return plan;
+        }
+
+        private static string PackageOf(string varName)
+        {
+            int versionDot = varName.LastIndexOf('.');
+            return versionDot < 0 ? varName : varName.Substring(0, versionDot);
         }
 
         private static IEnumerable<VarEntry> ToEntry(string varName)
@@ -203,6 +212,17 @@ namespace varManager
                 return Enumerable.Empty<string>();
             return Directory.GetFiles(linkDirectory, "*.var")
                 .Where(path => new FileInfo(path).Attributes.HasFlag(FileAttributes.ReparsePoint));
+        }
+
+        /// <summary>Var names linked here that VaM would load: not broken, and not turned off with a .disabled file.</summary>
+        public static IEnumerable<string> ActiveLinks(string directory, SearchOption scope)
+        {
+            if (!Directory.Exists(directory))
+                return Enumerable.Empty<string>();
+            return Directory.GetFiles(directory, "*.var", scope)
+                .Where(path => new FileInfo(path).Attributes.HasFlag(FileAttributes.ReparsePoint)
+                    && LinkResolves(path) && !File.Exists(path + ".disabled"))
+                .Select(Path.GetFileNameWithoutExtension);
         }
 
         /// <summary>

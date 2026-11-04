@@ -108,8 +108,25 @@ namespace varManager
             };
             if (profile.Exclude.Count == 0)
                 return LeanProfiles.Plan(profile, VarLookup, referencesOf, sizeOf);
-            IEnumerable<string> linked = LeanProfiles.Links(SwitchLinkPath("default")).Select(Path.GetFileNameWithoutExtension);
-            return LeanProfiles.PlanExcluding(profile, linked, VarLookup, referencesOf, sizeOf);
+            return LeanProfiles.PlanExcluding(profile, DefaultSwitchVars(), VarLookup, referencesOf, sizeOf);
+        }
+
+        /// <summary>What VaM loads on the default switch, from the same places the installed scan reads.</summary>
+        private List<string> DefaultSwitchVars()
+        {
+            string switchPath = Path.Combine(Settings.Default.vampath, addonPacksSwitch, "default");
+            return LeanProfiles.ActiveLinks(Path.Combine(switchPath, installLinkDirName), SearchOption.AllDirectories)
+                .Concat(LeanProfiles.ActiveLinks(switchPath, SearchOption.TopDirectoryOnly))
+                .Where(VarLookup.Contains)
+                .ToList();
+        }
+
+        private string UnusedSwitchName(string name)
+        {
+            string candidate = name;
+            for (int number = 2; comboBoxPacksSwitch.Items.Cast<string>().Contains(candidate, StringComparer.OrdinalIgnoreCase); number++)
+                candidate = name + " " + number;
+            return candidate;
         }
 
         private static bool CreateVarLink(string link, string target)
@@ -232,7 +249,7 @@ namespace varManager
                     profile.Exclude.AddRange(picks);
                     return profile;
                 };
-                using (FormExcludeProfile form = new FormExcludeProfile(editing ? current : "trimmed", exclusions, (name, picks) =>
+                using (FormExcludeProfile form = new FormExcludeProfile(editing ? current : UnusedSwitchName("trimmed"), exclusions, (name, picks) =>
                 {
                     ProfilePlan plan = PlanProfile(profileOf(picks));
                     return LeanProfiles.Describe(plan, LeanProfiles.Diff(plan.Closure.Vars,
