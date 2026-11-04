@@ -41,7 +41,8 @@ Running also needs the Microsoft ACE OLEDB 12.0 provider, x64.
 
 ## Architecture
 
-- **`varManager/Form1.cs`** holds most of the logic as well as the UI: tidying, Update DB, install, dependency resolution and VaM integration. Other forms call back into it through a `form1` reference.
+- **`varManager/Form1.cs`** holds the UI, the background jobs and everything tied to the Access DataSet, such as Update DB's loop and writes. Other forms call back into it through a `form1` reference.
+- **`varManager.Core`** holds the logic with no UI, and both apps use it: `VarTidier`, `VarScanner`, `VarLinks`, `VarSwitches`, `VamBridge`, `SceneAnalysis`, `ScenePreviews`, `DependencyAnalysis` and the older classes named below. It reports through callbacks, because `LogLevel` belongs to the WinForms app.
 - **Data layer:** a typed DataSet (`varManagerDataSet.xsd`, generated `.Designer.cs`) over Access `varManager.mdb`. `vars`, `scenes` and `dependencies` are loaded whole into memory at startup, and `varsView` joins `vars` to `installStatus`. Edit the `.xsd`, not the Designer file.
 - **New app's data:** `LibraryStore` is a SQLite database with the same tables and column names as Access, and var names ignore case. `AccessDatabase.ImportOnce` fills it once from a temporary copy of `varManager.mdb`, so the original is never opened. Only the new app uses these, so they have no link in `varManager.csproj`.
 - **Lookups:** use `VarLookup`, `DependencyLookup` and `ScenesLookup` in `Form1`, not LINQ scans of the tables. They are caches invalidated by DataTable row events. `VarIndex.Resolve` returns a var name, `"missing"`, or a substitute version ending in `$`, and callers depend on that format.
