@@ -15,6 +15,12 @@ The main app is a legacy-format .NET Framework 4.8 project. Build it with Visual
 # All tests (run from tests\varManager.Tests)
 dotnet test
 
+# New WPF app
+dotnet build varManager.App\varManager.App.csproj
+
+# Core and app tests on .NET 10 (run from tests\varManager.App.Tests)
+dotnet test
+
 # One test
 dotnet test --filter "FullyQualifiedName~Latest_picks_highest"
 ```
@@ -22,6 +28,7 @@ dotnet test --filter "FullyQualifiedName~Latest_picks_highest"
 - Logic with no UI lives in `varManager.Core`. Tests reference that project, so they cover that logic only. The WinForms app compiles the same files through links, because Visual Studio's MSBuild here has no .NET SDK to load a modern project. A new file there needs a link in `varManager.csproj`. `tests/varManager.Tests` is not in `varManager.sln`.
 - Build `LoadScene.csproj` with `/restore /p:RestorePackagesConfig=true /p:SolutionDir=<repo>\ /p:VaMPath=<VaM folder>`. It references VaM's DLLs through `VaMPath`.
 - `MMDLoader` is SDK-style and targets `net6.0-windows`.
+- `varManager.App` is the new WPF app on `net10.0-windows`, with namespace `varManager.Ui`. Build it with `dotnet`, because Visual Studio's MSBuild still can't load SDK-style projects. It isn't in `varManager.sln`. `tests/varManager.App.Tests` compiles the Core tests from `tests/varManager.Tests` as well as its own.
 - There is no linter and no CI.
 
 ## Running the app safely
