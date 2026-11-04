@@ -71,7 +71,7 @@ namespace varManager
 
         private static string ProfilePath(string name)
         {
-            return Path.Combine(Settings.Default.varspath, profilesDirName, name + ".txt");
+            return Path.Combine(Settings.Default.varspath, profilesDirName, name + ".profile");
         }
 
         private static string SwitchLinkPath(string name)
@@ -107,116 +107,146 @@ namespace varManager
 
         private static bool CreateVarLink(string link, string target)
         {
+            if (!File.Exists(target))
+                return false;
             if (!Comm.CreateSymbolicLink(link, target, Comm.SYMBOLIC_LINK_FLAG.File | Comm.SYMBOLIC_LINK_FLAG.AllowUnprivilegedCreate))
                 return false;
-            Comm.SetSymboLinkFileTime(link, File.GetCreationTime(target), File.GetLastWriteTime(target));
+            try
+            {
+                Comm.SetSymboLinkFileTime(link, File.GetCreationTime(target), File.GetLastWriteTime(target));
+            }
+            catch (Win32Exception)
+            {
+                // The link works without its timestamp.
+            }
             return true;
         }
 
-        private void ApplyProfileLinks(string name, ProfilePlan plan)
+        /// <summary>Applies links first, so a failure leaves the saved profile describing the last good state.</summary>
+        private void ApplyProfile(string name, ProfilePlan plan, LeanProfile toSave)
         {
-            LeanProfiles.ApplyLinks(plan.Closure.Vars, SwitchLinkPath(name), getVarFilePath, CreateVarLink);
-            if (comboBoxPacksSwitch.Items.IndexOf(name) < 0)
-                comboBoxPacksSwitch.Items.Add(name);
-            if ((string)comboBoxPacksSwitch.SelectedItem == name)
+            string switchName = comboBoxPacksSwitch.Items.Cast<string>()
+                .FirstOrDefault(item => string.Equals(item, name, StringComparison.OrdinalIgnoreCase));
+            if (switchName == null)
+            {
+                switchName = name;
+                comboBoxPacksSwitch.Items.Add(switchName);
+            }
+            LeanProfiles.ApplyLinks(plan.Closure.Vars, SwitchLinkPath(switchName), getVarFilePath, CreateVarLink);
+            if (toSave != null)
+                LeanProfiles.Save(toSave, ProfilePath(switchName));
+            if (string.Equals((string)comboBoxPacksSwitch.SelectedItem, switchName, StringComparison.OrdinalIgnoreCase))
             {
                 UpdateVarsInstalled();
                 RescanPackages();
             }
             else
             {
-                comboBoxPacksSwitch.SelectedItem = name;
+                comboBoxPacksSwitch.SelectedItem = switchName;
             }
         }
 
-        private bool ProfileToolsAvailable()
+        private void DeleteProfileFiles(string name)
         {
-            if (!backgroundWorkerInstall.IsBusy)
-                return true;
-            MessageBox.Show("Another operation is still running. Please wait for it to finish.");
-            return false;
+            File.Delete(ProfilePath(name));
+            File.Delete(LeanProfiles.PreviousPath(ProfilePath(name)));
+        }
+
+        private void RenameProfileFiles(string oldName, string newName)
+        {
+            foreach (Func<string, string> path in new Func<string, string>[] { ProfilePath, name => LeanProfiles.PreviousPath(ProfilePath(name)) })
+            {
+                if (File.Exists(path(oldName)))
+                    File.Move(path(oldName), path(newName));
+            }
+        }
+
+        private void RunProfileAction(Action action)
+        {
+            if (backgroundWorkerInstall.IsBusy)
+            {
+                MessageBox.Show("Another operation is still running. Please wait for it to finish.");
+                return;
+            }
+            try
+            {
+                action();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("The profile action failed: " + ex.Message);
+            }
         }
 
         private void buttonLeanProfile_Click(object sender, EventArgs e)
         {
-            if (!ProfileToolsAvailable())
-                return;
-            LeanProfile profile = new LeanProfile();
-            foreach (DataGridViewRow row in varsViewDataGridView.SelectedRows)
-                profile.Direct.Add(row.Cells["varNameDataGridViewTextBoxColumn"].Value.ToString());
-            if (profile.Direct.Count == 0)
+            RunProfileAction(() =>
             {
-                MessageBox.Show("Select the vars you want in the list first.");
-                return;
-            }
-            profile.Base.AddRange(BaseReferences());
-            ProfilePlan plan = PlanProfile(profile);
-            using (FormLeanProfile form = new FormLeanProfile(name => LeanProfiles.Describe(plan,
-                LeanProfiles.Diff(plan.Closure.Vars, LeanProfiles.Links(SwitchLinkPath(name)).Select(Path.GetFileNameWithoutExtension)))))
-            {
-                if (form.ShowDialog(this) != DialogResult.OK)
+                LeanProfile profile = new LeanProfile();
+                foreach (DataGridViewRow row in varsViewDataGridView.SelectedRows)
+                    profile.Direct.Add(row.Cells["varNameDataGridViewTextBoxColumn"].Value.ToString());
+                if (profile.Direct.Count == 0)
+                {
+                    MessageBox.Show("Select the vars you want in the list first.");
                     return;
-                try
-                {
-                    LeanProfiles.Save(profile, ProfilePath(form.ProfileName));
-                    ApplyProfileLinks(form.ProfileName, plan);
                 }
-                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                profile.Base.AddRange(BaseReferences());
+                ProfilePlan plan = PlanProfile(profile);
+                using (FormLeanProfile form = new FormLeanProfile(name => LeanProfiles.Describe(plan,
+                    LeanProfiles.Diff(plan.Closure.Vars, LeanProfiles.Links(SwitchLinkPath(name)).Select(Path.GetFileNameWithoutExtension)))))
                 {
-                    MessageBox.Show("The profile was not finished: " + ex.Message);
+                    if (form.ShowDialog(this) == DialogResult.OK)
+                        ApplyProfile(form.ProfileName, plan, profile);
                 }
-            }
+            });
         }
 
         private void buttonProfileCheck_Click(object sender, EventArgs e)
         {
-            if (!ProfileToolsAvailable())
-                return;
-            string name = (string)comboBoxPacksSwitch.SelectedItem;
-            string path = string.IsNullOrEmpty(name) ? null : ProfilePath(name);
-            if (path == null || !File.Exists(path))
+            RunProfileAction(() =>
             {
-                MessageBox.Show("The current switch isn't a lean profile.");
-                return;
-            }
-            ProfilePlan plan = PlanProfile(LeanProfiles.Load(path));
-            ProfileHealth health = LeanProfiles.Check(plan, SwitchLinkPath(name));
-            string previous = LeanProfiles.PreviousPath(path);
-            DialogResult result;
-            using (FormProfileCheck form = new FormProfileCheck(LeanProfiles.Describe(health), health.CanRepair, File.Exists(previous)))
-            {
-                result = form.ShowDialog(this);
-            }
-            try
-            {
+                string name = (string)comboBoxPacksSwitch.SelectedItem;
+                string path = string.IsNullOrEmpty(name) ? null : ProfilePath(name);
+                LeanProfile profile = path != null && File.Exists(path) ? LeanProfiles.Load(path) : null;
+                if (profile == null || profile.Direct.Count == 0)
+                {
+                    MessageBox.Show("The current switch isn't a lean profile.");
+                    return;
+                }
+                ProfilePlan plan = PlanProfile(profile);
+                ProfileHealth health = LeanProfiles.Check(plan, SwitchLinkPath(name));
+                string previous = LeanProfiles.PreviousPath(path);
+                DialogResult result;
+                using (FormProfileCheck form = new FormProfileCheck(LeanProfiles.Describe(health), health.CanRepair, File.Exists(previous)))
+                {
+                    result = form.ShowDialog(this);
+                }
                 if (result == DialogResult.Yes)
                 {
-                    ApplyProfileLinks(name, plan);
+                    ApplyProfile(name, plan, null);
                 }
                 else if (result == DialogResult.Retry)
                 {
                     LeanProfile restored = LeanProfiles.Load(previous);
-                    LeanProfiles.Save(restored, path);
-                    ApplyProfileLinks(name, PlanProfile(restored));
+                    ApplyProfile(name, PlanProfile(restored), restored);
                 }
-            }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
-            {
-                MessageBox.Show("The profile was not finished: " + ex.Message);
-            }
+            });
         }
 
         private void buttonLaunchVaM_Click(object sender, EventArgs e)
         {
-            if (Process.GetProcessesByName("vam").Length > 0)
+            RunProfileAction(() =>
             {
-                MessageBox.Show("VaM is already running.");
-                return;
-            }
-            Process.Start(new ProcessStartInfo(Path.Combine(Settings.Default.vampath, "VaM.exe"), "-vrmode None")
-            {
-                WorkingDirectory = Settings.Default.vampath,
-                UseShellExecute = false
+                if (Process.GetProcessesByName("vam").Length > 0)
+                {
+                    MessageBox.Show("VaM is already running.");
+                    return;
+                }
+                Process.Start(new ProcessStartInfo(Path.Combine(Settings.Default.vampath, "VaM.exe"), "-vrmode None")
+                {
+                    WorkingDirectory = Settings.Default.vampath,
+                    UseShellExecute = false
+                });
             });
         }
 
@@ -3249,6 +3279,7 @@ namespace varManager
                     string packsSwitchpath = new DirectoryInfo(Path.Combine(Settings.Default.vampath, addonPacksSwitch)).FullName.ToLower();
                     DirectoryInfo diswitch = new DirectoryInfo(Path.Combine(packsSwitchpath, curswitch));
                     diswitch.Delete(true);
+                    DeleteProfileFiles(curswitch);
                     comboBoxPacksSwitch.Items.Remove(curswitch);
                     comboBoxPacksSwitch.SelectedItem = "default";
                 }
@@ -3269,6 +3300,7 @@ namespace varManager
                     string packsSwitchpath = new DirectoryInfo(Path.Combine(Settings.Default.vampath, addonPacksSwitch)).FullName.ToLower();
                     DirectoryInfo diswitch = new DirectoryInfo(Path.Combine(packsSwitchpath, curswitch));
                     diswitch.MoveTo(Path.Combine(packsSwitchpath, newName));
+                    RenameProfileFiles(curswitch, newName);
                     comboBoxPacksSwitch.Items[comboBoxPacksSwitch.SelectedIndex] = newName;
                     this.varpacksSwitch(newName);
                 }

@@ -460,11 +460,13 @@ namespace Smoke {
     [Win]::Click((Find-Child $leanForm '^Create profile$'))
     $leanLinks = Join-Path $VaM '___AddonPacksSwitch ___\lean\___VarsLink___'
     $deadline = (Get-Date).AddSeconds(20)
-    while ((Get-Date) -lt $deadline -and -not (Test-Path -LiteralPath (Join-Path $Vars '___Profiles___\lean.txt'))) { Start-Sleep -Milliseconds 300 }
+    while ((Get-Date) -lt $deadline -and -not (Test-Path -LiteralPath (Join-Path $Vars '___Profiles___\lean.profile'))) { Start-Sleep -Milliseconds 300 }
     Start-Sleep -Seconds 3
-    Check (Test-Path -LiteralPath (Join-Path $Vars '___Profiles___\lean.txt')) 'lean profile saved'
+    Check (Test-Path -LiteralPath (Join-Path $Vars '___Profiles___\lean.profile')) 'lean profile saved'
     $leanVars = @(Get-ChildItem -LiteralPath $leanLinks -Filter '*.var' -ErrorAction SilentlyContinue)
-    Check ($leanVars.Count -ge 1) 'lean profile has links'
+    Check (($leanVars.Name) -contains 'Smoke.Alpha.1.var') 'lean profile links the selected var'
+    $profileFile = Join-Path $Vars '___Profiles___\lean.profile'
+    Check ((Get-Content -LiteralPath $profileFile) -contains "direct`tSmoke.Alpha.1") 'lean profile records the direct pick'
     Check (@($leanVars | Where-Object { $_.LinkType -ne 'SymbolicLink' }).Count -eq 0) 'lean profile holds only links'
     Check (([string](Get-Item -LiteralPath $Pack).Target) -match 'lean$') 'AddonPackages points at the lean profile'
     Check ((Get-FileHash -LiteralPath $tidied).Hash -eq $alphaHash) 'creating a profile leaves var files unchanged'
@@ -472,11 +474,39 @@ namespace Smoke {
     $checkForm = Wait-Window '^Profile check$' 'profile check window' 15
     Save-Shot $checkForm 'profile-check'
     $checkText = ([Win]::Children($checkForm) | ForEach-Object { [Win]::Text($_) }) -join "`n"
-    Check ($checkText -match 'healthy|Problems found') 'profile check reports a result'
+    Check ($checkText -match 'Replaced\.Hair_Package\.latest') 'profile check lists missing packages'
     [Win]::Click((Find-Child $checkForm '^Close$'))
     Start-Sleep -Seconds 1
+
+    # Repair puts back a lost link through the path that refreshes the active switch.
+    $alphaLeanLink = Join-Path $leanLinks 'Smoke.Alpha.1.var'
+    [IO.File]::Delete($alphaLeanLink)
+    [Win]::Click((Find-Child $main '^Profile Check$'))
+    $checkForm = Wait-Window '^Profile check$' 'profile check window' 15
+    [Win]::Click((Find-Child $checkForm '^Repair$'))
+    Start-Sleep -Seconds 3
+    Check (Test-Path -LiteralPath $alphaLeanLink) 'Repair restores a deleted link'
+
+    # A second version with Beta selected, then Restore previous brings the first back.
+    $rowTwo = [IntPtr]((63 -shl 16) -bor 12)
+    [void][Smoke.Mouse]::PostMessage($gridHandle, 0x0201, [IntPtr]1, $rowTwo)
+    [void][Smoke.Mouse]::PostMessage($gridHandle, 0x0202, [IntPtr]::Zero, $rowTwo)
+    Start-Sleep -Seconds 1
+    [Win]::Click((Find-Child $main '^Lean Profile$'))
+    $leanForm = Wait-Window '^Lean profile$' 'lean profile window' 15
+    [Win]::Click((Find-Child $leanForm '^Create profile$'))
+    Start-Sleep -Seconds 3
+    $betaLeanLink = Join-Path $leanLinks 'Smoke.Beta.1.var'
+    Check (Test-Path -LiteralPath $betaLeanLink) 'second profile version links the new selection'
+    [Win]::Click((Find-Child $main '^Profile Check$'))
+    $checkForm = Wait-Window '^Profile check$' 'profile check window' 15
+    [Win]::Click((Find-Child $checkForm '^Restore previous$'))
+    Start-Sleep -Seconds 3
+    Check ((Get-Content -LiteralPath $profileFile) -contains "direct`tSmoke.Alpha.1") 'Restore previous brings back the saved picks'
+    Check (-not (Test-Path -LiteralPath $betaLeanLink)) 'Restore previous removes links it no longer needs'
     [Win]::Close($main)
     Wait-Exit
+    Check (-not (Select-String -LiteralPath $logFile -Pattern 'ERROR|FATAL' -Quiet)) 'app log has no errors after profile work'
 }
 catch {
     $failure = $_.Exception.Message

@@ -1,7 +1,7 @@
 using System;
 using System.Drawing;
 using System.IO;
-using System.Linq;
+using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
 namespace varManager
@@ -63,7 +63,8 @@ namespace varManager
         {
             return name.Length > 0 && !name.EndsWith(".")
                 && !string.Equals(name, "default", StringComparison.OrdinalIgnoreCase)
-                && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
+                && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0
+                && !Regex.IsMatch(name, @"^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$", RegexOptions.IgnoreCase);
         }
     }
 

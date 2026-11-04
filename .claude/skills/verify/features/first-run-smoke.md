@@ -26,11 +26,12 @@ Preconditions: doctor passes and VaM is not running. The script creates all seed
 - Changed var: replace the tidied var with a file of a different size and run `UPD_DB` again, retrying on the `still running` box. The `dependencies` table gains the new references and loses the old one.
 - Stored state: after the app closes, the `vars` table has `Smoke.Alpha.1` with `scenes = 1`, and `Smoke.Beta.1`. Beta has no link, `readme.txt` is still reachable through `AddonPackages`, and `varManager.log` has no `ERROR` or `FATAL`. `Smoke.Beta.1` depends on `Smoke.Alpha.1`.
 
-- Lean profile: relaunch, click the first row header, click `Lean Profile`, then `Create profile`. `___Profiles___\lean.txt` exists, the `lean` switch holds only links, `AddonPackages` points at it, and the var hash is unchanged. `Profile Check` opens and reports a result.
+- Lean profile: runs after the stored-state checks, so `AddonPackages` ends the run pointing at `lean`. Relaunch, click the first row header, click `Lean Profile`, then `Create profile`. `___Profiles___\lean.profile` records `Smoke.Alpha.1`, the `lean` switch holds only links, and the var hash is unchanged. `Profile Check` lists the missing packages.
+- Repair and restore: delete a lean link and `Repair` brings it back. Create a version from the second row, then `Restore previous` brings the first back and removes the extra link. The app log still has no errors.
 
 ## Gotchas
 
 - The startup job can hold the background worker when `UPD_DB` is clicked. The script answers the `still running` box and retries.
-- The script finds the var list by the control under a point in the main window, because UI Automation exposes no IDs here. A layout change can break that lookup.
+- The script finds the var list by the control under a point in the main window, because UI Automation exposes no IDs here. A layout, window size or display scale change can break that lookup and the row clicks.
 - The seed scene holds only package references. It exercises the dependency deep scan, but not real scene parsing or previews.
 - The tree listing shows the switch folder in lower case (`___addonpacksswitch ___`), because `Form1_Load` lowers the path. That is existing behaviour.

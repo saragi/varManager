@@ -56,7 +56,9 @@ namespace varManagerTests
 
         private static bool Link(string link, string target)
         {
-            return CreateSymbolicLink(link, target, 2);
+            if (!CreateSymbolicLink(link, target, 2))
+                throw new InvalidOperationException("These tests need Windows Developer Mode to create symlinks.");
+            return true;
         }
 
         private string Target(string name)
@@ -194,11 +196,46 @@ namespace varManagerTests
         }
 
         [Fact]
+        public void Saving_the_same_picks_keeps_the_real_restore_point()
+        {
+            string path = Path.Combine(root, "profiles", "megan.profile");
+            LeanProfiles.Save(Profile(new[] { "Old.A.1" }), path);
+            LeanProfiles.Save(Profile(new[] { "New.A.1" }), path);
+            LeanProfiles.Save(Profile(new[] { "New.A.1" }), path);
+            Assert.Equal(new[] { "Old.A.1" }, LeanProfiles.Load(LeanProfiles.PreviousPath(path)).Direct);
+        }
+
+        [Fact]
+        public void Load_of_an_unrelated_file_has_no_direct_vars()
+        {
+            string path = Path.Combine(root, "notes.txt");
+            File.WriteAllLines(path, new[] { "Some.Var.1", "hello" });
+            Assert.Empty(LeanProfiles.Load(path).Direct);
+        }
+
+        [Fact]
+        public void Missing_packages_alone_are_not_called_healthy()
+        {
+            ProfileHealth health = new ProfileHealth();
+            health.Missing.Add("Gone.X.latest");
+            Assert.Contains("Problems found", LeanProfiles.Describe(health));
+            Assert.DoesNotContain("Repair makes", LeanProfiles.Describe(health));
+        }
+
+        [Fact]
+        public void Repairable_problems_warn_about_manual_changes()
+        {
+            ProfileHealth health = new ProfileHealth();
+            health.UnusedLinks.Add("A.A.1");
+            Assert.Contains("undoes links you installed", LeanProfiles.Describe(health));
+        }
+
+        [Fact]
         public void Describe_plan_shows_counts_and_missing()
         {
             ProfilePlan plan = LeanProfiles.Plan(Profile(new[] { "A.A.1" }, "Gone.X.latest"), Index("A.A.1"), v => new string[0], v => 1073741824);
             string text = LeanProfiles.Describe(plan, LeanProfiles.Diff(plan.Closure.Vars, new string[0]));
-            Assert.Contains("Vars in this profile: 1 (1.00 GB)", text);
+            Assert.Matches(@"Vars in this profile: 1 \(1[.,]00 GB\)", text);
             Assert.Contains("Links to add: 1, links to remove: 0", text);
             Assert.Contains("Gone.X.latest", text);
         }

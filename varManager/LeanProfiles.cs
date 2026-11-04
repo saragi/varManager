@@ -137,10 +137,16 @@ namespace varManager
         public static void Save(LeanProfile profile, string path)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path));
+            string[] lines = profile.Direct.Select(name => DirectPrefix + name)
+                .Concat(profile.Base.Select(name => BasePrefix + name)).ToArray();
             if (File.Exists(path))
+            {
+                // Saving the same picks again must not overwrite the real restore point.
+                if (File.ReadAllLines(path).SequenceEqual(lines))
+                    return;
                 File.Copy(path, PreviousPath(path), true);
-            File.WriteAllLines(path, profile.Direct.Select(name => DirectPrefix + name)
-                .Concat(profile.Base.Select(name => BasePrefix + name)));
+            }
+            File.WriteAllLines(path, lines);
         }
 
         public static string PreviousPath(string path)
@@ -179,6 +185,8 @@ namespace varManager
         {
             StringBuilder text = new StringBuilder();
             text.AppendLine(health.CanRepair || health.Missing.Count > 0 ? "Problems found." : "This profile is healthy.");
+            if (health.CanRepair)
+                text.AppendLine("Repair makes the links match the saved profile. It undoes links you installed or removed by hand.");
             text.AppendLine();
             AppendList(text, "Broken links", health.BrokenLinks);
             AppendList(text, "Needed but not linked", health.NeededLinks);
