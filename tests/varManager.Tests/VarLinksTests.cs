@@ -133,6 +133,37 @@ namespace varManagerTests
         }
 
         [Fact]
+        public void Installed_ignores_case_like_the_file_system()
+        {
+            VarLinks.Create(Path.Combine(links, "a.b.1.var"), Var("A.B.1"));
+
+            Assert.True(VarLinks.Installed(addons).ContainsKey("A.B.1"));
+        }
+
+        [Fact]
+        public void Installing_for_good_drops_the_temporary_link()
+        {
+            VarLinks.Create(Path.Combine(temp, "a.b.1.var"), Var("A.B.1"));
+            VarLinks.Create(Path.Combine(temp, "c.d.1.var"), Var("C.D.1"));
+
+            Assert.Equal(VarLinkResult.Linked, VarLinks.InstallForGood(addons, "A.B.1", Var("A.B.1"), out _));
+
+            Assert.True(VarLinks.IsLink(Path.Combine(links, "A.B.1.var")));
+            Assert.Equal(new[] { "c.d.1.var" }, VarLinks.TempLinks(addons));
+        }
+
+        [Fact]
+        public void A_failed_link_keeps_the_temporary_one()
+        {
+            VarLinks.Create(Path.Combine(temp, "a.b.1.var"), Var("A.B.1"));
+            Directory.Delete(links);
+
+            Assert.Equal(VarLinkResult.Failed, VarLinks.InstallForGood(addons, "A.B.1", Var("A.B.1"), out _));
+
+            Assert.Equal(new[] { "a.b.1.var" }, VarLinks.TempLinks(addons));
+        }
+
+        [Fact]
         public void Installed_creates_the_link_folder()
         {
             Directory.Delete(links);

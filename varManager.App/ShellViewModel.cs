@@ -60,6 +60,7 @@ namespace varManager.Ui
         private bool needsSetup;
         private LibraryViewModel? library;
         private ScenesViewModel? scenes;
+        private readonly TempLinkRemoval tempLinks = new TempLinkRemoval();
 
         public ShellViewModel(string settingsFile, JobRunner jobs)
             : this(settingsFile, jobs, VamBridge.IsRunning, StartVam)
@@ -239,7 +240,7 @@ namespace varManager.Ui
 
         private void ForgetTempLinks(IReadOnlyList<string> fileNames)
         {
-            _ = VamBridge.RemoveTempLinksAfterLoad(VamPath, fileNames, TimeSpan.FromSeconds(20));
+            _ = tempLinks.Schedule(VamPath, fileNames, TimeSpan.FromSeconds(20));
         }
 
         private async Task ReadLibrary(LibraryViewModel reading)

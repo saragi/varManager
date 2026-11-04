@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using SimpleJSON;
 
@@ -16,14 +17,21 @@ namespace varManager
         }
 
         /// <summary>Removes temporary links once VaM has taken the request, plus a pause for it to finish loading.</summary>
-        public static async Task RemoveTempLinksAfterLoad(string vamPath, IReadOnlyList<string> fileNames, TimeSpan pause)
+        public static async Task RemoveTempLinksAfterLoad(string vamPath, IReadOnlyList<string> fileNames, TimeSpan pause, CancellationToken token)
         {
             if (fileNames.Count == 0)
                 return;
             string request = RequestFile(vamPath);
-            while (File.Exists(request))
-                await Task.Delay(pause < TimeSpan.FromSeconds(2) ? pause : TimeSpan.FromSeconds(2)).ConfigureAwait(false);
-            await Task.Delay(pause).ConfigureAwait(false);
+            try
+            {
+                while (File.Exists(request))
+                    await Task.Delay(pause < TimeSpan.FromSeconds(2) ? pause : TimeSpan.FromSeconds(2), token).ConfigureAwait(false);
+                await Task.Delay(pause, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
             VarLinks.RemoveTempLinks(VarSwitches.AddonPackages(vamPath), fileNames);
         }
 

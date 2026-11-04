@@ -540,7 +540,7 @@ namespace varManager.Ui
                 int failed = 0;
                 foreach (string name in on)
                 {
-                    if (VarLinks.Install(paths.AddonPackages, name, files[name], false, out _) == VarLinkResult.Failed)
+                    if (VarLinks.InstallForGood(paths.AddonPackages, name, files[name], out _) == VarLinkResult.Failed)
                         failed++;
                 }
                 VamBridge.RequestRescan(paths.VamPath);

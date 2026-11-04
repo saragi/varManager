@@ -174,10 +174,11 @@ namespace varManager.Ui
             List<SceneEntry> shown = SceneCatalog.Filter(scenes, query, fitFilter);
             ShownText = $"{shown.Count:N0} of {scenes.Count:N0} scenes";
             var built = new List<SceneRow>();
-            for (int start = 0; start < shown.Count; start += columns)
+            int width = columns;
+            for (int start = 0; start < shown.Count; start += width)
             {
                 int first = start;
-                built.Add(new SceneRow(() => shown.GetRange(first, Math.Min(columns, shown.Count - first))
+                built.Add(new SceneRow(() => shown.GetRange(first, Math.Min(width, shown.Count - first))
                     .Select(scene => new SceneTile(scene, thumbnails, ui))
                     .ToList()));
             }
@@ -223,7 +224,7 @@ namespace varManager.Ui
                     if (installed.ContainsKey(name))
                         continue;
                     string file = Path.Combine(paths.VarsPath, byName[name].VarPath ?? "", name + ".var");
-                    VarLinkResult result = VarLinks.Install(paths.AddonPackages, name, file, false, out _);
+                    VarLinkResult result = VarLinks.InstallForGood(paths.AddonPackages, name, file, out _);
                     if (result == VarLinkResult.Linked)
                         linked++;
                     else if (result == VarLinkResult.Failed)

@@ -62,10 +62,19 @@ namespace varManager
             return VarLinkResult.Linked;
         }
 
-        /// <summary>Linked vars by name: everything in the link folder, plus links directly in AddonPackages.</summary>
+        /// <summary>Links a var for good and drops any temporary link to it, so VaM doesn't see the package twice.</summary>
+        public static VarLinkResult InstallForGood(string addonPackagesPath, string varName, string varFile, out int errorCode)
+        {
+            VarLinkResult result = Install(addonPackagesPath, varName, varFile, false, out errorCode);
+            if (result != VarLinkResult.Failed)
+                RemoveTempLinks(addonPackagesPath, new[] { varName + ".var" });
+            return result;
+        }
+
+        /// <summary>Linked vars by name, ignoring case as the file system does: everything in the link folder, plus links directly in AddonPackages.</summary>
         public static Dictionary<string, string> Installed(string addonPackagesPath)
         {
-            var installed = new Dictionary<string, string>();
+            var installed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             // Creating the folder below would leave a real AddonPackages where a link belongs, and block every switch.
             if (!Directory.Exists(addonPackagesPath))
                 return installed;

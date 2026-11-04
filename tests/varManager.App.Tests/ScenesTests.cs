@@ -80,6 +80,33 @@ namespace varManager.App.Tests
             }
         }
 
+        private void MakeZip(string name, params string[] namesAndTexts)
+        {
+            using ZipOutputStream zip = new ZipOutputStream(File.Create(Path.Combine(vars, name + ".var")));
+            for (int i = 0; i < namesAndTexts.Length; i += 2)
+            {
+                zip.PutNextEntry(new ZipEntry(namesAndTexts[i]));
+                byte[] bytes = Encoding.UTF8.GetBytes(namesAndTexts[i + 1]);
+                zip.Write(bytes, 0, bytes.Length);
+                zip.CloseEntry();
+            }
+        }
+
+        private ShellViewModel Shell(JobRunner jobs)
+        {
+            string settingsFile = Path.Combine(Path.GetDirectoryName(storeFile)!, "settings.json");
+            new AppSettings { VamPath = vam, VarsPath = vars }.Save(settingsFile);
+            return new ShellViewModel(settingsFile, jobs, () => false, _ => { });
+        }
+
+        private static void WaitUntil(Func<bool> done)
+        {
+            DateTime deadline = DateTime.UtcNow + Timeout;
+            while (!done() && DateTime.UtcNow < deadline)
+                Thread.Sleep(10);
+            Assert.True(done());
+        }
+
         private void Update()
         {
             using LibraryStore store = LibraryStore.Open(storeFile);
@@ -92,12 +119,12 @@ namespace varManager.App.Tests
             return SceneCatalog.Load(store, vars, new HashSet<string>(linked, StringComparer.OrdinalIgnoreCase));
         }
 
-        private async Task<(ScenesViewModel scenes, JobRunner jobs, List<string> wentToMissing)> Open()
+        private async Task<(ScenesViewModel scenes, JobRunner jobs, List<string> wentToMissing)> Open(List<string>? stale = null)
         {
             var jobs = new JobRunner(null);
             var went = new List<string>();
             var scenes = new ScenesViewModel(storeFile, paths, jobs, () => VarLinks.Installed(paths.AddonPackages).Keys,
-                () => went.Add("missing"), _ => { }, null);
+                () => went.Add("missing"), names => stale?.AddRange(names), null);
             await scenes.Reload();
             scenes.Columns = 10;
             return (scenes, jobs, went);
@@ -170,6 +197,31 @@ namespace varManager.App.Tests
             Update();
 
             Assert.Equal(SceneFit.MissingVars, Assert.Single(Load("A.B.1", "Dep.Pack.1")).Fit);
+        }
+
+        [Fact]
+        public void A_latest_reference_is_ready_when_the_newest_version_is_linked()
+        {
+            MakeVar("A.B.1", "Dep.Pack.latest:/Custom/a.vap");
+            MakeVar("Dep.Pack.1", scene: false);
+            MakeVar("Dep.Pack.2", scene: false);
+            Update();
+
+            Assert.Equal(SceneFit.Ready, Assert.Single(Load("A.B.1", "Dep.Pack.2")).Fit);
+            Assert.Equal(SceneFit.NotInProfile, Assert.Single(Load("A.B.1", "Dep.Pack.1")).Fit);
+        }
+
+        [Fact]
+        public void A_var_with_two_scenes_lists_both_and_a_scene_may_have_no_picture()
+        {
+            MakeZip("A.B.1", "meta.json", "{}", "Saves/scene/Two.json", "{}", "Saves/scene/One.json", "{}");
+            Update();
+
+            List<SceneEntry> scenes = Load("A.B.1");
+
+            Assert.Equal(new[] { "One", "Two" }, scenes.Select(s => s.Title).OrderBy(t => t));
+            Assert.All(scenes, s => Assert.Equal(SceneFit.Ready, s.Fit));
+            Assert.All(scenes, s => Assert.Null(s.PreviewPath));
         }
 
         [Fact]
@@ -287,6 +339,22 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public void A_link_named_in_another_case_counts_as_linked()
+        {
+            MakeVar("A.B.1", "Dep.Pack.1:/Custom/a.vap");
+            MakeVar("Dep.Pack.1", scene: false);
+            Update();
+            string tidied = Path.Combine(vars, LibraryFolders.Tidied);
+            VarLinks.Create(Path.Combine(links, "a.b.1.var"), Path.Combine(tidied, "A", "A.B.1.var"));
+            VarLinks.Create(Path.Combine(links, "dep.pack.1.var"), Path.Combine(tidied, "Dep", "Dep.Pack.1.var"));
+            using LibraryStore store = LibraryStore.Open(storeFile);
+
+            SceneLauncher.Load(store, paths, "A.B.1", "Saves/scene/My Scene.json", "scenes");
+
+            Assert.Empty(VarLinks.TempLinks(paths.AddonPackages));
+        }
+
+        [Fact]
         public void Load_makes_the_temporary_folder_for_any_type()
         {
             MakeVar("A.B.1", "Dep.Pack.1:/Custom/a.vap");
@@ -311,14 +379,52 @@ namespace varManager.App.Tests
             Directory.CreateDirectory(Path.GetDirectoryName(request)!);
             File.WriteAllText(request, "{}");
 
-            Task waiting = VamBridge.RemoveTempLinksAfterLoad(vam, new[] { "old.pack.1.var" }, TimeSpan.FromMilliseconds(50));
+            VarLinks.Create(Path.Combine(temp, "Other.Pack.1.var"), target);
+
+            Task waiting = VamBridge.RemoveTempLinksAfterLoad(vam, new[] { "old.pack.1.var" }, TimeSpan.FromSeconds(1), default);
             await Task.Delay(200);
             Assert.True(File.Exists(Path.Combine(temp, "Old.Pack.1.var")));
 
+            // It sees the request gone at 1 s, then pauses for 1 s more.
             File.Delete(request);
+            await Task.Delay(1300);
+            Assert.True(File.Exists(Path.Combine(temp, "Old.Pack.1.var")));
             await waiting.WaitAsync(Timeout);
 
             Assert.False(File.Exists(Path.Combine(temp, "Old.Pack.1.var")));
+            Assert.True(File.Exists(Path.Combine(temp, "Other.Pack.1.var")));
+        }
+
+        [Fact]
+        public async Task A_newer_load_keeps_links_an_older_removal_held()
+        {
+            string target = Path.Combine(vars, "x.var");
+            File.WriteAllText(target, "x");
+            VarLinks.Create(Path.Combine(temp, "Needed.Pack.1.var"), target);
+            VarLinks.Create(Path.Combine(temp, "Old.Pack.1.var"), target);
+            var removal = new TempLinkRemoval();
+
+            Task older = removal.Schedule(vam, new[] { "needed.pack.1.var", "old.pack.1.var" }, TimeSpan.FromMilliseconds(100));
+            Task newer = removal.Schedule(vam, new[] { "old.pack.1.var" }, TimeSpan.FromMilliseconds(100));
+            await Task.WhenAll(older, newer).WaitAsync(Timeout);
+
+            Assert.True(File.Exists(Path.Combine(temp, "Needed.Pack.1.var")));
+            Assert.False(File.Exists(Path.Combine(temp, "Old.Pack.1.var")));
+        }
+
+        [Fact]
+        public async Task A_load_with_no_old_links_still_stops_the_older_removal()
+        {
+            string target = Path.Combine(vars, "x.var");
+            File.WriteAllText(target, "x");
+            VarLinks.Create(Path.Combine(temp, "Needed.Pack.1.var"), target);
+            var removal = new TempLinkRemoval();
+
+            Task older = removal.Schedule(vam, new[] { "needed.pack.1.var" }, TimeSpan.FromMilliseconds(100));
+            await removal.Schedule(vam, new string[0], TimeSpan.FromMilliseconds(100));
+            await older.WaitAsync(Timeout);
+
+            Assert.True(File.Exists(Path.Combine(temp, "Needed.Pack.1.var")));
         }
 
         [Fact]
@@ -361,6 +467,22 @@ namespace varManager.App.Tests
             Assert.True(VarLinks.IsLink(Path.Combine(links, "Dep.Pack.1.var")));
             Assert.Equal("Turned on 2 vars.", jobs.Note);
             Assert.Empty(went);
+        }
+
+        [Fact]
+        public async Task Add_to_this_profile_drops_the_temporary_link_it_replaces()
+        {
+            MakeVar("A.B.1", "Dep.Pack.1:/Custom/a.vap");
+            MakeVar("Dep.Pack.1", scene: false);
+            Update();
+            VarLinks.Create(Path.Combine(temp, "dep.pack.1.var"), Path.Combine(vars, LibraryFolders.Tidied, "Dep", "Dep.Pack.1.var"));
+            (ScenesViewModel scenes, JobRunner jobs, _) = await Open();
+
+            scenes.ActCommand.Execute(Tile(scenes, "A.B.1"));
+            WaitForJob(jobs);
+
+            Assert.True(VarLinks.IsLink(Path.Combine(links, "Dep.Pack.1.var")));
+            Assert.Empty(VarLinks.TempLinks(paths.AddonPackages));
         }
 
         [Fact]
@@ -410,13 +532,112 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task Loading_a_scene_passes_on_the_old_temporary_links()
+        {
+            MakeVar("A.B.1");
+            MakeVar("Old.Pack.1", scene: false);
+            Update();
+            string tidied = Path.Combine(vars, LibraryFolders.Tidied);
+            VarLinks.Create(Path.Combine(links, "A.B.1.var"), Path.Combine(tidied, "A", "A.B.1.var"));
+            VarLinks.Create(Path.Combine(temp, "Old.Pack.1.var"), Path.Combine(tidied, "Old", "Old.Pack.1.var"));
+            var stale = new List<string>();
+            (ScenesViewModel scenes, JobRunner jobs, _) = await Open(stale);
+
+            scenes.ActCommand.Execute(Tile(scenes, "A.B.1"));
+            WaitForJob(jobs);
+
+            Assert.Equal(new[] { "old.pack.1.var" }, stale);
+        }
+
+        [Fact]
+        public async Task The_shell_opens_scenes_and_a_fix_shows_after_the_job()
+        {
+            MakeVar("A.B.1", "Dep.Pack.1:/Custom/a.vap");
+            MakeVar("Dep.Pack.1", scene: false);
+            Update();
+            var jobs = new JobRunner(null);
+            ShellViewModel shell = Shell(jobs);
+            await shell.LibraryLoaded.WaitAsync(Timeout);
+            ScenesViewModel scenes = shell.Scenes!;
+            scenes.Columns = 10;
+
+            shell.SelectedPage = shell.Pages[1];
+            Assert.True(shell.IsScenesPage);
+            Assert.False(shell.IsLibraryPage);
+            Assert.False(shell.IsOtherPage);
+
+            Assert.Equal(SceneFit.NotInProfile, Tile(scenes, "A.B.1").Scene.Fit);
+            scenes.ActCommand.Execute(Tile(scenes, "A.B.1"));
+
+            WaitUntil(() => Tile(scenes, "A.B.1").Scene.Fit == SceneFit.Ready);
+            await shell.LibraryLoaded.WaitAsync(Timeout);
+        }
+
+        [Fact]
+        public async Task Fix_in_the_shell_opens_the_missing_page()
+        {
+            MakeVar("A.B.1", "Gone.Pack.1:/Custom/a.vap");
+            Update();
+            var jobs = new JobRunner(null);
+            ShellViewModel shell = Shell(jobs);
+            await shell.LibraryLoaded.WaitAsync(Timeout);
+            shell.Scenes!.Columns = 10;
+
+            shell.Scenes.ActCommand.Execute(Tile(shell.Scenes, "A.B.1"));
+            WaitUntil(() => shell.SelectedPage.Name == "Missing");
+
+            Assert.True(shell.IsOtherPage);
+            WaitForJob(jobs);
+            await shell.LibraryLoaded.WaitAsync(Timeout);
+        }
+
+        [Fact]
+        public async Task Turning_a_package_on_drops_its_temporary_link()
+        {
+            MakeVar("A.B.1");
+            Update();
+            VarLinks.Create(Path.Combine(temp, "a.b.1.var"), Path.Combine(vars, LibraryFolders.Tidied, "A", "A.B.1.var"));
+            var jobs = new JobRunner(null);
+            var library = new LibraryViewModel(storeFile, paths, jobs, () => VarLinks.Installed(paths.AddonPackages).Keys, _ => { }, null);
+            await library.Reload();
+            library.Columns = 10;
+
+            library.SelectCommand.Execute(library.Rows.OfType<TileRow>().SelectMany(r => r.Tiles).Single());
+            library.ToggleCommand.Execute(null);
+            WaitForJob(jobs);
+
+            Assert.True(VarLinks.IsLink(Path.Combine(links, "A.B.1.var")));
+            Assert.Empty(VarLinks.TempLinks(paths.AddonPackages));
+        }
+
+        [Fact]
+        public async Task The_library_loads_the_first_scene_even_with_no_picture()
+        {
+            MakeZip("A.B.1", "meta.json", "{}", "Saves/scene/Two.json", "{}", "Saves/scene/One.json", "{}");
+            Update();
+            var jobs = new JobRunner(null);
+            var library = new LibraryViewModel(storeFile, paths, jobs, () => VarLinks.Installed(paths.AddonPackages).Keys, _ => { }, null);
+            await library.Reload();
+            library.Columns = 10;
+
+            LibraryTile tile = library.Rows.OfType<TileRow>().SelectMany(r => r.Tiles).Single();
+            library.SelectCommand.Execute(tile);
+
+            Assert.True(library.CanLoad);
+            Assert.Equal("Saves/scene/Two.json", tile.Item.FirstScene);
+        }
+
+        [Fact]
         public async Task The_library_can_load_a_scene_package_and_not_others()
         {
             MakeVar("A.B.1");
             MakeVar("C.D.1", scene: false);
+            MakeVar("Old.Pack.1", scene: false);
             Update();
+            VarLinks.Create(Path.Combine(temp, "Old.Pack.1.var"), Path.Combine(vars, LibraryFolders.Tidied, "Old", "Old.Pack.1.var"));
             var jobs = new JobRunner(null);
-            var library = new LibraryViewModel(storeFile, paths, jobs, () => VarLinks.Installed(paths.AddonPackages).Keys, _ => { }, null);
+            var stale = new List<string>();
+            var library = new LibraryViewModel(storeFile, paths, jobs, () => VarLinks.Installed(paths.AddonPackages).Keys, stale.AddRange, null);
             await library.Reload();
             library.Columns = 10;
             List<LibraryTile> tiles = library.Rows.OfType<TileRow>().SelectMany(r => r.Tiles).ToList();
@@ -430,6 +651,38 @@ namespace varManager.App.Tests
             WaitForJob(jobs);
 
             Assert.True(File.Exists(VamBridge.RequestFile(vam)));
+            Assert.Equal(new[] { "old.pack.1.var" }, stale);
+        }
+
+        [Fact]
+        public void A_row_makes_its_tiles_once_and_only_when_read()
+        {
+            int made = 0;
+            var row = new SceneRow(() =>
+            {
+                made++;
+                return new List<SceneTile>();
+            });
+
+            Assert.Equal(0, made);
+            Assert.Same(row.Tiles, row.Tiles);
+            Assert.Equal(1, made);
+        }
+
+        [Fact]
+        public async Task An_old_row_keeps_its_width_after_the_columns_change()
+        {
+            MakeVar("A.B.1");
+            MakeVar("C.D.1");
+            MakeVar("E.F.1");
+            Update();
+            (ScenesViewModel scenes, _, _) = await Open();
+            scenes.Columns = 1;
+            SceneRow old = scenes.Rows[0];
+
+            scenes.Columns = 3;
+
+            Assert.Single(old.Tiles);
         }
 
         [Fact]
@@ -468,8 +721,14 @@ namespace varManager.App.Tests
             Task older = scenes.Reload();
             while (Volatile.Read(ref calls) == 0)
                 await Task.Delay(5);
-            await scenes.Reload();
-            gate.Set();
+            try
+            {
+                await scenes.Reload();
+            }
+            finally
+            {
+                gate.Set();
+            }
             await older;
 
             Assert.Equal("Ready in this profile", Tile(scenes, "A.B.1").FitText);
