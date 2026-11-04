@@ -58,7 +58,7 @@ namespace varManager.App.Tests
                     Directory.Delete(root, true);
                     return;
                 }
-                catch (IOException) when (DateTime.UtcNow < deadline)
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && DateTime.UtcNow < deadline)
                 {
                     Thread.Sleep(50);
                 }
@@ -381,13 +381,13 @@ namespace varManager.App.Tests
 
             VarLinks.Create(Path.Combine(temp, "Other.Pack.1.var"), target);
 
-            Task waiting = VamBridge.RemoveTempLinksAfterLoad(vam, new[] { "old.pack.1.var" }, TimeSpan.FromSeconds(1), default);
+            Task waiting = VamBridge.RemoveTempLinksAfterLoad(vam, new[] { "old.pack.1.var" }, TimeSpan.FromSeconds(2), default);
             await Task.Delay(200);
             Assert.True(File.Exists(Path.Combine(temp, "Old.Pack.1.var")));
 
-            // It sees the request gone at 1 s, then pauses for 1 s more.
+            // It sees the request gone at 2 s, then pauses for 2 s more.
             File.Delete(request);
-            await Task.Delay(1300);
+            await Task.Delay(2300);
             Assert.True(File.Exists(Path.Combine(temp, "Old.Pack.1.var")));
             await waiting.WaitAsync(Timeout);
 
@@ -567,10 +567,12 @@ namespace varManager.App.Tests
             Assert.False(shell.IsOtherPage);
 
             Assert.Equal(SceneFit.NotInProfile, Tile(scenes, "A.B.1").Scene.Fit);
+            Task before = shell.LibraryLoaded;
             scenes.ActCommand.Execute(Tile(scenes, "A.B.1"));
 
-            WaitUntil(() => Tile(scenes, "A.B.1").Scene.Fit == SceneFit.Ready);
+            WaitUntil(() => shell.LibraryLoaded != before);
             await shell.LibraryLoaded.WaitAsync(Timeout);
+            Assert.Equal(SceneFit.Ready, Tile(scenes, "A.B.1").Scene.Fit);
         }
 
         [Fact]
@@ -582,12 +584,13 @@ namespace varManager.App.Tests
             ShellViewModel shell = Shell(jobs);
             await shell.LibraryLoaded.WaitAsync(Timeout);
             shell.Scenes!.Columns = 10;
+            Task before = shell.LibraryLoaded;
 
             shell.Scenes.ActCommand.Execute(Tile(shell.Scenes, "A.B.1"));
             WaitUntil(() => shell.SelectedPage.Name == "Missing");
 
             Assert.True(shell.IsOtherPage);
-            WaitForJob(jobs);
+            WaitUntil(() => shell.LibraryLoaded != before);
             await shell.LibraryLoaded.WaitAsync(Timeout);
         }
 
