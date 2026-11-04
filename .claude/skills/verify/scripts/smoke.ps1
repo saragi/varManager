@@ -530,7 +530,9 @@ namespace Smoke {
     Wait-Exit
     Check ($resultText -match 'Failed: 0') 'rollback reports no failures'
     Check (-not (Get-Item -LiteralPath $Pack).Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) 'rollback leaves AddonPackages a real folder'
-    Check (Test-Path -LiteralPath (Join-Path $Pack 'Smoke.Alpha.1.var')) 'rollback returns the var'
+    Check ((Get-FileHash -LiteralPath (Join-Path $Pack 'Smoke.Alpha.1.var')).Hash -eq $alphaHash) 'rollback returns the var unchanged'
+    Check (-not (Test-Path -LiteralPath $tidied)) 'rollback moves the var out of the repository'
+    Check (-not (Test-Path -LiteralPath (Join-Path $VaM '___AddonPacksSwitch ___\default'))) 'rollback leaves no default switch'
     Check (Test-Path -LiteralPath (Join-Path $Pack 'Smoke.Beta.1.var.disabled')) 'rollback returns the disabled var'
     Check (Test-Path -LiteralPath (Join-Path $Pack 'readme.txt')) 'rollback returns other files'
     Check (-not (Test-Path -LiteralPath (Join-Path $Pack '___VarsLink___'))) 'rollback removes var links'

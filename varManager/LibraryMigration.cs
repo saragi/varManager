@@ -319,16 +319,28 @@ namespace varManager
         public static MigrationUndoResult Rollback(string logPath, string addonPackagesPath,
             string defaultSwitchPath, IEnumerable<string> linkDirNames)
         {
+            if (!File.Exists(logPath))
+                throw new FileNotFoundException("The move log was not found.", logPath);
             DirectoryInfo addon = new DirectoryInfo(addonPackagesPath);
-            if (addon.Exists && addon.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            bool linked = addon.Exists && addon.Attributes.HasFlag(FileAttributes.ReparsePoint);
+            if (linked && !Directory.Exists(defaultSwitchPath))
+                throw new DirectoryNotFoundException("The default switch was not found: " + defaultSwitchPath);
+
+            // Every switch links into the repository, and those targets are about to move.
+            string switches = Path.GetDirectoryName(defaultSwitchPath);
+            if (Directory.Exists(switches))
             {
-                if (!Directory.Exists(defaultSwitchPath))
-                    throw new DirectoryNotFoundException("The default switch was not found: " + defaultSwitchPath);
-                foreach (string linkDirName in linkDirNames)
-                    RemoveLinks(Path.Combine(defaultSwitchPath, linkDirName));
-                addon.Delete();
-                Directory.Move(defaultSwitchPath, addonPackagesPath);
+                foreach (string switchPath in Directory.GetDirectories(switches))
+                {
+                    foreach (string linkDirName in linkDirNames)
+                        RemoveLinks(Path.Combine(switchPath, linkDirName));
+                }
             }
+            if (linked)
+                addon.Delete();
+            // Checked apart from the link, so a rerun can finish an interrupted rollback.
+            if (!Directory.Exists(addonPackagesPath) && Directory.Exists(defaultSwitchPath))
+                Directory.Move(defaultSwitchPath, addonPackagesPath);
             return Undo(logPath);
         }
 

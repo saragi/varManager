@@ -18,7 +18,7 @@ namespace varManager
             Application.SetCompatibleTextRenderingDefault(false);
             if (args.Length == 2 && args[0] == "--undo-migration")
             {
-                ShowResult(LibraryMigration.Undo(args[1]));
+                ShowResult(LibraryMigration.Undo(args[1]), args[1]);
                 return;
             }
             if (args.Length == 2 && args[0] == "--rollback-migration")
@@ -37,22 +37,38 @@ namespace varManager
                 return;
             }
             string vampath = Settings.Default.vampath;
+            if (!File.Exists(Path.Combine(vampath, "VaM.exe")))
+            {
+                MessageBox.Show("VaM.exe was not found in the configured folder: " + vampath);
+                return;
+            }
             try
             {
-                ShowResult(LibraryMigration.Rollback(logPath, Path.Combine(vampath, "AddonPackages"),
+                MigrationUndoResult result = LibraryMigration.Rollback(logPath, Path.Combine(vampath, "AddonPackages"),
                     Path.Combine(vampath, Form1.addonPacksSwitch, "default"),
-                    new[] { Form1.installLinkDirName, Form1.missingVarLinkDirName, Form1.tempVarLinkDirName }));
+                    new[] { Form1.installLinkDirName, Form1.missingVarLinkDirName, Form1.tempVarLinkDirName });
+                ShowResult(result, logPath);
             }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            catch (Exception ex)
             {
-                MessageBox.Show("Rollback stopped: " + ex.Message);
+                MessageBox.Show("Rollback stopped: " + ex.Message + "\r\nIt is safe to run it again.");
             }
         }
 
-        private static void ShowResult(MigrationUndoResult result)
+        private static void ShowResult(MigrationUndoResult result, string logPath)
         {
-            MessageBox.Show($"Restored {result.Restored} files. Failed: {result.Failed.Count}.\r\n"
-                + string.Join("\r\n", result.Failed));
+            string message = $"Restored {result.Restored} files. Failed: {result.Failed.Count}.";
+            if (result.Failed.Count > 0)
+            {
+                string failedList = logPath + ".failed.txt";
+                File.WriteAllLines(failedList, result.Failed);
+                message += "\r\nFailed files are listed in: " + failedList;
+            }
+            string tidied = Path.Combine(Settings.Default.varspath, Form1.tidiedDirName);
+            int remaining = Directory.Exists(tidied) ? Directory.GetFiles(tidied, "*.var", SearchOption.AllDirectories).Length : 0;
+            if (remaining > 0)
+                message += $"\r\n{remaining} vars stay in the repository, because they were not part of this migration.";
+            MessageBox.Show(message);
         }
     }
 }

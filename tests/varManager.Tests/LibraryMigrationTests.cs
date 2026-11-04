@@ -279,10 +279,16 @@ namespace varManagerTests
             Directory.CreateDirectory(Path.Combine(links, "sub"));
             Link(Path.Combine(links, "A.B.1.var"), Tidied(@"A\A.B.1.var"), 0);
             Link(Path.Combine(links, "sub", "A.D.1.var"), Tidied(@"A\A.B.1.var"), 0);
+            string temp = Path.Combine(defaultSwitch, "___TempVarLink___");
+            Directory.CreateDirectory(temp);
+            Link(Path.Combine(temp, "A.B.1.var"), Tidied(@"A\A.B.1.var"), 0);
+            string dangling = Path.Combine(defaultSwitch, "___MissingVarLink___");
+            Directory.CreateDirectory(dangling);
+            Link(Path.Combine(dangling, "Gone.Var.1.var"), Path.Combine(root, "gone.var"), 0);
             return defaultSwitch;
         }
 
-        private static readonly string[] LinkDirs = { "___VarsLink___", "___MissingVarLink___" };
+        private static readonly string[] LinkDirs = { "___VarsLink___", "___MissingVarLink___", "___TempVarLink___" };
 
         [Fact]
         public void Rollback_returns_a_real_folder_with_every_file()
@@ -302,6 +308,76 @@ namespace varManagerTests
             Assert.Equal("two", File.ReadAllText(Path.Combine(addon, @"A\A.C.1.var.disabled")));
             Assert.Equal("note", File.ReadAllText(Path.Combine(addon, "Dependencies_ReadMe.txt")));
             Assert.False(Directory.Exists(Path.Combine(addon, "___VarsLink___")));
+            Assert.False(Directory.Exists(Path.Combine(addon, "___TempVarLink___")));
+            Assert.False(Directory.Exists(Path.Combine(addon, "___MissingVarLink___")));
+            Assert.False(File.Exists(Tidied(@"A\A.B.1.var")));
+        }
+
+        [Fact]
+        public void Rollback_finishes_after_being_interrupted_between_steps()
+        {
+            Add(@"A\A.B.1.var", "one");
+            Add("Dependencies_ReadMe.txt", "note");
+            LibraryMigration.Apply(Plan(), log, installList);
+            string defaultSwitch = SimulateFirstRun();
+            Directory.Delete(addon);
+
+            MigrationUndoResult result = LibraryMigration.Rollback(log, addon, defaultSwitch, LinkDirs);
+
+            Assert.Empty(result.Failed);
+            Assert.False(Directory.Exists(defaultSwitch));
+            Assert.Equal("note", File.ReadAllText(Path.Combine(addon, "Dependencies_ReadMe.txt")));
+            Assert.Equal("one", File.ReadAllText(Path.Combine(addon, @"A\A.B.1.var")));
+        }
+
+        [Fact]
+        public void Rollback_refuses_a_missing_log_before_changing_anything()
+        {
+            Add(@"A\A.B.1.var");
+            LibraryMigration.Apply(Plan(), log, installList);
+            string defaultSwitch = SimulateFirstRun();
+
+            Assert.Throws<FileNotFoundException>(() => LibraryMigration.Rollback(log + ".wrong", addon, defaultSwitch, LinkDirs));
+
+            Assert.True(new DirectoryInfo(addon).Attributes.HasFlag(FileAttributes.ReparsePoint));
+            Directory.Delete(addon);
+        }
+
+        [Fact]
+        public void Rollback_clears_links_in_other_switches_when_one_is_active()
+        {
+            Add(@"A\A.B.1.var", "one");
+            LibraryMigration.Apply(Plan(), log, installList);
+            string defaultSwitch = SimulateFirstRun();
+            string lean = Path.Combine(root, "switches", "lean");
+            string leanLinks = Path.Combine(lean, "___VarsLink___");
+            Directory.CreateDirectory(leanLinks);
+            Link(Path.Combine(leanLinks, "A.B.1.var"), Tidied(@"A\A.B.1.var"), 0);
+            Directory.Delete(addon);
+            Link(addon, lean, 1);
+
+            MigrationUndoResult result = LibraryMigration.Rollback(log, addon, defaultSwitch, LinkDirs);
+
+            Assert.Empty(result.Failed);
+            Assert.False(Directory.Exists(leanLinks));
+            Assert.False(new DirectoryInfo(addon).Attributes.HasFlag(FileAttributes.ReparsePoint));
+            Assert.Equal("one", File.ReadAllText(Path.Combine(addon, @"A\A.B.1.var")));
+        }
+
+        [Fact]
+        public void Rollback_reports_a_file_it_cannot_find_and_restores_the_rest()
+        {
+            Add(@"A\A.B.1.var", "one");
+            Add(@"A\A.C.1.var", "two");
+            LibraryMigration.Apply(Plan(), log, installList);
+            string defaultSwitch = SimulateFirstRun();
+            File.Delete(Tidied(@"A\A.C.1.var"));
+            File.AppendAllText(log, Path.Combine(addon, "Lost.Var.1.var") + "\t" + Tidied(@"Lost\Lost.Var.1.var") + Environment.NewLine);
+
+            MigrationUndoResult result = LibraryMigration.Rollback(log, addon, defaultSwitch, LinkDirs);
+
+            Assert.NotEmpty(result.Failed);
+            Assert.Equal("one", File.ReadAllText(Path.Combine(addon, @"A\A.B.1.var")));
         }
 
         [Fact]
@@ -335,6 +411,8 @@ namespace varManagerTests
         [Fact]
         public void Rollback_stops_before_changing_anything_if_the_default_switch_is_gone()
         {
+            Directory.CreateDirectory(Path.GetDirectoryName(log));
+            File.WriteAllText(log, "");
             string elsewhere = Path.Combine(root, "elsewhere");
             Directory.CreateDirectory(elsewhere);
             Directory.Delete(addon);

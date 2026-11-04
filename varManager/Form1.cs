@@ -28,7 +28,7 @@ namespace varManager
         private static readonly byte[] s_creatorNameUtf8 = Encoding.UTF8.GetBytes("creatorName");
         //private static ReadOnlySpan<byte> Utf8Bom => new byte[] { 0xEF, 0xBB, 0xBF };
         private static SimpleLogger simpLog = new SimpleLogger();
-        private static string tidiedDirName = "___VarTidied___";
+        internal static string tidiedDirName = "___VarTidied___";
         private static string redundantDirName = "___VarRedundant___";
         private static string notComplyRuleDirName = "___VarnotComplyRule___";
         private static string previewpicsDirName = "___PreviewPics___";
