@@ -523,7 +523,8 @@ namespace varManager.Ui
 
         private void UpdateDb(LibraryPaths paths)
         {
-            if (importFailed)
+            // A store on disk means there's nothing left for the import to protect.
+            if (importFailed && !File.Exists(StoreFile))
             {
                 Jobs.Say("The old database wasn't imported, so Update DB is off. Restart to try the import again.");
                 return;

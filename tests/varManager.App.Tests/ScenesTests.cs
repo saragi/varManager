@@ -483,15 +483,15 @@ namespace varManager.App.Tests
             try
             {
                 LibraryHealth.ClearSceneCache();
+
+                Assert.False(File.Exists(cached));
+                Assert.True(File.Exists(keep));
             }
             finally
             {
                 SceneAnalysis.CacheBase = null;
+                LibraryHealth.ClearSceneCache();
             }
-
-            Assert.False(File.Exists(cached));
-            Assert.True(File.Exists(keep));
-            LibraryHealth.ClearSceneCache();
         }
 
         [Fact]
