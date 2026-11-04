@@ -18,6 +18,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\..\varManager\varManager.mdb" Link="template.mdb" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\varManager.App\varManager.App.csproj" />
     <ProjectReference Include="..\..\varManager.Core\varManager.Core.csproj" />
   </ItemGroup>

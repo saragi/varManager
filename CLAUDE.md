@@ -25,7 +25,7 @@ dotnet test
 dotnet test --filter "FullyQualifiedName~Latest_picks_highest"
 ```
 
-- Logic with no UI lives in `varManager.Core`. Tests reference that project, so they cover that logic only. The WinForms app compiles the same files through links, because Visual Studio's MSBuild here has no .NET SDK to load a modern project. A new file there needs a link in `varManager.csproj`. `tests/varManager.Tests` is not in `varManager.sln`.
+- Logic with no UI lives in `varManager.Core`. Tests reference that project, so they cover that logic only. The WinForms app compiles the same files through links, because Visual Studio's MSBuild here has no .NET SDK to load a modern project. A new file the WinForms app uses needs a link in `varManager.csproj`. `tests/varManager.Tests` is not in `varManager.sln`.
 - Build `LoadScene.csproj` with `/restore /p:RestorePackagesConfig=true /p:SolutionDir=<repo>\ /p:VaMPath=<VaM folder>`. It references VaM's DLLs through `VaMPath`.
 - `MMDLoader` is SDK-style and targets `net6.0-windows`.
 - `varManager.App` is the new WPF app on `net10.0-windows`, with namespace `varManager.Ui`. Build it with `dotnet`, because Visual Studio's MSBuild still can't load SDK-style projects. It isn't in `varManager.sln`. `tests/varManager.App.Tests` compiles the Core tests from `tests/varManager.Tests` as well as its own.
@@ -43,6 +43,7 @@ Running also needs the Microsoft ACE OLEDB 12.0 provider, x64.
 
 - **`varManager/Form1.cs`** holds most of the logic as well as the UI: tidying, Update DB, install, dependency resolution and VaM integration. Other forms call back into it through a `form1` reference.
 - **Data layer:** a typed DataSet (`varManagerDataSet.xsd`, generated `.Designer.cs`) over Access `varManager.mdb`. `vars`, `scenes` and `dependencies` are loaded whole into memory at startup, and `varsView` joins `vars` to `installStatus`. Edit the `.xsd`, not the Designer file.
+- **New app's data:** `LibraryStore` is a SQLite database with the same tables and column names as Access, and var names ignore case. `AccessDatabase.ImportOnce` fills it once from a temporary copy of `varManager.mdb`, so the original is never opened. Only the new app uses these, so they have no link in `varManager.csproj`.
 - **Lookups:** use `VarLookup`, `DependencyLookup` and `ScenesLookup` in `Form1`, not LINQ scans of the tables. They are caches invalidated by DataTable row events. `VarIndex.Resolve` returns a var name, `"missing"`, or a substitute version ending in `$`, and callers depend on that format.
 - **Dependencies:** `DependencyScanner` reads `meta.json` and scene or preset files. Update DB scans new vars, and rescans a known var only when its file size changes.
 - **Lean profiles:** a profile is a switch whose `___VarsLink___` holds only the links it needs. `LeanProfiles` plans it from the selected vars plus a base set: session plugins, the default scene and `<varspath>\___Profiles___\base.txt`. Each profile saves its direct picks in `___Profiles___\<name>.profile`, with the prior version as `.previous`. An exclude profile instead saves exclusions: it links what the default switch links, minus them and dependencies only they use, and never follows references to vars default doesn't link, so disabled vars stay off.
