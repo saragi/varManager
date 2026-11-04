@@ -373,6 +373,9 @@ try {
     New-FakeVar $tidied 'Smoke' 'Alpha' 'Replaced.Package_With_A_Longer_Name.latest' 'Replaced.Hair_Package.latest'
     Check ((Get-Item -LiteralPath $tidied).Length -ne $oldLength) 'replacement var has a different size'
     $alphaHash = (Get-FileHash -LiteralPath $tidied).Hash
+    # A var that can't be linked must stay listed, so a later Update DB can retry it.
+    $migratedList = Join-Path $App 'varsMigrated.txt'
+    Set-Content -LiteralPath $migratedList -Value 'Ghost.Missing.1', 'Smoke.Alpha.1'
     $started = $false
     for ($try = 0; $try -lt 5 -and -not $started; $try++) {
         [Win]::Click((Find-Child $main '^UPD_DB$'))
@@ -395,6 +398,8 @@ try {
             (@($current.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Replaced.Hair_Package.latest'")).Count -eq 1)
     }
     Check $rescanned 'Update DB rescans a var whose file changed'
+    Start-Sleep -Seconds 1
+    Check ((@(Get-Content -LiteralPath $migratedList) -join ',') -eq 'Ghost.Missing.1') 'unlinked migrated var stays listed for retry'
     Check (@($current.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Smoke.Beta.1'")).Count -eq 0) 'rescan clears the old dependency rows'
     # The app gives no completion signal, so allow its last steps to finish.
     Start-Sleep -Seconds 2

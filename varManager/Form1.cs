@@ -1671,7 +1671,7 @@ namespace varManager
             }
             // Kept so the next Update DB can retry them.
             File.WriteAllLines(migratedVarsFile, notLinked);
-            this.BeginInvoke(addlog, new Object[] { $"{notLinked.Count} migrated vars were not linked. Update DB will retry them.", LogLevel.WARNING });
+            this.BeginInvoke(addlog, new Object[] { $"{notLinked.Count} migrated vars were not linked, starting with {string.Join(", ", notLinked.Take(10))}. Update DB will retry them.", LogLevel.WARNING });
         }
 
         private void RunBackgroundJob(string job)
