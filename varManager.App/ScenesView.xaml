@@ -99,6 +99,7 @@
 
         <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
             <TextBlock Text="Scenes" FontSize="22" FontWeight="SemiBold" Margin="0,0,12,0" />
+            <CheckBox AutomationProperties.Name="Merge" Content="Merge into the open scene" IsChecked="{Binding Merge}" Foreground="{StaticResource Text}" VerticalAlignment="Center" Margin="0,0,16,0" />
             <TextBlock Text="{Binding ShownText}" Foreground="{StaticResource Muted}" VerticalAlignment="Center" />
         </StackPanel>
 

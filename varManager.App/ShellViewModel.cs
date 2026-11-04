@@ -77,6 +77,7 @@ namespace varManager.Ui
         private MissingViewModel? missing;
         private HubViewModel? hubPage;
         private bool browsingHub;
+        private bool canCancelSetup;
         private readonly IHubBrowser browser;
         private RepositoryWatch? watch;
         private readonly IHubSource hub;
@@ -113,6 +114,8 @@ namespace varManager.Ui
             LeaveHubCommand = new Command(() => BrowseHub(false));
             CancelCommand = new Command(jobs.Cancel);
             SaveSetupCommand = new Command(SaveSetup);
+            OpenSettingsCommand = new Command(OpenSettings);
+            CancelSetupCommand = new Command(CancelSetup);
             Open();
         }
 
@@ -146,6 +149,8 @@ namespace varManager.Ui
         public ICommand LeaveHubCommand { get; }
         public ICommand CancelCommand { get; }
         public ICommand SaveSetupCommand { get; }
+        public ICommand OpenSettingsCommand { get; }
+        public ICommand CancelSetupCommand { get; }
 
         public NavPage SelectedPage
         {
@@ -229,6 +234,12 @@ namespace varManager.Ui
         }
 
         public bool IsReady => !needsSetup;
+
+        public bool CanCancelSetup
+        {
+            get => canCancelSetup;
+            private set => Set(ref canCancelSetup, value);
+        }
 
         public string SetupProblem
         {
@@ -535,6 +546,7 @@ namespace varManager.Ui
         {
             watch?.Dispose();
             watch = null;
+            CanCancelSetup = false;
             string? problem = settings.Problem();
             SetupProblem = problem ?? "";
             NeedsSetup = problem != null;
@@ -562,6 +574,29 @@ namespace varManager.Ui
             ImportOldDatabase();
             if (!Jobs.IsRunning)
                 ReloadLibrary();
+        }
+
+        // Editing writes straight into the settings, so leaving reads them back from the file.
+        private void OpenSettings()
+        {
+            if (Jobs.IsRunning)
+            {
+                Jobs.Say("Wait for the current job to finish before changing settings.");
+                return;
+            }
+            CanCancelSetup = true;
+            SetupProblem = "";
+            NeedsSetup = true;
+        }
+
+        private void CancelSetup()
+        {
+            settings = AppSettings.Load(settingsFile);
+            Changed(nameof(VamPath));
+            Changed(nameof(VarsPath));
+            CanCancelSetup = false;
+            SetupProblem = "";
+            NeedsSetup = false;
         }
 
         private void SaveSetup()

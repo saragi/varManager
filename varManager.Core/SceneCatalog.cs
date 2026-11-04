@@ -90,7 +90,8 @@ namespace varManager
     {
         /// <param name="type">The item's type, such as "scenes" or "looks".</param>
         /// <returns>Temporary links left from earlier loads, to remove once VaM has taken this request.</returns>
-        public static List<string> Load(LibraryStore store, LibraryPaths paths, string varName, string entryName, string type)
+        /// <param name="merge">Adds to the open scene instead of replacing it.</param>
+        public static List<string> Load(LibraryStore store, LibraryPaths paths, string varName, string entryName, string type, bool merge = false)
         {
             IReadOnlyList<VarRecord> records = store.LoadVars();
             VarRecord record = records.Single(v => string.Equals(v.VarName, varName, StringComparison.OrdinalIgnoreCase));
@@ -108,7 +109,7 @@ namespace varManager
             request["resources"].Add(resource);
 
             bool hasScene;
-            JSONClass prepared = VamBridge.PrepareLoad(request, false, SceneAnalysis.ReadGender(cache), false, 1, out hasScene);
+            JSONClass prepared = VamBridge.PrepareLoad(request, merge, SceneAnalysis.ReadGender(cache), false, 1, out hasScene);
             List<string> stale = hasScene ? VarLinks.TempLinks(paths.AddonPackages) : new List<string>();
 
             var vars = new VarIndex(records.Select(v => new VarEntry(v.VarName, v.CreatorName, v.PackageName, v.Version ?? 0)));

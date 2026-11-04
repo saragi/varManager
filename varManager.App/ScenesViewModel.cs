@@ -154,6 +154,9 @@ namespace varManager.Ui
             Apply();
         }
 
+        /// <summary>Adds a loaded scene to the open one instead of replacing it.</summary>
+        public bool Merge { get; set; }
+
         private void SetFit(SceneFit? fit)
         {
             fitFilter = fit;
@@ -195,10 +198,11 @@ namespace varManager.Ui
 
         private void Load(SceneEntry scene)
         {
+            bool merge = Merge;
             jobs.Start("Loading in VaM", context =>
             {
                 using LibraryStore store = LibraryStore.Open(storeFile);
-                List<string> stale = SceneLauncher.Load(store, paths, scene.VarName, scene.EntryName, "scenes");
+                List<string> stale = SceneLauncher.Load(store, paths, scene.VarName, scene.EntryName, "scenes", merge);
                 tempLinksStale(stale);
                 return $"Asked VaM to load {scene.Title}.";
             });

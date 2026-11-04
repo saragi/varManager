@@ -172,6 +172,11 @@ namespace varManager.Ui
             foreach (HeldGroup group in report.Held)
                 made.Add(new HealthCard(group.Files.Count.ToString("N0"), $"{group.Title}, {Size(group.Bytes)}", "Review before delete", Review(HeldChange(group))));
 
+            if (report.MissingPreviews > 0)
+                made.Add(new HealthCard(report.MissingPreviews.ToString("N0"), "Preview pictures missing", "Review", Review(PreviewChange(report))));
+            if (report.CacheBytes > 0)
+                made.Add(new HealthCard(Size(report.CacheBytes), "Scene cache", "Review", Review(CacheChange(report))));
+
             made.Add(new HealthCard(report.NotLinked.ToString("N0"), "Stored, not linked in default"));
             made.Add(new HealthCard(Size(report.LibraryBytes), $"In the library, {report.VarCount:N0} vars"));
             if (report.FreeBytes != null)
@@ -229,6 +234,28 @@ namespace varManager.Ui
                     int repaired = LibraryHealth.RepairLinks(store, paths, links);
                     VamBridge.RequestRescan(paths.VamPath);
                     return repaired == 1 ? "Repaired 1 link." : $"Repaired {repaired:N0} links.";
+                });
+        }
+
+        private HealthChange PreviewChange(HealthReport report)
+        {
+            return new HealthChange("Preview pictures missing", $"This takes {Count(report.MissingPreviews, "picture")} from the vars again. Var files aren't changed.",
+                new string[0], "Repair pictures", "Repairing pictures", context =>
+                {
+                    using LibraryStore store = LibraryStore.Open(storeFile);
+                    var result = new UpdateReport();
+                    LibraryUpdate.RestorePreviews(store, paths, result);
+                    return result.Problems.Count == 0 ? "Pictures repaired." : $"Pictures repaired, except {Count(result.Problems.Count, "picture")}.";
+                });
+        }
+
+        private HealthChange CacheChange(HealthReport report)
+        {
+            return new HealthChange("Scene cache", $"This clears {Size(report.CacheBytes)} of saved scene analysis. Each scene builds its own again the next time it loads.",
+                new string[0], "Clear cache", "Clearing the cache", context =>
+                {
+                    LibraryHealth.ClearSceneCache();
+                    return "Scene cache cleared.";
                 });
         }
 

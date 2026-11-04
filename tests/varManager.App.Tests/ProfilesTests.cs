@@ -814,6 +814,81 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task An_empty_profile_can_be_made_and_used()
+        {
+            MakeVar("A.B.1");
+            Update();
+            ShellViewModel shell = await Shell();
+            shell.Profiles!.Name = "blank";
+            Assert.True(shell.Profiles.CanMakeEmpty);
+
+            await Run(shell, () => shell.Profiles.MakeEmptyCommand.Execute(null));
+
+            Assert.Equal("blank", shell.SelectedSwitch);
+            Assert.Contains("blank", shell.Switches);
+            Assert.Empty(LinkedIn("blank"));
+
+            shell.Profiles.Name = "BLANK";
+            Assert.False(shell.Profiles.CanMakeEmpty);
+        }
+
+        [Fact]
+        public async Task A_list_of_linked_vars_saves_and_turns_back_on_with_dependencies()
+        {
+            ShellViewModel shell = await ShellWithLean();
+            string file = Path.Combine(data, "list.txt");
+
+            shell.Profiles!.ExportLinked(file);
+            WaitUntil(() => !jobs.IsRunning);
+            Assert.Equal(new[] { "A.B.1", "Dep.Pack.1" }, File.ReadAllLines(file));
+
+            await Run(shell, () => shell.Profiles.UseCommand.Execute(Card(shell, "default")));
+            File.WriteAllLines(file, new[] { "A.B.1", "", "Never.Was.1" });
+            shell.Profiles.TurnOnFromList(file);
+            WaitUntil(() => !jobs.IsRunning);
+
+            Assert.Equal(new[] { "A.B.1", "Dep.Pack.1" }, LinkedIn("default"));
+            Assert.Equal("Turned on 2 vars. 1 names aren't in the library.", jobs.Note);
+        }
+
+        [Fact]
+        public async Task Settings_open_after_setup_and_can_be_left_unchanged()
+        {
+            MakeVar("A.B.1");
+            Update();
+            ShellViewModel shell = await Shell();
+
+            shell.OpenSettingsCommand.Execute(null);
+            Assert.True(shell.NeedsSetup);
+            Assert.True(shell.CanCancelSetup);
+            shell.VarsPath = Path.Combine(root, "elsewhere");
+
+            shell.CancelSetupCommand.Execute(null);
+
+            Assert.False(shell.NeedsSetup);
+            Assert.Equal(vars, shell.VarsPath);
+        }
+
+        [Fact]
+        public async Task New_settings_take_effect_when_saved()
+        {
+            MakeVar("A.B.1");
+            Update();
+            ShellViewModel shell = await Shell();
+            string other = Path.Combine(root, "vars2");
+            Directory.CreateDirectory(other);
+
+            shell.OpenSettingsCommand.Execute(null);
+            shell.VarsPath = other;
+            shell.SaveSetupCommand.Execute(null);
+
+            Assert.False(shell.NeedsSetup);
+            Assert.False(shell.CanCancelSetup);
+            Assert.Equal(other, AppSettings.Load(Path.Combine(data, "settings.json")).VarsPath);
+            await shell.LibraryLoaded.WaitAsync(Timeout);
+        }
+
+        [Fact]
         public async Task Picks_show_on_tiles_and_survive_a_reload()
         {
             MakeVar("A.B.1");

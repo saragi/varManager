@@ -428,6 +428,38 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task Merge_reaches_the_request()
+        {
+            MakeVar("A.B.1");
+            Update();
+            VarLinks.Create(Path.Combine(links, "A.B.1.var"), Path.Combine(vars, LibraryFolders.Tidied, "A", "A.B.1.var"));
+            (ScenesViewModel scenes, JobRunner jobs, _) = await Open();
+
+            scenes.Merge = true;
+            scenes.ActCommand.Execute(Tile(scenes, "A.B.1"));
+            WaitForJob(jobs);
+
+            Assert.Equal("true", JSON.Parse(File.ReadAllText(VamBridge.RequestFile(vam)))["resources"][0]["merge"].Value);
+        }
+
+        [Fact]
+        public void Clearing_the_scene_cache_takes_only_the_cache()
+        {
+            string cached = Path.Combine(SceneAnalysis.CacheRoot, "A.B.1", "scene", "depend.txt");
+            Directory.CreateDirectory(Path.GetDirectoryName(cached)!);
+            File.WriteAllText(cached, "x");
+            MakeVar("A.B.1");
+            Update();
+            using (LibraryStore store = LibraryStore.Open(storeFile))
+                Assert.True(LibraryHealth.Load(store, paths, _ => { }).CacheBytes > 0);
+
+            LibraryHealth.ClearSceneCache();
+
+            Assert.False(Directory.Exists(SceneAnalysis.CacheRoot));
+            Assert.True(File.Exists(Path.Combine(vars, LibraryFolders.Tidied, "A", "A.B.1.var")));
+        }
+
+        [Fact]
         public async Task The_screen_shows_each_state_and_filters_by_it()
         {
             MakeVar("Ready.Pack.1");

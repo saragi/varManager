@@ -7,6 +7,15 @@ using System.Threading.Tasks;
 
 namespace varManager
 {
+    public enum MissingScope
+    {
+        Library,
+        Profile,
+
+        /// <summary>Scenes and presets the user saved, which refer to vars from outside any var.</summary>
+        Saves
+    }
+
     /// <summary>What the Missing screen needs from the Hub, so tests can stand in for it.</summary>
     public interface IHubSource
     {
@@ -42,9 +51,11 @@ namespace varManager
         private readonly DependencyIndex dependencies;
         private readonly List<string> names;
         private readonly List<string> linked;
+        private readonly LibraryPaths paths;
 
         public MissingLibrary(LibraryStore store, LibraryPaths paths)
         {
+            this.paths = paths;
             IReadOnlyList<VarRecord> records = store.LoadVars();
             vars = new VarIndex(records.Select(v => new VarEntry(v.VarName, v.CreatorName, v.PackageName, v.Version ?? 0)));
             dependencies = new DependencyIndex(store.LoadDependencies());
@@ -52,24 +63,54 @@ namespace varManager
             linked = VarLinks.ReadInstalled(paths.AddonPackages).Keys.ToList();
         }
 
-        public IReadOnlyList<string> ScopeVars(bool profileOnly)
+        public IReadOnlyList<string> ScopeVars(MissingScope scope)
         {
-            return profileOnly ? linked : names;
+            switch (scope)
+            {
+                case MissingScope.Profile:
+                    return linked;
+                case MissingScope.Saves:
+                    return new string[0];
+                default:
+                    return names;
+            }
         }
 
         /// <summary>
         /// Owned vars of the packages in scope, in every version. An update is measured against the newest
         /// owned version, linked or not, so an older one is never fetched over it.
         /// </summary>
-        public IReadOnlyList<string> UpdateCandidates(bool profileOnly)
+        public IReadOnlyList<string> UpdateCandidates(MissingScope scope)
         {
-            var packages = new HashSet<string>(ScopeVars(profileOnly).Select(MissingPlanner.PackageOf), StringComparer.OrdinalIgnoreCase);
+            var packages = new HashSet<string>(ScopeVars(scope).Select(MissingPlanner.PackageOf), StringComparer.OrdinalIgnoreCase);
+            if (packages.Count == 0)
+                return new string[0];
             return names.Where(name => packages.Contains(MissingPlanner.PackageOf(name))).ToList();
         }
 
-        public MissingReport Plan(bool profileOnly)
+        public MissingReport Plan(MissingScope scope)
         {
-            return MissingPlanner.Plan(ScopeVars(profileOnly), name => dependencies.DependenciesOf(name), vars, linked);
+            if (scope == MissingScope.Saves)
+                return PlanSaves();
+            return MissingPlanner.Plan(ScopeVars(scope), name => dependencies.DependenciesOf(name), vars, linked);
+        }
+
+        // A save is in use by being there, so what it needs counts as needed by something linked.
+        private MissingReport PlanSaves()
+        {
+            var references = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (string file in MoveOut.SaveFiles(paths.VamPath))
+            {
+                try
+                {
+                    references[DependencyAnalysis.SavePath(paths.VamPath, file)] = DependencyScanner.Extract("meta.json", File.ReadAllText(file)).ToList();
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    // A save that can't be read is left out, and the rest still help.
+                }
+            }
+            return MissingPlanner.Plan(references.Keys, name => references[name], vars, linked.Concat(references.Keys));
         }
 
         public bool Owns(string varName)
@@ -116,9 +157,9 @@ namespace varManager
         private const long ReservedBytes = 1L << 30;
 
         /// <summary>Asks the Hub about what the library lacks. A Hub that can't be reached isn't an error here.</summary>
-        public static async Task<MissingState> Run(MissingLibrary library, bool profileOnly, IHubSource hub, ISet<string> listed, CancellationToken token)
+        public static async Task<MissingState> Run(MissingLibrary library, MissingScope scope, IHubSource hub, ISet<string> listed, CancellationToken token)
         {
-            var view = new MissingState { Report = library.Plan(profileOnly) };
+            var view = new MissingState { Report = library.Plan(scope) };
             view.Sources.NotFound.AddRange(view.Report.Needed);
             try
             {
@@ -126,7 +167,7 @@ namespace varManager
                 view.Offered = await hub.Find(view.Report.Needed.Select(item => item.Package + ".latest")).ConfigureAwait(false);
                 string packageList = await hub.PackageList().ConfigureAwait(false);
                 Dictionary<string, int> versions = HubParser.LatestVersions(packageList);
-                view.Updates = (await hub.Find(MissingPlanner.UpdateRequests(library.UpdateCandidates(profileOnly), versions)).ConfigureAwait(false))
+                view.Updates = (await hub.Find(MissingPlanner.UpdateRequests(library.UpdateCandidates(scope), versions)).ConfigureAwait(false))
                     .Where(package => !library.Owns(package.Name)).ToList();
             }
             catch (Exception ex)
@@ -157,7 +198,7 @@ namespace varManager
         }
 
         /// <summary>Downloads what's needed, and keeps going until the downloads need nothing more.</summary>
-        public static string GetAll(string storeFile, LibraryPaths paths, bool profileOnly, IHubSource hub, ISet<string> listed,
+        public static string GetAll(string storeFile, LibraryPaths paths, MissingScope scope, IHubSource hub, ISet<string> listed,
             Func<string, long> freeSpace, Action<int, int> progress, CancellationToken token)
         {
             var attempted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -168,7 +209,7 @@ namespace varManager
             while (true)
             {
                 token.ThrowIfCancellationRequested();
-                MissingState view = Check(storeFile, paths, profileOnly, hub, listed, token);
+                MissingState view = Check(storeFile, paths, scope, hub, listed, token);
                 if (view.HubProblem != null)
                     return view.HubProblem;
 
@@ -202,10 +243,10 @@ namespace varManager
         }
 
         /// <summary>Gets the updates the user asked for. Never runs by itself, because a new version can change a scene.</summary>
-        public static string GetUpdates(string storeFile, LibraryPaths paths, bool profileOnly, IHubSource hub, ISet<string> listed,
+        public static string GetUpdates(string storeFile, LibraryPaths paths, MissingScope scope, IHubSource hub, ISet<string> listed,
             Func<string, long> freeSpace, Action<int, int> progress, CancellationToken token)
         {
-            MissingState view = Check(storeFile, paths, profileOnly, hub, listed, token);
+            MissingState view = Check(storeFile, paths, scope, hub, listed, token);
             if (view.HubProblem != null)
                 return view.HubProblem;
             string noRoom = NoRoom(view.Updates, paths.VarsPath, freeSpace);
@@ -237,23 +278,23 @@ namespace varManager
         }
 
         /// <summary>Turns on stored vars that linked vars need.</summary>
-        public static string TurnOnAll(string storeFile, LibraryPaths paths, bool profileOnly, Action<int, int> progress, CancellationToken token)
+        public static string TurnOnAll(string storeFile, LibraryPaths paths, MissingScope scope, Action<int, int> progress, CancellationToken token)
         {
             List<string> off;
             using (LibraryStore store = LibraryStore.Open(storeFile))
-                off = new MissingLibrary(store, paths).Plan(profileOnly).TurnedOff.Keys.ToList();
+                off = new MissingLibrary(store, paths).Plan(scope).TurnedOff.Keys.ToList();
             if (off.Count == 0)
                 return "Nothing to turn on.";
             LinkAndUpdate(off, storeFile, paths, progress, token);
             return off.Count == 1 ? "Turned on 1 var." : $"Turned on {off.Count} vars.";
         }
 
-        private static MissingState Check(string storeFile, LibraryPaths paths, bool profileOnly, IHubSource hub, ISet<string> listed, CancellationToken token)
+        private static MissingState Check(string storeFile, LibraryPaths paths, MissingScope scope, IHubSource hub, ISet<string> listed, CancellationToken token)
         {
             MissingLibrary library;
             using (LibraryStore store = LibraryStore.Open(storeFile))
                 library = new MissingLibrary(store, paths);
-            return Run(library, profileOnly, hub, listed, token).GetAwaiter().GetResult();
+            return Run(library, scope, hub, listed, token).GetAwaiter().GetResult();
         }
 
         private static string NoRoom(IReadOnlyCollection<HubPackage> packages, string folder, Func<string, long> freeSpace)

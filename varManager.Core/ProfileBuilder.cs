@@ -82,6 +82,38 @@ namespace varManager
             return files.Count(file => new FileInfo(file).Attributes.HasFlag(FileAttributes.ReparsePoint));
         }
 
+        /// <summary>Writes the vars this profile links to a text file, one a line.</summary>
+        public static int ExportLinked(string addonPackages, string file)
+        {
+            List<string> names = VarLinks.ReadInstalled(addonPackages).Keys.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToList();
+            File.WriteAllLines(file, names);
+            return names.Count;
+        }
+
+        /// <summary>Links the vars a text file names, with their dependencies. Names the library lacks are skipped.</summary>
+        /// <returns>How many went on, and how many names the library doesn't have.</returns>
+        public static KeyValuePair<int, int> LinkFromList(LibraryStore store, LibraryPaths paths, string file)
+        {
+            IReadOnlyList<VarRecord> records = store.LoadVars();
+            Dictionary<string, VarRecord> byName = records.ToDictionary(v => v.VarName, StringComparer.OrdinalIgnoreCase);
+            var vars = new VarIndex(records.Select(v => new VarEntry(v.VarName, v.CreatorName, v.PackageName, v.Version ?? 0)));
+            var dependencies = new DependencyIndex(store.LoadDependencies());
+            List<string> wanted = File.ReadAllLines(file).Select(line => line.Trim()).Where(line => line.Length > 0).ToList();
+            List<ResolvedReference> resolved = DependencyAnalysis.Resolve(wanted, vars);
+            int unknown = resolved.Count(item => item.VarName == null);
+
+            Directory.CreateDirectory(Path.Combine(paths.AddonPackages, LibraryFolders.VarsLink));
+            int linked = 0;
+            foreach (string name in DependencyAnalysis.WithDependencies(resolved.Where(item => item.VarName != null).Select(item => item.VarName), vars, dependencies))
+            {
+                int errorCode;
+                string varFile = Path.Combine(paths.VarsPath, byName[name].VarPath ?? "", byName[name].VarName + ".var");
+                if (VarLinks.InstallForGood(paths.AddonPackages, name, varFile, out errorCode) == VarLinkResult.Linked)
+                    linked++;
+            }
+            return new KeyValuePair<int, int>(linked, unknown);
+        }
+
         /// <summary>Removes a profile's links and saved picks. Anything real in its folder stays, and so does the folder then.</summary>
         /// <returns>How many real files stayed.</returns>
         public static int Delete(string vamPath, string varsPath, string name)

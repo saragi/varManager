@@ -318,7 +318,7 @@ namespace varManager.App.Tests
             cancel.Cancel();
 
             Assert.ThrowsAny<OperationCanceledException>(() =>
-                MissingCheck.Run(library, false, hub, new HashSet<string>(), cancel.Token).GetAwaiter().GetResult());
+                MissingCheck.Run(library, MissingScope.Library, hub, new HashSet<string>(), cancel.Token).GetAwaiter().GetResult());
         }
 
         [Fact]
@@ -529,7 +529,7 @@ namespace varManager.App.Tests
             hub.Packages["Hub.Pack.1"] = "";
             hub.Size = 500L << 20;
 
-            string text = MissingCheck.GetAll(storeFile, paths, false, hub, new HashSet<string>(), _ => (1L << 30) + (100L << 20), (done, total) => { }, default);
+            string text = MissingCheck.GetAll(storeFile, paths, MissingScope.Library, hub, new HashSet<string>(), _ => (1L << 30) + (100L << 20), (done, total) => { }, default);
 
             Assert.Contains("but only", text);
             Assert.Empty(hub.Downloaded);
@@ -545,7 +545,7 @@ namespace varManager.App.Tests
             cancel.Cancel();
 
             Assert.Throws<OperationCanceledException>(() =>
-                MissingCheck.GetAll(storeFile, paths, false, hub, new HashSet<string>(), _ => long.MaxValue, (done, total) => { }, cancel.Token));
+                MissingCheck.GetAll(storeFile, paths, MissingScope.Library, hub, new HashSet<string>(), _ => long.MaxValue, (done, total) => { }, cancel.Token));
         }
 
         [Fact]
@@ -633,6 +633,33 @@ namespace varManager.App.Tests
 
             Assert.Equal(1, Group(missing, "Not found anywhere").Count);
             Assert.Contains("Gone.One.1", Group(missing, "Not found anywhere").Lines[0]);
+        }
+
+        [Fact]
+        public async Task Your_saves_finds_what_saved_scenes_need()
+        {
+            MakeVar("Stored.Pack.1");
+            MakeVar("Other.Pack.1", "Gone.Other.1:/Custom/a.vap");
+            Update();
+            Directory.CreateDirectory(Path.Combine(vam, "Custom"));
+            string scene = Path.Combine(vam, "Saves", "scene", "mine.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(scene)!);
+            File.WriteAllText(scene, "{\"a\":\"Hub.Pack.1:/Custom/a.vap\",\"b\":\"Stored.Pack.1:/Custom/a.vap\"}");
+            hub.Packages["Hub.Pack.1"] = "";
+            MissingViewModel missing = await Open();
+
+            missing.ScopePills.Single(pill => pill.Label == "Your saves").Command.Execute(null);
+            await missing.Checked.WaitAsync(Timeout);
+
+            Assert.Equal(1, Group(missing, "Ready on the Hub").Count);
+            Assert.Equal(1, Group(missing, "Turned off in your library").Count);
+            Assert.Equal(0, Group(missing, "Not found anywhere").Count);
+            Assert.Contains("mine.json", Group(missing, "Ready on the Hub").Lines[0]);
+
+            missing.GetAllCommand.Execute(null);
+            WaitForJob();
+
+            Assert.True(IsLinked("Hub.Pack.1"));
         }
 
         [Fact]

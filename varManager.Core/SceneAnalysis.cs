@@ -30,9 +30,11 @@ namespace varManager
             return (varName, entryName);
         }
 
+        public static string CacheRoot => Path.Combine(Directory.GetCurrentDirectory(), "Cache");
+
         public static string CacheFolder(string varName, string entryName)
         {
-            return Path.Combine(Directory.GetCurrentDirectory(), "Cache",
+            return Path.Combine(CacheRoot,
                 Comm.ValidFileName(varName), Comm.ValidFileName(entryName.Replace('\\', '_').Replace('/', '_')));
         }
 

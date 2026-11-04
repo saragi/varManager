@@ -26,6 +26,7 @@
                     <TextBlock Text="{Binding LinkedText}" Style="{StaticResource MutedText}" Margin="12,0,0,0" />
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Visibility="{Binding IsReady, Converter={StaticResource Visible}}">
+                    <Button Content="Settings" Command="{Binding OpenSettingsCommand}" IsEnabled="{Binding Jobs.IsIdle}" Margin="0,0,12,0" />
                     <Button Content="Update DB" Command="{Binding UpdateCommand}" IsEnabled="{Binding Jobs.IsIdle}" Margin="0,0,12,0" />
                     <Button Content="Launch VaM" Style="{StaticResource PrimaryButton}" Command="{Binding LaunchCommand}" />
                 </StackPanel>
@@ -89,7 +90,11 @@
                     <TextBox AutomationProperties.Name="Vars folder" Text="{Binding VarsPath, UpdateSourceTrigger=PropertyChanged}" />
                 </DockPanel>
                 <TextBlock Text="{Binding SetupProblem}" Foreground="{StaticResource Warning}" TextWrapping="Wrap" Margin="0,0,0,12" />
-                <Button Content="Continue" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Right" Command="{Binding SaveSetupCommand}" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Keep as it was" Command="{Binding CancelSetupCommand}" Margin="0,0,8,0"
+                            Visibility="{Binding CanCancelSetup, Converter={StaticResource Visible}}" />
+                    <Button Content="Continue" Style="{StaticResource PrimaryButton}" Command="{Binding SaveSetupCommand}" />
+                </StackPanel>
             </StackPanel>
         </Border>
 

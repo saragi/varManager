@@ -143,6 +143,7 @@ namespace varManager.Ui
             RestoreCommand = new Command(() => Work = Restore());
             CloseCheckCommand = new Command(() => CheckResult = null);
             SaveCommand = new Command(() => Work = Build());
+            MakeEmptyCommand = new Command(MakeEmpty);
             RemovePickCommand = new ArgCommand<string>(picks.Toggle);
             GoToLibraryCommand = new Command(goToLibrary);
             ModePills = new[]
@@ -170,6 +171,7 @@ namespace varManager.Ui
         public ICommand RestoreCommand { get; }
         public ICommand CloseCheckCommand { get; }
         public ICommand SaveCommand { get; }
+        public ICommand MakeEmptyCommand { get; }
         public ICommand RemovePickCommand { get; }
         public ICommand GoToLibraryCommand { get; }
 
@@ -237,10 +239,12 @@ namespace varManager.Ui
                 nameProblem = value;
                 Changed();
                 Changed(nameof(CanSave));
+                Changed(nameof(CanMakeEmpty));
             }
         }
 
         public bool CanSave => HasPicks && nameProblem.Length == 0;
+        public bool CanMakeEmpty => NoPicks && nameProblem.Length == 0 && !IsTaken(name.Trim());
 
         public bool IsRenaming => renaming != null;
         public string RenameTitle => renaming == null ? "" : "Rename " + renaming.Name;
@@ -401,6 +405,39 @@ namespace varManager.Ui
                     summary += $" This replaces the links in {profileName}.";
                 return (summary, builder.Preview(profileName, plan));
             }
+        }
+
+        // What the old app's Add did: a profile with no links, to fill by hand.
+        private void MakeEmpty()
+        {
+            if (!CanMakeEmpty || jobs.IsRunning)
+                return;
+            string typed = name.Trim();
+            Directory.CreateDirectory(VarSwitches.LinkFolder(paths.VamPath, typed));
+            switchTo(typed);
+        }
+
+        /// <summary>Saves the vars this profile links to a text file.</summary>
+        public void ExportLinked(string file)
+        {
+            jobs.Start("Saving the list", context =>
+            {
+                int count = ProfileCatalog.ExportLinked(paths.AddonPackages, file);
+                return count == 1 ? "Saved 1 var to the list." : $"Saved {count:N0} vars to the list.";
+            });
+        }
+
+        /// <summary>Turns on the vars a text file names, with their dependencies.</summary>
+        public void TurnOnFromList(string file)
+        {
+            jobs.Start("Turning on from a list", context =>
+            {
+                using LibraryStore store = LibraryStore.Open(storeFile);
+                KeyValuePair<int, int> result = ProfileCatalog.LinkFromList(store, paths, file);
+                VamBridge.RequestRescan(paths.VamPath);
+                string text = result.Key == 1 ? "Turned on 1 var." : $"Turned on {result.Key:N0} vars.";
+                return result.Value == 0 ? text : $"{text} {result.Value:N0} names aren't in the library.";
+            });
         }
 
         private async Task Build()

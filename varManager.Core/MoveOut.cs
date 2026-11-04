@@ -281,7 +281,7 @@ namespace varManager
                 !otherVars.Any(other => Path.GetFileName(file).StartsWith(other, StringComparison.OrdinalIgnoreCase)));
         }
 
-        private static IEnumerable<string> SaveFiles(string vamPath)
+        internal static IEnumerable<string> SaveFiles(string vamPath)
         {
             bool hasSaves = Directory.Exists(Path.Combine(vamPath, "Saves"));
             bool hasCustom = Directory.Exists(Path.Combine(vamPath, "Custom"));

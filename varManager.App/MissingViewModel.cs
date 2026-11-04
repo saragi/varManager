@@ -34,6 +34,7 @@ namespace varManager.Ui
     {
         private const string WholeLibrary = "Whole library";
         private const string ThisProfile = "This profile";
+        private const string Saves = "Your saves";
         private const int MostLines = 200;
 
         private readonly string storeFile;
@@ -46,7 +47,7 @@ namespace varManager.Ui
         private MissingState view = new MissingState();
         private IReadOnlyList<MissingGroup> groups = new MissingGroup[0];
         private MissingGroup? open;
-        private bool profileOnly;
+        private MissingScope scope = MissingScope.Library;
         private string title = "Checking";
         private string statusText = "";
         private int checks;
@@ -63,8 +64,9 @@ namespace varManager.Ui
             ToggleLinesCommand = new ArgCommand<MissingGroup>(group => OpenGroup = open == group ? null : group);
             ScopePills = new[]
             {
-                new Pill(WholeLibrary, new Command(() => SetScope(false))) { IsActive = true },
-                new Pill(ThisProfile, new Command(() => SetScope(true))),
+                new Pill(WholeLibrary, new Command(() => SetScope(MissingScope.Library, WholeLibrary))) { IsActive = true },
+                new Pill(ThisProfile, new Command(() => SetScope(MissingScope.Profile, ThisProfile))),
+                new Pill(Saves, new Command(() => SetScope(MissingScope.Saves, Saves))),
             };
         }
 
@@ -132,7 +134,7 @@ namespace varManager.Ui
             int count = await Task.Run(() =>
             {
                 using LibraryStore store = LibraryStore.Open(storeFile);
-                return new MissingLibrary(store, paths).Plan(false).Count;
+                return new MissingLibrary(store, paths).Plan(MissingScope.Library).Count;
             }).ConfigureAwait(true);
             countChanged(count);
         }
@@ -147,7 +149,7 @@ namespace varManager.Ui
         private async Task RunCheck()
         {
             int check = ++checks;
-            bool scope = profileOnly;
+            MissingScope checking = scope;
             if (!File.Exists(storeFile))
             {
                 Title = "Nothing to check yet";
@@ -163,7 +165,7 @@ namespace varManager.Ui
                     MissingLibrary library;
                     using (LibraryStore store = LibraryStore.Open(storeFile))
                         library = new MissingLibrary(store, paths);
-                    return await MissingCheck.Run(library, scope, hub, listed, default).ConfigureAwait(false);
+                    return await MissingCheck.Run(library, checking, hub, listed, default).ConfigureAwait(false);
                 }).ConfigureAwait(true);
                 if (check != checks)
                     return;
@@ -182,11 +184,11 @@ namespace varManager.Ui
             }
         }
 
-        private void SetScope(bool profile)
+        private void SetScope(MissingScope chosen, string label)
         {
-            profileOnly = profile;
+            scope = chosen;
             foreach (Pill pill in ScopePills)
-                pill.IsActive = pill.Label == (profile ? ThisProfile : WholeLibrary);
+                pill.IsActive = pill.Label == label;
             _ = Check();
         }
 
@@ -238,24 +240,24 @@ namespace varManager.Ui
 
         private void GetAll()
         {
-            bool scope = profileOnly;
+            MissingScope chosen = scope;
             HashSet<string> names = listed ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             jobs.Start("Getting packages from the Hub", context =>
-                MissingCheck.GetAll(storeFile, paths, scope, hub, names, MissingCheck.FreeSpace, context.Report, context.Token));
+                MissingCheck.GetAll(storeFile, paths, chosen, hub, names, MissingCheck.FreeSpace, context.Report, context.Token));
         }
 
         private void GetUpdates()
         {
-            bool scope = profileOnly;
+            MissingScope chosen = scope;
             HashSet<string> names = listed ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             jobs.Start("Getting updates from the Hub", context =>
-                MissingCheck.GetUpdates(storeFile, paths, scope, hub, names, MissingCheck.FreeSpace, context.Report, context.Token));
+                MissingCheck.GetUpdates(storeFile, paths, chosen, hub, names, MissingCheck.FreeSpace, context.Report, context.Token));
         }
 
         private void TurnOnAll()
         {
-            bool scope = profileOnly;
-            jobs.Start("Turning on stored vars", context => MissingCheck.TurnOnAll(storeFile, paths, scope, context.Report, context.Token));
+            MissingScope chosen = scope;
+            jobs.Start("Turning on stored vars", context => MissingCheck.TurnOnAll(storeFile, paths, chosen, context.Report, context.Token));
         }
 
         private void CopyList()

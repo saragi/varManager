@@ -55,6 +55,8 @@ namespace varManager
         public List<string> BrokenLinks { get; } = new List<string>();
         public List<string> GoneRecords { get; } = new List<string>();
         public List<MissingNeed> Missing { get; } = new List<MissingNeed>();
+        public int MissingPreviews { get; set; }
+        public long CacheBytes { get; set; }
     }
 
     public static class LibraryHealth
@@ -104,6 +106,10 @@ namespace varManager
             if (present.Count > 0)
                 report.GoneRecords.AddRange(records.Select(v => v.VarName).Where(name => !present.ContainsKey(name)));
             report.Missing.AddRange(MissingNeeds(vars, dependencies));
+            report.MissingPreviews = store.LoadPreviews().Count(preview => byName.ContainsKey(preview.VarName)
+                && !File.Exists(ScenePreviews.PicturePath(paths.VarsPath, preview.Type, preview.VarName, preview.Picture)));
+            if (Directory.Exists(SceneAnalysis.CacheRoot))
+                report.CacheBytes = new DirectoryInfo(SceneAnalysis.CacheRoot).GetFiles("*", SearchOption.AllDirectories).Sum(file => file.Length);
             return report;
         }
 
@@ -253,6 +259,13 @@ namespace varManager
             string holding = MoveOut.Apply(plan, name => Locate(paths, byName[name], present) ?? FileOf(paths, byName[name]), paths);
             store.DeleteVars(plan.Moves);
             return holding;
+        }
+
+        /// <summary>The scene cache only saves time, and each scene rebuilds its own on the next load.</summary>
+        public static void ClearSceneCache()
+        {
+            if (Directory.Exists(SceneAnalysis.CacheRoot))
+                Directory.Delete(SceneAnalysis.CacheRoot, true);
         }
 
         /// <summary>Points broken links at where their var is now. A link to a var the library lost goes.</summary>

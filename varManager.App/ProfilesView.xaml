@@ -107,6 +107,13 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
 
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                <Button Content="Save a list of linked vars" Click="ExportList_Click" Margin="0,0,8,0"
+                        IsEnabled="{Binding DataContext.Jobs.IsIdle, RelativeSource={RelativeSource AncestorType=Window}}" />
+                <Button Content="Turn on from a list" Click="ImportList_Click"
+                        IsEnabled="{Binding DataContext.Jobs.IsIdle, RelativeSource={RelativeSource AncestorType=Window}}" />
+            </StackPanel>
+
             <Border Style="{StaticResource PanelBox}" Visibility="{Binding IsRenaming, Converter={StaticResource Visible}}">
                 <StackPanel>
                     <TextBlock Text="{Binding RenameTitle}" Style="{StaticResource PanelTitle}" />
@@ -159,7 +166,12 @@
 
                     <StackPanel Visibility="{Binding NoPicks, Converter={StaticResource Visible}}">
                         <TextBlock Text="No picks yet. Pick packages in Library, then come back here." Style="{StaticResource MutedText}" Margin="0,4,0,10" />
-                        <Button Content="Go to Library" Command="{Binding GoToLibraryCommand}" HorizontalAlignment="Left" />
+                        <Button Content="Go to Library" Command="{Binding GoToLibraryCommand}" HorizontalAlignment="Left" Margin="0,0,0,10" />
+                        <DockPanel>
+                            <TextBlock Text="Name" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                            <Button DockPanel.Dock="Right" Content="Make an empty profile" Command="{Binding MakeEmptyCommand}" IsEnabled="{Binding CanMakeEmpty}" Margin="10,0,0,0" />
+                            <TextBox AutomationProperties.Name="Empty profile name" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" />
+                        </DockPanel>
                     </StackPanel>
 
                     <StackPanel Visibility="{Binding HasPicks, Converter={StaticResource Visible}}">

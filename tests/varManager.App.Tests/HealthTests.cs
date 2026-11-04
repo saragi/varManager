@@ -788,6 +788,33 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task A_missing_preview_can_be_put_back()
+        {
+            string file = Path.Combine(vars, "A.B.1.var");
+            using (ZipOutputStream zip = new ZipOutputStream(File.Create(file)))
+            {
+                foreach (string entry in new[] { "meta.json", "Saves/scene/S.json", "Saves/scene/S.jpg" })
+                {
+                    zip.PutNextEntry(new ZipEntry(entry));
+                    byte[] bytes = Encoding.UTF8.GetBytes("{}");
+                    zip.Write(bytes, 0, bytes.Length);
+                    zip.CloseEntry();
+                }
+            }
+            Update();
+            string previews = Path.Combine(vars, LibraryFolders.PreviewPics);
+            string picture = Directory.GetFiles(previews, "*.jpg", SearchOption.AllDirectories).Single();
+            File.Delete(picture);
+            HealthViewModel health = await Open();
+
+            Press(health, "Preview pictures missing");
+            await Confirm(health);
+
+            Assert.True(File.Exists(picture));
+            Assert.Equal("Pictures repaired.", jobs.Note);
+        }
+
+        [Fact]
         public async Task A_healthy_library_offers_nothing_to_do()
         {
             MakeVar("A.B.1");
