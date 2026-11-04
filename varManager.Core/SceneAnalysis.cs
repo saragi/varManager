@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using ICSharpCode.SharpZipLib.Zip;
 using SimpleJSON;
 
 namespace varManager
@@ -65,9 +64,7 @@ namespace varManager
             if (varName != "save")
             {
                 depends.Add(varName);
-                using (ZipFile zip = new ZipFile(varFile))
-                using (StreamReader reader = new StreamReader(zip.GetInputStream(zip.GetEntry(entryName))))
-                    json = reader.ReadToEnd();
+                json = VarScanner.ReadEntry(varFile, entryName);
             }
             else
             {

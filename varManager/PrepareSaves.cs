@@ -183,12 +183,7 @@ namespace varManager
                 {
                     if (File.Exists(destvarfile))
                     {
-                        using (ZipFile varzipfile = new ZipFile(destvarfile))
-                        {
-                            var entry = varzipfile.GetEntry(entryname);
-                            var entryStream = new StreamReader(varzipfile.GetInputStream(entry));
-                            jsonstring = entryStream.ReadToEnd();
-                        }
+                        jsonstring = VarScanner.ReadEntry(destvarfile, entryname);
                     }
                 }
             }

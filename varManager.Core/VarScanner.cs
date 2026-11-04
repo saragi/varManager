@@ -177,6 +177,13 @@ namespace varManager
             }
         }
 
+        public static string ReadEntry(string varPath, string entryName)
+        {
+            using (ZipFile zip = new ZipFile(varPath))
+            using (StreamReader reader = new StreamReader(zip.GetInputStream(zip.GetEntry(entryName))))
+                return reader.ReadToEnd();
+        }
+
         /// <summary>Which packages each file inside a var references.</summary>
         public static List<KeyValuePair<string, HashSet<string>>> FileReferences(string varPath, Action<string> warning)
         {

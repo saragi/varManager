@@ -362,6 +362,9 @@
     <Compile Include="..\varManager.Core\SceneAnalysis.cs">
       <Link>Core\SceneAnalysis.cs</Link>
     </Compile>
+    <Compile Include="..\varManager.Core\DependencyAnalysis.cs">
+      <Link>Core\DependencyAnalysis.cs</Link>
+    </Compile>
     <Compile Include="..\varManager.Core\HubDownloader.cs">
       <Link>Core\HubDownloader.cs</Link>
     </Compile>

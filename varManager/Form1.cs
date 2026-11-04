@@ -677,29 +677,9 @@ namespace varManager
         {
             return VarLookup.IsLatest(varname);
         }
-        private int VarCountVersion(string varname)
-        {
-            string[] varnamepart = varname.Split('.');
-            return varnamepart.Length == 3 ? VarLookup.VersionCount(varnamepart[0], varnamepart[1]) : 0;
-        }
-
-        private List<string> ImplicatedVar(string varname)
-        {
-            return VarCountVersion(varname) <= 1 ? DependentVars(varname) : new List<string>();
-        }
-
         private List<string> DependentVars(string varname)
         {
-            List<string> varnames = new List<string>(DependencyLookup.DependentsOf(varname));
-            if (Varislatest(varname))
-            {
-                string package = varname.Substring(0, varname.LastIndexOf('.'));
-                varnames.AddRange(DependencyLookup.DependentsOf(package + ".latest"));
-                int version;
-                if (int.TryParse(varname.Substring(package.Length + 1), out version))
-                    varnames.AddRange(DependencyLookup.MinimumDependentsOf(package, version));
-            }
-            return varnames.Distinct().ToList();
+            return DependencyAnalysis.DependentVars(varname, VarLookup, DependencyLookup);
         }
         private List<string> DependentSaved(string varname)
         {
@@ -730,36 +710,7 @@ namespace varManager
         }
         private List<string> ImplicatedVars(List<string> varnames)
         {
-            List<string> varnameexist = new List<string>();
-            List<string> varsProccessed = new List<string>();
-            List<string> varimplics = new List<string>();
-            foreach (string varname in varnames)
-            {
-                if (varname[varname.Length - 1] == '^')
-                    varsProccessed.Add(varname.Substring(0, varname.Length - 1));
-                else
-                    varnameexist.Add(varname);
-            }
-
-            foreach (string varname in varnameexist)
-            {
-                varimplics.AddRange(ImplicatedVar(varname));
-            }
-            varsProccessed.AddRange(varnameexist);
-            varimplics = varimplics.Distinct().Except(varsProccessed).ToList();
-            if (varimplics.Count() > 0)
-            {
-                foreach (string varname in varsProccessed)
-                {
-                    varimplics.Add(varname + "^");
-                }
-                return ImplicatedVars(varimplics);
-            }
-            else
-            {
-                varsProccessed = varsProccessed.Select(q => q.Trim('^')).Distinct().ToList();
-                return varsProccessed;
-            }
+            return DependencyAnalysis.ImplicatedVars(varnames, VarLookup, DependencyLookup);
         }
 
         private void DelePreviewPics(string varname)
@@ -1516,34 +1467,33 @@ namespace varManager
             {
                 dependencies.AddRange(DependencyLookup.DependenciesOf(varrow.varName));
             }
-            dependencies = dependencies.Distinct().ToList();
-            List<string> missingvars = new List<string>();
-            foreach (string varname in dependencies)
+            List<ResolvedReference> resolved = ResolveAndLog(dependencies);
+            foreach (ResolvedReference reference in resolved.Where(q => q.VarName != null))
+                VarInstall(reference.VarName);
+            ShowMissing(resolved);
+        }
+
+        private List<ResolvedReference> ResolveAndLog(IEnumerable<string> dependencies)
+        {
+            List<ResolvedReference> resolved = DependencyAnalysis.Resolve(dependencies.Distinct(), VarLookup);
+            foreach (ResolvedReference reference in resolved)
             {
-                string varexistname = VarExistName(varname);
-                if (varexistname.EndsWith("$"))
-                {
-                    varexistname = varexistname.Substring(0, varexistname.Length - 1);
-                    missingvars.Add(varname+"$");
-                    this.BeginInvoke(addlog, new Object[] { varname + " missing version", LogLevel.INFO });
-                }
-                if (varexistname != "missing")
-                {
-                    VarInstall(varexistname);
-                    //this.BeginInvoke(addlog, new Object[] { varexistname + " installed" ,LogLevel.ERROR});
-                }
-                else
-                {
-                    missingvars.Add(varname);
-                    this.BeginInvoke(addlog, new Object[] { varname + " missing", LogLevel.INFO });
-                }
+                if (reference.IsSubstitute)
+                    this.BeginInvoke(addlog, new Object[] { reference.Reference + " missing version", LogLevel.INFO });
+                if (reference.VarName == null)
+                    this.BeginInvoke(addlog, new Object[] { reference.Reference + " missing", LogLevel.INFO });
             }
+            return resolved;
+        }
+
+        private void ShowMissing(IEnumerable<ResolvedReference> resolved)
+        {
+            List<string> missingvars = DependencyAnalysis.MissingList(resolved);
             if (missingvars.Count > 0)
             {
                 InvokeShowformMissingVars showformMissingVars = new InvokeShowformMissingVars(ShowformMissingVars);
                 this.BeginInvoke(showformMissingVars, missingvars);
             }
-
         }
 
         private void FilteredMissingDepends()
@@ -1559,34 +1509,7 @@ namespace varManager
                 //dependencies.AddRange(varManagerDataSet.dependencies.Where(q => q.varName == varrow.varName).Select(q => q.dependency));
             }
             
-            dependencies = dependencies.Distinct().ToList();
-            List<string> missingvars = new List<string>();
-            foreach (string varname in dependencies)
-            {
-                string varexistname = VarExistName(varname);
-                if (varexistname.EndsWith("$"))
-                {
-                    varexistname = varexistname.Substring(0, varexistname.Length - 1);
-                    missingvars.Add(varname+"$");
-                    this.BeginInvoke(addlog, new Object[] { varname + " missing version", LogLevel.INFO });
-                }
-                if (varexistname != "missing")
-                {
-                    //VarInstall(varexistname);
-                    //this.BeginInvoke(addlog, new Object[] { varexistname + " installed" ,LogLevel.ERROR});
-                }
-                else
-                {
-                    missingvars.Add(varname);
-                    this.BeginInvoke(addlog, new Object[] { varname + " missing", LogLevel.INFO });
-                }
-            }
-            if (missingvars.Count > 0)
-            {
-                InvokeShowformMissingVars showformMissingVars = new InvokeShowformMissingVars(ShowformMissingVars);
-                this.BeginInvoke(showformMissingVars, missingvars);
-            }
-
+            ShowMissing(ResolveAndLog(dependencies));
         }
 
         private void buttonAllMissingDepends_Click(object sender, EventArgs e)
@@ -1618,34 +1541,8 @@ namespace varManager
 
         public List<string> MissingDependencies()
         {
-            List<string> dependencies = new List<string>();
-
-            dependencies.AddRange(varManagerDataSet.dependencies.Select(q => q.dependency));
-
-            dependencies = dependencies.Distinct().ToList();
-            List<string> missingvars = new List<string>();
-            foreach (string varname in dependencies)
-            {
-                string varexistname = VarExistName(varname);
-                if (varexistname.EndsWith("$"))
-                {
-                    varexistname = varexistname.Substring(0, varexistname.Length - 1);
-                    missingvars.Add(varname + "$");
-                    //this.BeginInvoke(addlog, new Object[] { varname + " missing version" ,LogLevel.ERROR});
-                }
-                if (varexistname != "missing")
-                {
-                    //VarInstall(varexistname);
-                    //this.BeginInvoke(addlog, new Object[] { varexistname + " installed" ,LogLevel.ERROR});
-                }
-                else
-                {
-                    missingvars.Add(varname);
-
-                }
-            }
-
-            return missingvars;
+            List<string> dependencies = varManagerDataSet.dependencies.Select(q => q.dependency).Distinct().ToList();
+            return DependencyAnalysis.MissingList(DependencyAnalysis.Resolve(dependencies, VarLookup));
         }
 
         private void FixRebuildLink()
@@ -1715,13 +1612,10 @@ namespace varManager
             this.savedepensTableAdapter.Fill(this.varManagerDataSet.savedepens);
             ILookup<string, varManagerDataSet.savedepensRow> savedRows =
                 this.varManagerDataSet.savedepens.ToLookup(q => q.savepath, StringComparer.Ordinal);
-            List<string> savefiles = Directory.GetFiles(Path.Combine(Settings.Default.vampath, "Saves"), "*.json", SearchOption.AllDirectories).ToList();
-            savefiles.AddRange(Directory.GetFiles(Path.Combine(Settings.Default.vampath, "Custom"), "*.vap", SearchOption.AllDirectories));
-            foreach (string jsonfile in savefiles)
+            foreach (string jsonfile in DependencyAnalysis.SaveFiles(Settings.Default.vampath))
             {
                 FileInfo fi = new FileInfo(jsonfile);
-                string savepath = jsonfile.Substring(Settings.Default.vampath.Length);
-                if (savepath.Length > 255) savepath = savepath.Substring(savepath.Length - 255);
+                string savepath = DependencyAnalysis.SavePath(Settings.Default.vampath, jsonfile);
 
                 this.BeginInvoke(addlog, new Object[] { $"Analyze { Path.GetFileName(jsonfile)} ...", LogLevel.INFO });
 
@@ -1777,26 +1671,13 @@ namespace varManager
             List<string> varinstalled = GetInstalledVars().Keys.ToList();
             dependencies = dependencies.Except(varinstalled).ToList();
             this.BeginInvoke(addlog, new Object[] { $"{dependencies.Count()} var files will be installed", LogLevel.INFO });
-            List<string> missingvars = new List<string>();
-            foreach (string varname in dependencies)
+            List<ResolvedReference> resolved = DependencyAnalysis.Resolve(dependencies, VarLookup);
+            foreach (ResolvedReference reference in resolved.Where(q => q.VarName != null))
             {
-                string varexistname = VarExistName(varname);
-                if (varexistname.EndsWith("$"))
-                {
-                    varexistname = varexistname.Substring(0, varexistname.Length - 1);
-                    missingvars.Add(varname + "$");
-                }
-                if (varexistname != "missing")
-                {
-                    VarInstall(varexistname);
-                    this.BeginInvoke(addlog, new Object[] { varexistname + " installed", LogLevel.INFO });
-                }
-                else
-                {
-                    missingvars.Add(varname);
-                }
+                VarInstall(reference.VarName);
+                this.BeginInvoke(addlog, new Object[] { reference.VarName + " installed", LogLevel.INFO });
             }
-            missingvars = missingvars.Distinct().ToList();
+            List<string> missingvars = DependencyAnalysis.MissingList(resolved).Distinct().ToList();
             if (missingvars.Count > 0)
             {
                 InvokeShowformMissingVars showformMissingVars = new InvokeShowformMissingVars(ShowformMissingVars);
@@ -1884,54 +1765,9 @@ namespace varManager
         {
             return VarLookup.Closest(creatorName, packageName, requestVersion);
         }
-        private List<string> VarsDependencies(string varname)
-        {
-            return new List<string>(DependencyLookup.DependenciesOf(varname));
-        }
-
         private List<string> VarsDependencies(List<string> varnames)
         {
-            List<string> varnameexist = new List<string>();
-            List<string> varsProccessed = new List<string>();
-            List<string> vardeps = new List<string>();
-            foreach (string varname in varnames)
-            {
-                if (varname[varname.Length - 1] == '^')
-                    varsProccessed.Add(varname.Substring(0, varname.Length - 1));
-                else
-                {
-                    string varexistname = VarExistName(varname);
-                    if (varexistname.EndsWith("$"))
-                    {
-                        varexistname = varexistname.Substring(0, varexistname.Length - 1);
-                    }
-                    if (varexistname != "missing")
-                        varnameexist.Add(varexistname);
-                }
-            }
-
-            varnameexist = varnameexist.Distinct().Except(varsProccessed).ToList();
-            foreach (string varname in varnameexist)
-            {
-                vardeps.AddRange(VarsDependencies(varname));
-            }
-            varsProccessed.AddRange(varnameexist);
-            varsProccessed = varsProccessed.Distinct().ToList();
-
-            vardeps = vardeps.Distinct().Except(varsProccessed).ToList();
-            if (vardeps.Count() > 0)
-            {
-                foreach (string varname in varsProccessed)
-                {
-                    vardeps.Add(varname + "^");
-                }
-                return VarsDependencies(vardeps);
-            }
-            else
-            {
-                varsProccessed = varsProccessed.Select(q => q.Trim('^')).Distinct().ToList();
-                return varsProccessed;
-            }
+            return DependencyAnalysis.WithDependencies(varnames, VarLookup, DependencyLookup);
         }
 
         private void varsDataGridView_SelectionChanged(object sender, EventArgs e)
@@ -2249,28 +2085,15 @@ namespace varManager
             }
         }
 
+        private static List<VarEntry> VarEntries(IEnumerable<varManagerDataSet.varsRow> rows)
+        {
+            return rows.Select(q => new VarEntry(q.varName, q.creatorName, q.packageName, q.version)).ToList();
+        }
+
         void StaleVars()
         {
-            var query = varManagerDataSet.vars.GroupBy(g => g.creatorName + "." + g.packageName,
-                                     q => q.version,
-                                     (baseName, versions) => new
-                                     {
-                                         Key = baseName,
-                                         Count = versions.Count(),
-                                         Max = versions.Max()
-                                     });
-            List<string> listOldvar = new List<string>();
-            foreach (var result in query)
-            {
-                if (result.Count > 1)
-                {
-                    string[] vv = result.Key.Split('.');
-                    foreach (var oldvar in varManagerDataSet.vars.Where(q => q.creatorName == vv[0] && q.packageName == vv[1] && q.version != result.Max))
-                    {
-                        listOldvar.Add(oldvar.varName);
-                    }
-                }
-            }
+            List<VarEntry> entries = VarEntries(varManagerDataSet.vars);
+            List<string> listOldvar = DependencyAnalysis.OldVersions(entries, DependencyAnalysis.LatestVersions(entries));
             string stalepath = Path.Combine(Settings.Default.varspath, staleVarsDirName);
             if (!Directory.Exists(stalepath))
                 Directory.CreateDirectory(stalepath);
@@ -2306,27 +2129,9 @@ namespace varManager
 
         void OldVersionVars()
         {
-            var versionLastest = varManagerDataSet.vars.Where(q=>q.plugins<=0||q.scenes>0||q.looks>0)
-                                     .GroupBy(g => g.creatorName + "." + g.packageName,
-                                     q => q.version,
-                                     (baseName, versions) => new
-                                     {
-                                         Key = baseName,
-                                         Count = versions.Count(),
-                                         Max = versions.Max()
-                                     });
-            List<string> listOldvar = new List<string>();
-            foreach (var result in versionLastest)
-            {
-                if (result.Count > 1)
-                {
-                    string[] vv = result.Key.Split('.');
-                    foreach (var oldvar in varManagerDataSet.vars.Where(q => q.creatorName == vv[0] && q.packageName == vv[1] && q.version != result.Max))
-                    {
-                        listOldvar.Add(oldvar.varName);
-                    }
-                }
-            }
+            var versionLastest = DependencyAnalysis.LatestVersions(
+                VarEntries(varManagerDataSet.vars.Where(q => q.plugins <= 0 || q.scenes > 0 || q.looks > 0)));
+            List<string> listOldvar = DependencyAnalysis.OldVersions(VarEntries(varManagerDataSet.vars), versionLastest);
             string oldversionpath = Path.Combine(Settings.Default.varspath, oldVersionVarsDirName);
             if (!Directory.Exists(oldversionpath))
                 Directory.CreateDirectory(oldversionpath);
@@ -2336,7 +2141,7 @@ namespace varManager
                 if (installedvars.ContainsKey(oldvar))
                 {
                     string basename = oldvar.Substring(0, oldvar.LastIndexOf(".") );
-                    string varlastest = basename + "." + versionLastest.Where(q => q.Key == basename).First().Max.ToString();
+                    string varlastest = basename + "." + versionLastest[basename];
                     File.Delete(installedvars[oldvar]);
                     VarInstall(varlastest);
                 }
