@@ -137,13 +137,15 @@ namespace varManagerTests
         {
             string tidied = Touch(repo, LibraryFolders.Tidied + @"\A\A.B.1.var", "kept");
             Touch(repo, LibraryFolders.Redundant + @"\A.B.1.var", "older");
+            Touch(repo, LibraryFolders.Redundant + @"\A.B.1(1).var", "oldest");
             string var = Touch(repo, "A.B.1.var", "new");
 
             Tidy(var);
 
             Assert.Equal("kept", File.ReadAllText(tidied));
             Assert.Equal("older", File.ReadAllText(Path.Combine(repo, LibraryFolders.Redundant, "A.B.1.var")));
-            Assert.Equal("new", File.ReadAllText(Path.Combine(repo, LibraryFolders.Redundant, "A.B.1(1).var")));
+            Assert.Equal("oldest", File.ReadAllText(Path.Combine(repo, LibraryFolders.Redundant, "A.B.1(1).var")));
+            Assert.Equal("new", File.ReadAllText(Path.Combine(repo, LibraryFolders.Redundant, "A.B.1(2).var")));
             Assert.Contains("has same filename", Assert.Single(problems));
         }
 
@@ -171,6 +173,7 @@ namespace varManagerTests
             Assert.True(File.Exists(locked));
             Assert.Contains("failed", Assert.Single(problems));
             Assert.True(File.Exists(Path.Combine(repo, LibraryFolders.Tidied, "C", "C.D.1.var")));
+            Assert.Equal(new[] { "0/2", "1/2" }, progress);
         }
 
         [Fact]
