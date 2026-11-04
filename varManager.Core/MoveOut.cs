@@ -153,6 +153,20 @@ namespace varManager
             return plan;
         }
 
+        /// <summary>Plans from what the store and the saves say right now.</summary>
+        public static MovePlan PlanNow(LibraryStore store, string target, LibraryPaths paths, Action<string> problem)
+        {
+            var vars = new VarIndex(store.LoadVars().Select(v => new VarEntry(v.VarName, v.CreatorName, v.PackageName, v.Version ?? 0)));
+            return Plan(target, new LibraryUsage(vars, store.LoadDependencies()), ReferencedOutsideVars(paths, vars, problem));
+        }
+
+        /// <summary>Whether two plans move exactly the same vars.</summary>
+        public static bool SameMoves(MovePlan first, MovePlan second)
+        {
+            return !first.IsBlocked && !second.IsBlocked
+                && new HashSet<string>(first.Moves, StringComparer.OrdinalIgnoreCase).SetEquals(second.Moves);
+        }
+
         /// <summary>Moves the plan's vars and takes down their links in every switch. Returns the holding folder.</summary>
         /// <param name="files">Gives the file of each var in the plan.</param>
         public static string Apply(MovePlan plan, Func<string, string> files, LibraryPaths paths)
@@ -167,7 +181,7 @@ namespace varManager
             {
                 string file = files(varName);
                 string folder = Path.GetDirectoryName(file);
-                foreach (string source in Directory.GetFiles(folder, varName + ".*"))
+                foreach (string source in FilesOf(folder, varName))
                 {
                     string destination = Path.Combine(holding, Path.GetFileName(source));
                     moves.Add(new KeyValuePair<string, string>(source, destination));
@@ -250,6 +264,21 @@ namespace varManager
                     Directory.Delete(holding);
             }
             return problems;
+        }
+
+        // A var and files named after it. "A.B.1.*" alone would also catch the var A.B.1.2 and its files.
+        private static IEnumerable<string> FilesOf(string folder, string varName)
+        {
+            string prefix = varName + ".";
+            string[] candidates = Directory.GetFiles(folder, prefix + "*");
+            string[] otherVars = candidates
+                .Select(Path.GetFileName)
+                .Where(name => name.EndsWith(".var", StringComparison.OrdinalIgnoreCase)
+                    && !name.Equals(varName + ".var", StringComparison.OrdinalIgnoreCase))
+                .Select(name => name.Substring(0, name.Length - ".var".Length) + ".")
+                .ToArray();
+            return candidates.Where(file =>
+                !otherVars.Any(other => Path.GetFileName(file).StartsWith(other, StringComparison.OrdinalIgnoreCase)));
         }
 
         private static IEnumerable<string> SaveFiles(string vamPath)

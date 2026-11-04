@@ -536,13 +536,11 @@ namespace varManager.Ui
             if (selected == null)
                 return;
             string target = selected.Item.VarName;
-            VarIndex vars = index;
-            LibraryUsage current = usage;
             jobs.Start("Checking what can move", context =>
             {
                 var problems = new List<string>();
-                ISet<string> outside = MoveOut.ReferencedOutsideVars(paths, vars, problems.Add);
-                MovePlan plan = MoveOut.Plan(target, current, outside);
+                using LibraryStore store = LibraryStore.Open(storeFile);
+                MovePlan plan = MoveOut.PlanNow(store, target, paths, problems.Add);
                 ShowOnUi(() =>
                 {
                     if (selected?.Item.VarName == target)
@@ -560,10 +558,13 @@ namespace varManager.Ui
             Dictionary<string, string> files = items.ToDictionary(i => i.VarName, i => i.FilePath, StringComparer.OrdinalIgnoreCase);
             Task? started = jobs.Start("Moving out", context =>
             {
+                using LibraryStore store = LibraryStore.Open(storeFile);
+                // The plan was made earlier. Something new may need these vars by now.
+                if (!MoveOut.SameMoves(plan, MoveOut.PlanNow(store, plan.Target, paths, _ => { })))
+                    return "The library changed, so nothing moved. Check again.";
                 string holding = MoveOut.Apply(plan, name => files[name], paths);
-                using (LibraryStore store = LibraryStore.Open(storeFile))
-                    store.DeleteVars(plan.Moves);
                 ShowOnUi(() => SetUndo(holding));
+                store.DeleteVars(plan.Moves);
                 VamBridge.RequestRescan(paths.VamPath);
                 return plan.Moves.Count == 1 ? "Moved 1 var to the holding folder." : $"Moved {plan.Moves.Count} vars to the holding folder.";
             });

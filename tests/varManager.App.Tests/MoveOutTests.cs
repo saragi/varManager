@@ -273,6 +273,47 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public void Apply_leaves_a_var_whose_name_starts_the_same()
+        {
+            string folder = Path.Combine(vars, "pack");
+            Directory.CreateDirectory(folder);
+            string mine = Path.Combine(folder, "A.B.1.var");
+            string myPicture = Path.Combine(folder, "A.B.1.jpg");
+            string other = Path.Combine(folder, "A.B.1.2.var");
+            string otherPicture = Path.Combine(folder, "A.B.1.2.jpg");
+            string tens = Path.Combine(folder, "A.B.10.var");
+            foreach (string file in new[] { mine, myPicture, other, otherPicture, tens })
+                File.WriteAllText(file, "x");
+            var plan = new MovePlan { Target = "A.B.1" };
+            plan.Moves.Add("A.B.1");
+
+            MoveOut.Apply(plan, _ => mine, paths);
+
+            Assert.False(File.Exists(mine));
+            Assert.False(File.Exists(myPicture));
+            Assert.True(File.Exists(other));
+            Assert.True(File.Exists(otherPicture));
+            Assert.True(File.Exists(tens));
+        }
+
+        [Fact]
+        public void Plans_compare_by_what_they_move()
+        {
+            var first = new MovePlan { Target = "A.B.1" };
+            first.Moves.AddRange(new[] { "A.B.1", "C.D.1" });
+            var same = new MovePlan { Target = "A.B.1" };
+            same.Moves.AddRange(new[] { "c.d.1", "a.b.1" });
+            var fewer = new MovePlan { Target = "A.B.1" };
+            fewer.Moves.Add("A.B.1");
+            var blocked = new MovePlan { Target = "A.B.1" };
+            blocked.NeededBy.Add("X.Y.1");
+
+            Assert.True(MoveOut.SameMoves(first, same));
+            Assert.False(MoveOut.SameMoves(first, fewer));
+            Assert.False(MoveOut.SameMoves(first, blocked));
+        }
+
+        [Fact]
         public void Apply_refuses_a_blocked_plan()
         {
             var plan = new MovePlan { Target = "A.B.1" };
@@ -480,6 +521,44 @@ namespace varManager.App.Tests
             Assert.True(File.Exists(Tidied("A.B.1")));
             release.Set();
             Assert.True(other.Wait(Timeout));
+        }
+
+        [Fact]
+        public async Task A_plan_gone_stale_moves_nothing()
+        {
+            MakeVar("A.B.1");
+            Update();
+            (LibraryViewModel library, JobRunner jobs) = await Open("A.B.1");
+            library.PlanMoveCommand.Execute(null);
+            WaitForJob(jobs);
+            MakeVar("New.Pack.1", "A.B.1:/Custom/a.vap");
+            Update();
+
+            library.ConfirmMoveCommand.Execute(null);
+            WaitForJob(jobs);
+
+            Assert.True(File.Exists(Tidied("A.B.1")));
+            Assert.Contains("library changed", jobs.Note);
+            Assert.False(library.CanUndo);
+        }
+
+        [Fact]
+        public async Task A_plan_goes_stale_when_a_new_profile_keeps_a_dependency()
+        {
+            MakeVar("A.B.1", "Dep.Pack.1:/Custom/a.vap");
+            MakeVar("Dep.Pack.1");
+            Update();
+            (LibraryViewModel library, JobRunner jobs) = await Open("A.B.1");
+            library.PlanMoveCommand.Execute(null);
+            WaitForJob(jobs);
+            Directory.CreateDirectory(Path.Combine(vars, LibraryFolders.Profiles));
+            File.WriteAllLines(Path.Combine(vars, LibraryFolders.Profiles, "base.txt"), new[] { "Dep.Pack.1" });
+
+            library.ConfirmMoveCommand.Execute(null);
+            WaitForJob(jobs);
+
+            Assert.True(File.Exists(Tidied("Dep.Pack.1")));
+            Assert.True(File.Exists(Tidied("A.B.1")));
         }
 
         [Fact]
