@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Threading.Tasks;
 using SimpleJSON;
 
 namespace varManager
@@ -11,6 +13,18 @@ namespace varManager
         public static string RequestFile(string vamPath)
         {
             return Path.Combine(vamPath, "Custom", "PluginData", "feelfar", "loadscene.json");
+        }
+
+        /// <summary>Removes temporary links once VaM has taken the request, plus a pause for it to finish loading.</summary>
+        public static async Task RemoveTempLinksAfterLoad(string vamPath, IReadOnlyList<string> fileNames, TimeSpan pause)
+        {
+            if (fileNames.Count == 0)
+                return;
+            string request = RequestFile(vamPath);
+            while (File.Exists(request))
+                await Task.Delay(pause < TimeSpan.FromSeconds(2) ? pause : TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+            await Task.Delay(pause).ConfigureAwait(false);
+            VarLinks.RemoveTempLinks(VarSwitches.AddonPackages(vamPath), fileNames);
         }
 
         public static bool IsRunning()

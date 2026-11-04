@@ -23,6 +23,9 @@ namespace varManager
         public double FileSize { get; set; }
         public string PreviewPath { get; set; }
         public string FilePath { get; set; }
+
+        // The first scene in the var, or null if it has none.
+        public string FirstScene { get; set; }
         public IReadOnlyList<string> Dependencies { get; set; } = new string[0];
     }
 
@@ -88,6 +91,13 @@ namespace varManager
                     previews[preview.VarName] = ScenePreviews.PicturePath(varsPath, preview.Type, preview.VarName, preview.Picture);
             }
 
+            var firstScenes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (ScenePreview scene in store.LoadItems().Where(item => item.Type == "scenes"))
+            {
+                if (!firstScenes.ContainsKey(scene.VarName))
+                    firstScenes[scene.VarName] = scene.ScenePath;
+            }
+
             var items = new List<LibraryItem>(records.Count);
             foreach (VarRecord record in records)
             {
@@ -95,6 +105,8 @@ namespace varManager
                 bool missing = DependencyAnalysis.Resolve(needs, vars).Any(r => r.VarName == null);
                 string preview;
                 previews.TryGetValue(record.VarName, out preview);
+                string firstScene;
+                firstScenes.TryGetValue(record.VarName, out firstScene);
                 items.Add(new LibraryItem
                 {
                     VarName = record.VarName,
@@ -105,6 +117,7 @@ namespace varManager
                     State = missing ? VarState.MissingDeps : linked.Contains(record.VarName) ? VarState.On : VarState.Off,
                     FileSize = record.FileSize ?? 0,
                     PreviewPath = preview,
+                    FirstScene = firstScene,
                     FilePath = System.IO.Path.Combine(varsPath, record.VarPath ?? "", record.VarName + ".var"),
                     Dependencies = needs,
                 });

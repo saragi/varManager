@@ -109,7 +109,7 @@ namespace varManager.App.Tests
         private async Task<(LibraryViewModel library, JobRunner jobs)> Open(string select)
         {
             var jobs = new JobRunner(null);
-            var library = new LibraryViewModel(storeFile, paths, jobs, () => VarLinks.Installed(paths.AddonPackages).Keys, null);
+            var library = new LibraryViewModel(storeFile, paths, jobs, () => VarLinks.Installed(paths.AddonPackages).Keys, _ => { }, null);
             await library.Reload();
             library.Columns = 10;
             library.SelectCommand.Execute(library.Rows.OfType<TileRow>().SelectMany(r => r.Tiles).Single(t => t.Item.VarName == select));
@@ -587,7 +587,7 @@ namespace varManager.App.Tests
             plan.Moves.Add("A.B.1");
             MoveOut.Apply(plan, _ => var, paths);
 
-            var library = new LibraryViewModel(storeFile, paths, new JobRunner(null), () => new string[0], null);
+            var library = new LibraryViewModel(storeFile, paths, new JobRunner(null), () => new string[0], _ => { }, null);
             await library.Reload();
 
             Assert.True(library.CanUndo);

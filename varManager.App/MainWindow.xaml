@@ -60,6 +60,8 @@
 
             <ui:LibraryView Grid.Column="1" DataContext="{Binding Library}"
                             Visibility="{Binding DataContext.IsLibraryPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
+            <ui:ScenesView Grid.Column="1" DataContext="{Binding Scenes}"
+                           Visibility="{Binding DataContext.IsScenesPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
             <StackPanel Grid.Column="1" Margin="20" Visibility="{Binding IsOtherPage, Converter={StaticResource Visible}}">
                 <TextBlock Text="{Binding SelectedPage.Name}" FontSize="22" FontWeight="SemiBold" />
             </StackPanel>

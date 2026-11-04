@@ -107,4 +107,6 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - Move out re-plans inside its job, because a plan on screen can go stale. A held var keeps its previews, and undo runs Update DB to bring back its records.
 - `___HoldingVars___` is skipped by `VarTidier.RepositoryVars`. Any new sorted folder must be added to `SortedFolders`, or Update DB tidies its vars back in.
 - `Directory.GetFiles(folder, "A.B.1.*")` also matches the var `A.B.1.2`. Use `MoveOut.FilesOf`'s approach.
+- `ListBoxItem` resets text colour, so a `ListBox` row needs `Foreground` set, or its text goes black. Look at a screenshot of every new screen.
+- `dotnet test` doesn't build the WinForms app. A Core file with a link in `varManager.csproj` can't use a Core type that has none, such as `LibraryPaths`. Only MSBuild catches that, so run it every time.
 - The compiler drops an unused project reference, so `GetReferencedAssemblies` won't list Core until the app calls it.

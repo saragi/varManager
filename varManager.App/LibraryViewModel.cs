@@ -66,38 +66,21 @@ namespace varManager.Ui
         }
     }
 
-    /// <summary>A package in the gallery. Its picture is asked for only when the tile is on screen.</summary>
-    public sealed class LibraryTile : Observable
+    /// <summary>A gallery entry whose picture is asked for only when it is on screen.</summary>
+    public abstract class PictureTile : Observable
     {
+        private readonly string? previewPath;
         private readonly ThumbnailLoader thumbnails;
         private readonly SynchronizationContext? ui;
         private WeakReference<ImageSource>? picture;
         private bool loading;
         private bool unreadable;
-        private bool isSelected;
 
-        public LibraryTile(LibraryItem item, ThumbnailLoader thumbnails, SynchronizationContext? ui)
+        protected PictureTile(string? previewPath, ThumbnailLoader thumbnails, SynchronizationContext? ui)
         {
-            Item = item;
+            this.previewPath = previewPath;
             this.thumbnails = thumbnails;
             this.ui = ui;
-        }
-
-        public LibraryItem Item { get; }
-        public string Title => Item.Package;
-        public string Caption => Item.Creator + " · " + Item.Type;
-        public string StateText => LibraryViewModel.StateText(Item.State);
-        public string StateKey => Item.State.ToString();
-        public bool HasMissing => Item.State == VarState.MissingDeps;
-
-        public bool IsSelected
-        {
-            get => isSelected;
-            set
-            {
-                isSelected = value;
-                Changed();
-            }
         }
 
         // Held weakly, so scrolling a long way doesn't keep every picture alive.
@@ -107,10 +90,10 @@ namespace varManager.Ui
             {
                 if (picture != null && picture.TryGetTarget(out ImageSource? image))
                     return image;
-                if (!loading && !unreadable && Item.PreviewPath != null)
+                if (!loading && !unreadable && previewPath != null)
                 {
                     loading = true;
-                    _ = thumbnails.Load(Item.PreviewPath, Show);
+                    _ = thumbnails.Load(previewPath, Show);
                 }
                 return null;
             }
@@ -134,6 +117,35 @@ namespace varManager.Ui
                 Apply();
             else
                 ui.Post(_ => Apply(), null);
+        }
+    }
+
+    /// <summary>A package in the gallery.</summary>
+    public sealed class LibraryTile : PictureTile
+    {
+        private bool isSelected;
+
+        public LibraryTile(LibraryItem item, ThumbnailLoader thumbnails, SynchronizationContext? ui)
+            : base(item.PreviewPath, thumbnails, ui)
+        {
+            Item = item;
+        }
+
+        public LibraryItem Item { get; }
+        public string Title => Item.Package;
+        public string Caption => Item.Creator + " · " + Item.Type;
+        public string StateText => LibraryViewModel.StateText(Item.State);
+        public string StateKey => Item.State.ToString();
+        public bool HasMissing => Item.State == VarState.MissingDeps;
+
+        public bool IsSelected
+        {
+            get => isSelected;
+            set
+            {
+                isSelected = value;
+                Changed();
+            }
         }
     }
 
@@ -197,6 +209,7 @@ namespace varManager.Ui
         private readonly ThumbnailLoader thumbnails = new ThumbnailLoader();
         private readonly JobRunner jobs;
         private readonly LibraryPaths paths;
+        private readonly Action<IReadOnlyList<string>> tempLinksStale;
         private readonly SynchronizationContext? ui;
         private readonly Func<IReadOnlyCollection<string>> linkedVars;
         private readonly string storeFile;
@@ -220,8 +233,10 @@ namespace varManager.Ui
         private IReadOnlyList<object> rows = new object[0];
         private int reloads;
 
-        public LibraryViewModel(string storeFile, LibraryPaths paths, JobRunner jobs, Func<IReadOnlyCollection<string>> linkedVars, SynchronizationContext? ui)
+        public LibraryViewModel(string storeFile, LibraryPaths paths, JobRunner jobs, Func<IReadOnlyCollection<string>> linkedVars,
+            Action<IReadOnlyList<string>> tempLinksStale, SynchronizationContext? ui)
         {
+            this.tempLinksStale = tempLinksStale;
             this.storeFile = storeFile;
             this.paths = paths;
             this.jobs = jobs;
@@ -230,6 +245,7 @@ namespace varManager.Ui
             this.ui = ui;
             undoFolder = MoveOut.LatestHolding(varsPath);
             ToggleCommand = new Command(Toggle);
+            LoadCommand = new Command(Load);
             PlanMoveCommand = new Command(PlanMove);
             ConfirmMoveCommand = new Command(ConfirmMove);
             CancelMoveCommand = new Command(() => MovePlan = null);
@@ -258,6 +274,7 @@ namespace varManager.Ui
         public ICommand ToggleAuthorCommand { get; }
         public ICommand SelectCommand { get; }
         public ICommand ToggleCommand { get; }
+        public ICommand LoadCommand { get; }
         public ICommand PlanMoveCommand { get; }
         public ICommand ConfirmMoveCommand { get; }
         public ICommand CancelMoveCommand { get; }
@@ -331,6 +348,7 @@ namespace varManager.Ui
                 Changed();
                 Changed(nameof(HasSelection));
                 Changed(nameof(ToggleLabel));
+                Changed(nameof(CanLoad));
                 Changed(nameof(CanMove));
                 Changed(nameof(BlockedText));
                 Changed(nameof(IsBlocked));
@@ -371,6 +389,7 @@ namespace varManager.Ui
             }
         }
 
+        public bool CanLoad => selected?.Item.FirstScene != null;
         public bool IsBlocked => selected != null && usage.NeedersOf(selected.Item.VarName).Any();
         public bool CanMove => selected != null && !IsBlocked && movePlan == null;
         public bool HasMovePlan => movePlan != null;
@@ -528,6 +547,19 @@ namespace varManager.Ui
                 int done = on.Count - failed;
                 string text = done == 1 ? "Turned on 1 var." : $"Turned on {done} vars.";
                 return failed == 0 ? text : $"{text} {failed} could not be linked.";
+            });
+        }
+
+        private void Load()
+        {
+            if (selected?.Item.FirstScene == null)
+                return;
+            LibraryItem item = selected.Item;
+            jobs.Start("Loading in VaM", context =>
+            {
+                using LibraryStore store = LibraryStore.Open(storeFile);
+                tempLinksStale(SceneLauncher.Load(store, paths, item.VarName, item.FirstScene!, "scenes"));
+                return $"Asked VaM to load {item.Package}.";
             });
         }
 

@@ -261,6 +261,7 @@ namespace varManager.App.Tests
         {
             SaveSettings();
             ShellViewModel shell = Shell();
+            Assert.True(shell.LibraryLoaded.Wait(Timeout));
             new DirectoryInfo(Path.Combine(vam, "AddonPackages")).Delete();
             File.WriteAllText(Path.Combine(vam, "AddonPackages"), "a file in the way");
 

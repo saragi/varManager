@@ -169,25 +169,13 @@ CREATE INDEX savedepens_dependency ON savedepens (dependency);";
 
         public List<ScenePreview> LoadPreviews()
         {
-            var previews = new List<ScenePreview>();
-            using (SqliteCommand command = connection.CreateCommand())
-            {
-                command.CommandText = "SELECT varName, atomType, scenePath, previewPic FROM scenes WHERE previewPic IS NOT NULL AND previewPic <> ''";
-                using (SqliteDataReader reader = command.ExecuteReader())
-                {
-                    while (reader.Read())
-                    {
-                        previews.Add(new ScenePreview
-                        {
-                            VarName = reader.GetString(0),
-                            Type = reader.GetString(1),
-                            ScenePath = reader.GetString(2),
-                            Picture = reader.GetString(3),
-                        });
-                    }
-                }
-            }
-            return previews;
+            return ReadItems("SELECT varName, atomType, scenePath, previewPic FROM scenes WHERE previewPic IS NOT NULL AND previewPic <> ''");
+        }
+
+        /// <summary>Every scene and preset, with or without a picture.</summary>
+        public List<ScenePreview> LoadItems()
+        {
+            return ReadItems("SELECT varName, atomType, scenePath, previewPic FROM scenes WHERE varName IS NOT NULL AND scenePath IS NOT NULL ORDER BY varName, ID");
         }
 
         /// <summary>Replaces a var's record with a fresh scan, all or nothing.</summary>
@@ -248,6 +236,29 @@ CREATE INDEX savedepens_dependency ON savedepens (dependency);";
         public void Dispose()
         {
             connection.Dispose();
+        }
+
+        private List<ScenePreview> ReadItems(string sql)
+        {
+            var items = new List<ScenePreview>();
+            using (SqliteCommand command = connection.CreateCommand())
+            {
+                command.CommandText = sql;
+                using (SqliteDataReader reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        items.Add(new ScenePreview
+                        {
+                            VarName = reader.GetString(0),
+                            Type = Text(reader, 1),
+                            ScenePath = reader.GetString(2),
+                            Picture = Text(reader, 3),
+                        });
+                    }
+                }
+            }
+            return items;
         }
 
         private void DeleteRecords(SqliteTransaction transaction, string varName)

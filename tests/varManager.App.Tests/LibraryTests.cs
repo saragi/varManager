@@ -46,7 +46,7 @@ namespace varManager.App.Tests
 
         private async Task<LibraryViewModel> Library(int columns = 4)
         {
-            var library = new LibraryViewModel(storeFile, new LibraryPaths(root, root, root), new JobRunner(null), () => linked, null);
+            var library = new LibraryViewModel(storeFile, new LibraryPaths(root, root, root), new JobRunner(null), () => linked, _ => { }, null);
             await library.Reload();
             library.Columns = columns;
             return library;
@@ -529,7 +529,7 @@ namespace varManager.App.Tests
                     return new string[0];
                 }
                 return new[] { "A.B.1" };
-            }, null);
+            }, _ => { }, null);
 
             Task older = library.Reload();
             while (Volatile.Read(ref calls) == 0)

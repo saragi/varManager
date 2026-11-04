@@ -1,0 +1,140 @@
+<UserControl x:Class="varManager.Ui.ScenesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:varManager.Ui">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="Visible" />
+
+        <Style x:Key="PillButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="#1C2026" />
+            <Setter Property="BorderBrush" Value="#2F343D" />
+            <Setter Property="Margin" Value="0,0,6,6" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="FontWeight" Value="Normal" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsActive}" Value="True">
+                    <Setter Property="Background" Value="{StaticResource Text}" />
+                    <Setter Property="BorderBrush" Value="{StaticResource Text}" />
+                    <Setter Property="Foreground" Value="{StaticResource Page}" />
+                    <Setter Property="FontWeight" Value="SemiBold" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="FitText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Muted}" />
+            <Setter Property="Margin" Value="0,6,0,8" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding FitKey}" Value="Ready">
+                    <Setter Property="Foreground" Value="#A9D2FA" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding FitKey}" Value="MissingVars">
+                    <Setter Property="Foreground" Value="{StaticResource Warning}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <DataTemplate DataType="{x:Type ui:SceneRow}">
+            <ItemsControl ItemsSource="{Binding Tiles}" Focusable="False">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Width="{x:Static ui:ScenesView.CardWidth}" Margin="0,0,14,14" Padding="12" Background="{StaticResource Panel}"
+                                BorderBrush="{StaticResource Edge}" BorderThickness="1" CornerRadius="8">
+                            <StackPanel>
+                                <Grid Height="130" Background="#26364A" Margin="0,0,0,10">
+                                    <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
+                                </Grid>
+                                <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding Caption}" Style="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding FitText}" Style="{StaticResource FitText}" />
+                                <Button Content="{Binding ActionLabel}" AutomationProperties.Name="{Binding ActionLabel}"
+                                        Command="{Binding DataContext.ActCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        CommandParameter="{Binding}"
+                                        IsEnabled="{Binding DataContext.Jobs.IsIdle, RelativeSource={RelativeSource AncestorType=Window}}">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsReady}" Value="True">
+                                                    <Setter Property="Background" Value="{StaticResource Accent}" />
+                                                    <Setter Property="BorderBrush" Value="{StaticResource Accent}" />
+                                                    <Setter Property="Foreground" Value="{StaticResource OnAccent}" />
+                                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </DataTemplate>
+
+        <Style x:Key="PlainRow" TargetType="ListBoxItem">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <ContentPresenter />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="20,16,0,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+            <TextBlock Text="Scenes" FontSize="22" FontWeight="SemiBold" Margin="0,0,12,0" />
+            <TextBlock Text="{Binding ShownText}" Foreground="{StaticResource Muted}" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <Grid Grid.Row="1" Margin="0,0,20,10">
+            <TextBox x:Name="SearchBox" AutomationProperties.Name="Search scenes" Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}" />
+            <TextBlock Text="Search scenes and packages" Foreground="{StaticResource Muted}" Margin="12,0,0,0" VerticalAlignment="Center"
+                       IsHitTestVisible="False">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Text, ElementName=SearchBox}" Value="">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+        </Grid>
+
+        <ItemsControl Grid.Row="2" AutomationProperties.Name="Status" ItemsSource="{Binding FitPills}" Focusable="False" Margin="0,0,0,6">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <WrapPanel />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Button Style="{StaticResource PillButton}" Content="{Binding Label}" Command="{Binding Command}" />
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <ListBox Grid.Row="3" AutomationProperties.Name="Scenes" ItemsSource="{Binding Rows}" Background="Transparent" BorderThickness="0"
+                 ItemContainerStyle="{StaticResource PlainRow}" HorizontalContentAlignment="Stretch"
+                 VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" VirtualizingPanel.ScrollUnit="Pixel"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" SizeChanged="List_SizeChanged" />
+    </Grid>
+</UserControl>

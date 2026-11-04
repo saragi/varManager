@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -58,6 +59,7 @@ namespace varManager.Ui
         private string linkedText = "";
         private bool needsSetup;
         private LibraryViewModel? library;
+        private ScenesViewModel? scenes;
 
         public ShellViewModel(string settingsFile, JobRunner jobs)
             : this(settingsFile, jobs, VamBridge.IsRunning, StartVam)
@@ -110,17 +112,25 @@ namespace varManager.Ui
             {
                 Set(ref selectedPage, value);
                 Changed(nameof(IsLibraryPage));
+                Changed(nameof(IsScenesPage));
                 Changed(nameof(IsOtherPage));
             }
         }
 
         public bool IsLibraryPage => selectedPage == Pages[0];
-        public bool IsOtherPage => !IsLibraryPage;
+        public bool IsScenesPage => selectedPage == Pages[1];
+        public bool IsOtherPage => !IsLibraryPage && !IsScenesPage;
 
         public LibraryViewModel? Library
         {
             get => library;
             private set => Set(ref library, value);
+        }
+
+        public ScenesViewModel? Scenes
+        {
+            get => scenes;
+            private set => Set(ref scenes, value);
         }
 
         /// <summary>The latest library read, which also brings the linked count up to date.</summary>
@@ -227,11 +237,16 @@ namespace varManager.Ui
                 LibraryLoaded = ReadLibrary(Library);
         }
 
+        private void ForgetTempLinks(IReadOnlyList<string> fileNames)
+        {
+            _ = VamBridge.RemoveTempLinksAfterLoad(VamPath, fileNames, TimeSpan.FromSeconds(20));
+        }
+
         private async Task ReadLibrary(LibraryViewModel reading)
         {
             try
             {
-                await reading.Reload().ConfigureAwait(true);
+                await Task.WhenAll(reading.Reload(), Scenes?.Reload() ?? Task.CompletedTask).ConfigureAwait(true);
                 // After a failed switch nothing is linked, and a read that started earlier mustn't say otherwise.
                 if (selectedSwitch != null)
                     LinkedText = reading.LinkedCount == 1 ? "1 package linked" : $"{reading.LinkedCount:N0} packages linked";
@@ -304,8 +319,10 @@ namespace varManager.Ui
             selectedSwitch = VarSwitches.EnsureLink(VamPath);
             Changed(nameof(SelectedSwitch));
             string packs = VarSwitches.AddonPackages(VamPath);
-            Library = new LibraryViewModel(StoreFile, new LibraryPaths(VarsPath, VamPath, dataFolder), Jobs,
-                () => VarLinks.Installed(packs).Keys, SynchronizationContext.Current);
+            var paths = new LibraryPaths(VarsPath, VamPath, dataFolder);
+            Library = new LibraryViewModel(StoreFile, paths, Jobs, () => VarLinks.Installed(packs).Keys, ForgetTempLinks, SynchronizationContext.Current);
+            Scenes = new ScenesViewModel(StoreFile, paths, Jobs, () => VarLinks.Installed(packs).Keys,
+                () => SelectedPage = Pages[^1], ForgetTempLinks, SynchronizationContext.Current);
             ImportOldDatabase();
             if (!Jobs.IsRunning)
                 ReloadLibrary();

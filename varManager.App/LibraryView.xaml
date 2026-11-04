@@ -281,6 +281,9 @@
                         </Grid>
                         <Button Content="{Binding ToggleLabel}" Style="{StaticResource PrimaryButton}" Command="{Binding ToggleCommand}"
                                 IsEnabled="{Binding DataContext.Jobs.IsIdle, RelativeSource={RelativeSource AncestorType=Window}}" Margin="0,0,0,8" />
+                        <Button Content="Load in VaM" Command="{Binding LoadCommand}" Margin="0,0,0,8"
+                                IsEnabled="{Binding DataContext.Jobs.IsIdle, RelativeSource={RelativeSource AncestorType=Window}}"
+                                Visibility="{Binding CanLoad, Converter={StaticResource Visible}}" />
                         <Button Content="Find missing on Hub" Margin="0,0,0,8"
                                 Command="{Binding DataContext.GoToMissingCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                 Visibility="{Binding Selected.HasMissing, Converter={StaticResource Visible}}" />
