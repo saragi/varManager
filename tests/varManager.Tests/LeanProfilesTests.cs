@@ -649,5 +649,51 @@ namespace varManagerTests
             Assert.Equal(new[] { "A.Session.1" }, plan.Closure.Vars);
             Assert.Equal(new[] { "A.Session.2" }, plan.LeftOut);
         }
+
+        [Fact]
+        public void Excluding_keeps_a_var_when_no_version_left_meets_the_minimum()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Hair.3" }, new[] { "A.Hair.2", "A.Hair.3", "B.Scene.1" },
+                new Dictionary<string, string[]> { ["B.Scene.1"] = new[] { "A.Hair.min5" } });
+
+            Assert.Equal(new[] { "A.Hair.3 needed by B.Scene.1" }, plan.StillNeeded);
+            Assert.Equal("A.Hair.3", plan.Closure.Substitutions["A.Hair.min5"]);
+        }
+
+        [Fact]
+        public void Excluding_an_unlinked_var_changes_nothing()
+        {
+            ProfilePlan plan = Excluding(new[] { "C.Disabled.1" }, new[] { "B.Dep.1" },
+                new Dictionary<string, string[]> { ["C.Disabled.1"] = new[] { "B.Dep.1" } }, new[] { "B.Dep.1", "C.Disabled.1" });
+
+            Assert.Equal(new[] { "B.Dep.1" }, plan.Closure.Vars);
+            Assert.Empty(plan.LeftOut);
+        }
+
+        [Fact]
+        public void Excluding_reports_a_base_package_nothing_has()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Scene.1" }, new[] { "A.Scene.1", "B.Other.1" },
+                new Dictionary<string, string[]>(), baseVars: new[] { "Gone.Pack.1" });
+
+            Assert.Equal(new[] { "Gone.Pack.1" }, plan.Closure.Missing);
+        }
+
+        [Fact]
+        public void Excluding_counts_only_what_stays_in_the_size()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Scene.1" }, new[] { "A.Scene.1", "B.Other.1" }, new Dictionary<string, string[]>());
+
+            Assert.Equal(1, plan.Bytes);
+        }
+
+        [Fact]
+        public void Excluding_moves_a_reference_when_the_exclusion_differs_in_case()
+        {
+            ProfilePlan plan = Excluding(new[] { "a.hair.2" }, new[] { "A.Hair.1", "A.Hair.2", "B.Scene.1" },
+                new Dictionary<string, string[]> { ["B.Scene.1"] = new[] { "A.Hair.latest" } });
+
+            Assert.Equal(new[] { "A.Hair.1", "B.Scene.1" }, plan.Closure.Vars);
+        }
     }
 }
