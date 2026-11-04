@@ -10,7 +10,7 @@ The clickable mockup is at https://claude.ai/artifact/2ugrax4vYy63wpfpRVBKWH. Th
 - The real library is migrated: repository `D:\X\VarRepository`, app `D:\X\varManagerApp`, VaM `D:\X\VaM`, with `AddonPackages` a link to the `default` switch.
 - The WinForms app has lean profiles, exclude profiles, Hub fixes and the Missing window. It is the app the user runs today, and it must keep working until the new app replaces it.
 - Logic with no UI is in `varManager.Core`. The WinForms app links those files.
-- `varManager.App` has its shell: theme, top bar, side nav, job bar and a first-run setup panel. Update DB works on `LibraryStore`. The Library page works except for its actions. Other pages are titles only.
+- `varManager.App` has its shell: theme, top bar, side nav, job bar and a first-run setup panel. Update DB works on `LibraryStore`. The Library page works, including turn on or off and Move out with undo. Other pages are titles only.
 - Library measured on a synthetic store with 6,000 vars and 84,000 scene rows, debug build: window up 0.94 s, library shown 1.1 s, search 5 to 55 ms a keystroke, 193 MB. That store has no picture files, so thumbnail cost isn't in those numbers.
 - `tests\varManager.App.Tests` runs the Core tests on .NET 10 too. All pass there.
 - `LibraryStore` is the new app's database. Add reads to it as screens need them. `savedepens` has no reads or writes yet.
@@ -31,9 +31,9 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - [x] 2. Add a SQLite store to Core, with a one-time import from `varManager.mdb` that only reads the Access file. Keep the schema simple. Prove it on a copy.
 - [x] 3. Move logic out of `Form1.cs` into Core, one area per commit, keeping WinForms working. Moved: Tidy (`VarTidier`, `LibraryFolders`), reading a var for Update DB (`VarScanner`), install and link (`VarLinks`, and `Comm` now lives in Core), switches and the rescan request (`VarSwitches`, `VamBridge`), scenes and previews (`SceneAnalysis`, `ScenePreviews`, load requests in `VamBridge`), dependency analysis (`DependencyAnalysis`). `Form1.cs` went from 4,230 to about 2,880 lines. What stays there is tied to the Access DataSet, or is UI.
 - [x] 4. Build the WPF shell from the mockup: dark look, side nav, profile switcher, Update DB, Launch VaM, bottom job bar instead of popups. Update DB is `LibraryUpdate`, on `LibraryStore`. The import runs at startup when `varManager.mdb` sits beside the program and `library.db` doesn't exist yet.
-- [ ] 5. Library: virtualized gallery that loads only on-screen thumbnails, search with author suggestions and tags, type and status filters, detail panel, Move out with undo. Done: gallery, search, tags, filters, read-only detail panel. Left: turn on or off (showing how many dependencies come with it first), Load in VaM, Find missing on Hub, picks for Build profile, and Move out with undo.
-- [ ] 6. Scenes: readiness per profile, one-click Fix, Load in VaM.
-- [ ] 7. Profiles: lean and exclude profiles, timing cards, switch, Profile Check.
+- [x] 5. Library: virtualized gallery that loads only on-screen thumbnails, search with author suggestions and tags, type and status filters, detail panel, turn on or off, Move out with undo.
+- [ ] 6. Scenes: readiness per profile, one-click Fix, Load in VaM. Also add Load in VaM to the Library's detail panel.
+- [ ] 7. Profiles: lean and exclude profiles, timing cards, switch, Profile Check. Also add picks to the Library, with the Build profile button in the job bar.
 - [ ] 8. Health: stale, duplicates, disabled, storage. Nothing fixed without asking.
 - [ ] 9. Missing: the same one-click flow. Add a "Not owned" Hub filter, image cache, and author search in place of the Creator dropdown. Also watch the repository, so a var dropped in is scanned by itself, as the old app's `WatchRepository` does.
 - [ ] 10. Parity: list every WinForms button and form, and confirm each has a home in the new app or a stated reason to drop it.
@@ -102,4 +102,9 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - Popups are separate windows. `PrintWindow` doesn't capture them, and UI Automation finds them under the root, not the main window.
 - `LibraryViewModel.Reload` drops any reload that a newer one overtook, so link state can't go stale.
 - A background read in `ShellViewModel` can outlive a test. Tests that delete a folder holding `library.db` must retry, as `LibraryUpdateTests.DeleteRoot` does.
+- Every finished job reloads the Library, and `Reload` reselects the package. Anything tied to the selection must survive that. A plan was wiped this way, and only pressing the real buttons showed it, because `LibraryViewModel` tests don't go through `ShellViewModel`.
+- For anything that changes the library, drive the real window too. `MoveOutTests` now has one test through the shell, and the script is the pattern to follow for step 11.
+- Move out re-plans inside its job, because a plan on screen can go stale. A held var keeps its previews, and undo runs Update DB to bring back its records.
+- `___HoldingVars___` is skipped by `VarTidier.RepositoryVars`. Any new sorted folder must be added to `SortedFolders`, or Update DB tidies its vars back in.
+- `Directory.GetFiles(folder, "A.B.1.*")` also matches the var `A.B.1.2`. Use `MoveOut.FilesOf`'s approach.
 - The compiler drops an unused project reference, so `GetReferencedAssemblies` won't list Core until the app calls it.
