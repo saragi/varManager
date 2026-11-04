@@ -74,20 +74,22 @@ try {
   Start-Sleep -Seconds 12
   $after = All $p | Where-Object { $_.Current.Name -match '^Missing \d' } | Select-Object -First 1
   Need ([bool]$after) "Missing button back after cancel: $($after.Current.Name)"
-  $stored = (Get-ChildItem $vars -Filter *.var -Recurse | Measure-Object).Count
+  $stored = (Get-ChildItem $vars -Filter *.var -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
   Start-Sleep -Seconds 8
-  $storedLater = (Get-ChildItem $vars -Filter *.var -Recurse | Measure-Object).Count
+  $storedLater = (Get-ChildItem $vars -Filter *.var -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
   Need ($storedLater -eq $stored) "cancel stopped the chain ($stored vars)"
-  $parts = (Get-ChildItem $vars -Filter *.part -Recurse | Measure-Object).Count
+  $parts = (Get-ChildItem $vars -Filter *.part -Recurse -ErrorAction SilentlyContinue | Measure-Object).Count
   Need ($parts -eq 0) "no leftover parts ($parts)"
-  Need (-not (Test-Path "$app\varsMigrated.txt")) 'varsMigrated.txt consumed'
+  # Update DB removes this list once every var on it is linked, so give the last scan time to finish.
+  $consumed = Wait-Path { -not (Test-Path "$app\varsMigrated.txt") } 60
+  Need ([bool]$consumed) 'varsMigrated.txt consumed'
   $done = (All $p | ForEach-Object { $_.Current.Name } | Where-Object { $_ -match 'ready on the Hub|Nothing|Not found|Checked|Stored' } | Select-Object -Unique) -join ' | '
   "window says: $done"
 } finally {
   if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
   Start-Sleep -Seconds 1
   $logErrors = 0
-  if (Test-Path "$app\varManager.log") { $logErrors = (Select-String -LiteralPath "$app\varManager.log" -Pattern 'ERROR' | Measure-Object).Count; Select-String -LiteralPath "$app\varManager.log" -Pattern 'ERROR' | Select-Object -First 3 | ForEach-Object { $_.Line } }
+  if (Test-Path "$app\varManager.log") { $logErrors = (Select-String -LiteralPath "$app\varManager.log" -Pattern 'ERROR' -CaseSensitive | Measure-Object).Count; Select-String -LiteralPath "$app\varManager.log" -Pattern 'ERROR' -CaseSensitive | Select-Object -First 3 | ForEach-Object { $_.Line } }
   cmd /c rmdir /s /q "$base"
 }
 Need ($logErrors -eq 0) "no log errors ($logErrors)"
