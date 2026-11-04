@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>varManager app</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#121418}
+a{color:#F5B841}a:hover{color:#FFD27A}
+.app{min-height:100vh;display:flex;flex-direction:column;background:#121418;color:#E8EAED;font-family:'IBM Plex Sans','Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.45}
+.app *{box-sizing:border-box}
+.app button,.app select,.app input{font-family:inherit;font-size:14px;color:inherit}
+.app h1,.app h2,.app h3,.app p{margin:0}
+.mono{font-family:'IBM Plex Mono',Consolas,monospace}
+.muted{color:#A7AEB9}
+.small{font-size:12px}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:10px 20px;background:#191C22;border-bottom:1px solid #2A2E36}
+.brand{font-weight:600;font-size:16px;margin-right:12px}
+.field{display:flex;align-items:center;gap:8px}
+.field label{color:#A7AEB9;font-size:12px}
+.field select{min-height:44px;min-width:190px;padding:0 10px;background:#232730;border:1px solid #3A3F49;border-radius:6px}
+.spacer{flex:1 1 20px}
+.btn{min-height:44px;padding:0 16px;border-radius:6px;border:1px solid #3A3F49;background:#232730;cursor:pointer;font-weight:500}
+.btn:hover{background:#2D323C}
+.btn.primary{background:#F5B841;border-color:#F5B841;color:#17130A;font-weight:600}
+.btn.primary:hover{background:#FFCB66}
+.btn.wide{width:100%}
+.btn:focus-visible,.nav:focus-visible,.tile:focus-visible,.pill:focus-visible{outline:2px solid #F5B841;outline-offset:2px}
+.body{display:flex;flex-wrap:wrap;flex:1 1 auto;align-items:stretch}
+.side{flex:1 1 200px;max-width:100%;padding:12px;background:#16191E;border-right:1px solid #2A2E36;display:flex;flex-direction:column;gap:4px}
+.nav{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:0 12px;background:none;border:0;border-radius:6px;cursor:pointer;text-align:left}
+.nav:hover{background:#21252D}
+.nav.active{background:#2B2F38;font-weight:600}
+.nav svg{width:18px;height:18px;flex:none}
+.nav .count{margin-left:auto;font-size:12px;color:#A7AEB9}
+.main{flex:999 1 560px;min-width:0;padding:20px;display:flex;flex-direction:column;gap:16px}
+.head{display:flex;flex-wrap:wrap;align-items:baseline;gap:12px}
+.head h1{font-size:22px;font-weight:600}
+.search{flex:1 1 240px;min-height:44px;padding:0 12px;background:#1C2026;border:1px solid #3A3F49;border-radius:6px}
+.search::placeholder{color:#A7AEB9}
+.pills{display:flex;flex-wrap:wrap;gap:6px}
+.pill{min-height:44px;padding:0 14px;border-radius:6px;background:#1C2026;border:1px solid #2F343D;cursor:pointer}
+.pill:hover{background:#262A32}
+.pill.active{background:#E8EAED;border-color:#E8EAED;color:#121418;font-weight:600}
+.split{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+.grid{flex:999 1 420px;min-width:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.tile{display:block;padding:0;text-align:left;background:#1C2026;border:1px solid #2A2E36;border-radius:8px;overflow:hidden;cursor:pointer}
+.tile:hover{border-color:#5A616E}
+.tile.sel{border-color:#F5B841;box-shadow:0 0 0 1px #F5B841}
+.thumb{display:flex;align-items:center;justify-content:center;height:104px;position:relative}
+.thumb svg{width:30px;height:30px;color:#C5CBD4}
+.tag{position:absolute;left:6px;top:6px;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600}
+.tag.on{background:#BBDCFB;color:#0E2A44}
+.tag.off{background:#3A3F49;color:#E8EAED}
+.tag.miss{background:#F7A85C;color:#3A1D02}
+.picked{position:absolute;right:6px;top:6px;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;background:#F5B841;color:#17130A}
+.cap{display:block;padding:8px 10px}
+.cap b{display:block;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cap span{display:block;font-size:12px;color:#A7AEB9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.panel{background:#1A1D23;border:1px solid #2A2E36;border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.detail{flex:1 1 300px;min-width:0}
+.bigthumb{height:150px;border-radius:6px;display:flex;align-items:center;justify-content:center}
+.bigthumb svg{width:40px;height:40px;color:#C5CBD4}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px}
+.kv dt{color:#A7AEB9}.kv dd{margin:0}
+.dep{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid #2A2E36;font-size:12px}
+.dep span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st-on{color:#A9D2FA}.st-off{color:#A7AEB9}.st-miss{color:#F7A85C}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.card-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.badge{padding:2px 8px;border-radius:4px;background:#F5B841;color:#17130A;font-size:11px;font-weight:600}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.stat b{display:block;font-size:20px;font-weight:600}
+.stat span{font-size:12px;color:#A7AEB9}
+.num{font-size:30px;font-weight:600;line-height:1.1}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:10px 0;border-top:1px solid #2A2E36}
+.row .grow{flex:1 1 220px;min-width:0}
+.scene{display:flex;flex-direction:column;gap:10px}
+.dock{display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:8px 20px;background:#191C22;border-top:1px solid #2A2E36;min-height:60px}
+.bar{flex:0 1 220px;height:6px;border-radius:3px;background:#2F343D;overflow:hidden}
+.bar i{display:block;height:100%;background:#F5B841}
+.foot{padding:6px 20px;font-size:12px;color:#A7AEB9;background:#121418}
+.groups{flex:999 1 420px;min-width:0;display:flex;flex-direction:column;gap:14px}
+.group{display:flex;flex-direction:column;gap:8px}
+.grouphead{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:0 10px;background:#1A1D23;border:1px solid #2A2E36;border-radius:6px;cursor:pointer;text-align:left}
+.grouphead:hover{background:#21252D}
+.grouphead:focus-visible{outline:2px solid #F5B841;outline-offset:2px}
+.grouphead svg{width:16px;height:16px;flex:none}
+.grouphead b{font-weight:600}
+.moveplan{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid #F7A85C;border-radius:6px}
+.btnrow{display:flex;gap:8px}
+.btnrow .btn{flex:1 1 0}
+.searchwrap{position:relative}
+.searchbox{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:48px;padding:4px 8px;background:#1C2026;border:1px solid #3A3F49;border-radius:6px}
+.searchbox:focus-within{border-color:#F5B841}
+.searchin{flex:1 1 180px;min-width:0;min-height:38px;padding:0 4px;background:none;border:0;outline:none}
+.searchin::placeholder{color:#A7AEB9}
+.chip{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 2px 0 10px;background:#3B3220;border:1px solid #F5B841;border-radius:6px;font-weight:500}
+.chip button{width:32px;height:32px;background:none;border:0;border-radius:4px;cursor:pointer;font-size:16px;line-height:1}
+.chip button:hover{background:#574A2E}
+.chip button:focus-visible,.suggest button:focus-visible{outline:2px solid #F5B841;outline-offset:-2px}
+.suggest{position:absolute;left:0;right:0;top:100%;margin-top:4px;z-index:5;max-width:480px;padding:4px;background:#232730;border:1px solid #3A3F49;border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.suggest button{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:0 10px;background:none;border:0;border-radius:4px;cursor:pointer;text-align:left}
+.suggest button:hover{background:#2F343D}
+.suggest .kind{margin-left:auto;font-size:12px;color:#A7AEB9}
+</style>
+</helmet>
+<div class="app">
+
+  <header class="top">
+    <span class="brand">varManager</span>
+    <div class="field">
+      <label for="profile">Profile</label>
+      <select id="profile" value="{{profile}}" onChange="{{onProfile}}">
+        <sc-for list="{{profiles}}" as="p" hint-placeholder-count="2">
+          <option value="{{p.id}}">{{p.name}}</option>
+        </sc-for>
+      </select>
+    </div>
+    <span class="muted small">{{linkedText}}</span>
+    <span class="spacer"></span>
+    <button class="btn" onClick="{{startUpdate}}">Update DB</button>
+    <button class="btn primary" onClick="{{launch}}">Launch VaM</button>
+  </header>
+
+  <div class="body">
+    <nav class="side" aria-label="Main">
+      <sc-for list="{{nav}}" as="n" hint-placeholder-count="5">
+        <button class="nav {{n.cls}}" onClick="{{n.go}}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.d}}"></path></svg>
+          <span>{{n.label}}</span>
+          <span class="count">{{n.count}}</span>
+        </button>
+      </sc-for>
+    </nav>
+
+    <main class="main">
+
+      <sc-if value="{{isLibrary}}" hint-placeholder-val="{{ true }}">
+        <div class="head">
+          <h1>Library</h1>
+          <span class="muted">{{shownText}}</span>
+        </div>
+        <div class="searchwrap">
+          <div class="searchbox">
+            <sc-for list="{{authorTags}}" as="a" hint-placeholder-count="1">
+              <span class="chip">
+                <span>{{a.name}}</span>
+                <button onClick="{{a.remove}}" aria-label="{{a.aria}}">×</button>
+              </span>
+            </sc-for>
+            <input id="q" class="searchin" aria-label="Search packages and authors" placeholder="{{searchHint}}" value="{{query}}" onChange="{{onQuery}}" onKeyDown="{{onSearchKey}}">
+          </div>
+          <sc-if value="{{hasSuggest}}" hint-placeholder-val="{{ false }}">
+            <div class="suggest" aria-label="Matching authors">
+              <sc-for list="{{suggestions}}" as="a" hint-placeholder-count="3">
+                <button onClick="{{a.add}}"><span>{{a.name}}</span><span class="kind">Author · {{a.count}} packages</span></button>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+        <div class="pills" role="group" aria-label="Type">
+          <sc-for list="{{types}}" as="t" hint-placeholder-count="6">
+            <button class="pill {{t.cls}}" onClick="{{t.go}}">{{t.label}}</button>
+          </sc-for>
+        </div>
+        <div class="pills" role="group" aria-label="Status">
+          <sc-for list="{{statuses}}" as="t" hint-placeholder-count="4">
+            <button class="pill {{t.cls}}" onClick="{{t.go}}">{{t.label}}</button>
+          </sc-for>
+        </div>
+        <div class="split">
+          <div class="groups">
+            <sc-for list="{{groups}}" as="g" hint-placeholder-count="1">
+              <section class="group">
+                <sc-if value="{{g.showHead}}" hint-placeholder-val="{{ false }}">
+                  <button class="grouphead" onClick="{{g.toggle}}" aria-expanded="{{g.expanded}}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{g.chevron}}"></path></svg>
+                    <b>{{g.name}}</b>
+                    <span class="muted small">{{g.summary}}</span>
+                  </button>
+                </sc-if>
+                <sc-if value="{{g.open}}" hint-placeholder-val="{{ true }}">
+                  <div class="grid">
+                    <sc-for list="{{g.items}}" as="item" hint-placeholder-count="12">
+                      <button class="tile {{item.selCls}}" onClick="{{item.pick}}" aria-label="{{item.aria}}">
+                        <span class="thumb" style="background: {{item.tint}}">
+                          <span class="tag {{item.stCls}}">{{item.stText}}</span>
+                          <sc-if value="{{item.isPicked}}" hint-placeholder-val="{{ false }}"><span class="picked">Picked</span></sc-if>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{item.icon}}"></path></svg>
+                        </span>
+                        <span class="cap"><b>{{item.pkg}}</b><span>{{item.creator}} · {{item.type}}</span></span>
+                      </button>
+                    </sc-for>
+                  </div>
+                </sc-if>
+              </section>
+            </sc-for>
+          </div>
+          <aside class="panel detail" aria-label="Selected package">
+            <div class="bigthumb" style="background: {{sel.tint}}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{sel.icon}}"></path></svg>
+            </div>
+            <div>
+              <h2 style="font-size: 17px; font-weight: 600">{{sel.pkg}}</h2>
+              <p class="mono small muted">{{sel.full}}</p>
+            </div>
+            <dl class="kv" style="margin: 0">
+              <dt>Status</dt><dd class="{{sel.stTextCls}}">{{sel.stText}}</dd>
+              <dt>Type</dt><dd>{{sel.type}}</dd>
+              <dt>Size</dt><dd>{{sel.size}}</dd>
+              <dt>Needs</dt><dd>{{sel.needs}}</dd>
+            </dl>
+            <button class="btn primary wide" onClick="{{sel.toggle}}">{{sel.toggleLabel}}</button>
+            <sc-if value="{{sel.canLoad}}" hint-placeholder-val="{{ true }}">
+              <button class="btn wide" onClick="{{sel.load}}">Load in VaM</button>
+            </sc-if>
+            <sc-if value="{{sel.hasMissing}}" hint-placeholder-val="{{ false }}">
+              <button class="btn wide" onClick="{{goDownloads}}">Find missing on Hub</button>
+            </sc-if>
+            <button class="btn wide" onClick="{{sel.togglePick}}">{{sel.pickLabel}}</button>
+            <sc-if value="{{sel.showMoveBtn}}" hint-placeholder-val="{{ true }}">
+              <button class="btn wide" onClick="{{sel.openMove}}">Move out of library</button>
+            </sc-if>
+            <sc-if value="{{sel.blocked}}" hint-placeholder-val="{{ false }}">
+              <p class="st-miss small">Can't move out: {{sel.usedBy}} other vars need this package.</p>
+            </sc-if>
+            <sc-if value="{{sel.showMovePlan}}" hint-placeholder-val="{{ false }}">
+              <div class="moveplan">
+                <h3 style="font-size: 13px; font-weight: 600">Move out {{sel.pkg}}</h3>
+                <p class="small">{{sel.moveText}}</p>
+                <sc-for list="{{sel.moveRows}}" as="d" hint-placeholder-count="3">
+                  <div class="dep"><span class="mono">{{d.name}}</span><span class="{{d.cls}}">{{d.state}}</span></div>
+                </sc-for>
+                <p class="muted small">Files go to a holding folder. Nothing is deleted, and you can undo.</p>
+                <div class="btnrow">
+                  <button class="btn" onClick="{{closeMove}}">Cancel</button>
+                  <button class="btn primary" onClick="{{sel.confirmMove}}">Move {{sel.moveCount}} vars</button>
+                </div>
+              </div>
+            </sc-if>
+            <div>
+              <h3 style="font-size: 13px; font-weight: 600; margin-bottom: 4px">Dependencies</h3>
+              <sc-for list="{{sel.depRows}}" as="d" hint-placeholder-count="3">
+                <div class="dep"><span class="mono">{{d.name}}</span><span class="{{d.cls}}">{{d.state}}</span></div>
+              </sc-for>
+              <sc-if value="{{sel.noDeps}}" hint-placeholder-val="{{ false }}">
+                <p class="muted small">No dependencies.</p>
+              </sc-if>
+            </div>
+          </aside>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isScenes}}" hint-placeholder-val="{{ false }}">
+        <div class="head">
+          <h1>Scenes</h1>
+          <span class="muted">Checked against {{profileName}}</span>
+        </div>
+        <div class="cards">
+          <sc-for list="{{scenes}}" as="s" hint-placeholder-count="4">
+            <article class="panel scene">
+              <div class="bigthumb" style="background: {{s.tint}}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{s.icon}}"></path></svg>
+              </div>
+              <div>
+                <h2 style="font-size: 16px; font-weight: 600">{{s.pkg}}</h2>
+                <p class="muted small">{{s.creator}}</p>
+              </div>
+              <p class="{{s.fitCls}}">{{s.fit}}</p>
+              <button class="btn {{s.btnCls}} wide" onClick="{{s.act}}">{{s.actLabel}}</button>
+            </article>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{isProfiles}}" hint-placeholder-val="{{ false }}">
+        <div class="head">
+          <h1>Profiles</h1>
+          <span class="muted">Each profile links only what it needs</span>
+        </div>
+        <div class="cards">
+          <sc-for list="{{profileCards}}" as="p" hint-placeholder-count="2">
+            <article class="panel">
+              <div class="card-top">
+                <h2 style="font-size: 16px; font-weight: 600">{{p.name}}</h2>
+                <sc-if value="{{p.active}}" hint-placeholder-val="{{ false }}"><span class="badge">Active</span></sc-if>
+              </div>
+              <p class="muted small">{{p.countText}}</p>
+              <div class="stats">
+                <div class="stat"><b>{{p.startup}}</b><span>VaM startup</span></div>
+                <div class="stat"><b>{{p.load}}</b><span>Megan load</span></div>
+                <div class="stat"><b>{{p.ram}}</b><span>RAM</span></div>
+              </div>
+              <button class="btn wide" onClick="{{p.use}}">{{p.useLabel}}</button>
+            </article>
+          </sc-for>
+        </div>
+        <section class="panel">
+          <h2 style="font-size: 16px; font-weight: 600">New lean profile</h2>
+          <sc-if value="{{noPicks}}" hint-placeholder-val="{{ false }}">
+            <p class="muted">No picks yet. Pick packages in Library, then come back here.</p>
+            <div><button class="btn" onClick="{{goLibrary}}">Go to Library</button></div>
+          </sc-if>
+          <sc-if value="{{hasPicks}}" hint-placeholder-val="{{ true }}">
+            <p class="muted">{{planText}}</p>
+            <sc-for list="{{pickRows}}" as="r" hint-placeholder-count="2">
+              <div class="dep"><span class="mono">{{r.full}}</span><span class="muted">{{r.needs}}</span></div>
+            </sc-for>
+            <div class="dep"><span>Base set: session plugins, default scene, base.txt</span><span class="muted">Always included</span></div>
+            <div class="field" style="flex-wrap: wrap">
+              <label for="pname">Name</label>
+              <input id="pname" class="search" value="{{newName}}" onChange="{{onName}}">
+              <button class="btn primary" onClick="{{saveProfile}}">Save and switch</button>
+            </div>
+          </sc-if>
+        </section>
+      </sc-if>
+
+      <sc-if value="{{isHealth}}" hint-placeholder-val="{{ false }}">
+        <div class="head">
+          <h1>Health</h1>
+          <span class="muted">Problems first, nothing fixed without asking</span>
+        </div>
+        <div class="cards">
+          <article class="panel"><span class="num">392</span><p>Disabled vars stored, not linked</p></article>
+          <article class="panel"><span class="num">141</span><p>Duplicates in holding, 1.23 GB</p><button class="btn wide" onClick="{{reviewDupes}}">Review before delete</button></article>
+          <article class="panel"><span class="num">279</span><p>References only the deep scan found</p></article>
+          <article class="panel"><span class="num">95 GB</span><p>Free on D:</p></article>
+        </div>
+        <section class="panel">
+          <h2 style="font-size: 16px; font-weight: 600">Missing dependencies</h2>
+          <sc-for list="{{missing}}" as="m" hint-placeholder-count="3">
+            <div class="row">
+              <div class="grow"><span class="mono">{{m.name}}</span><p class="muted small">Needed by {{m.by}}</p></div>
+              <button class="btn" onClick="{{goDownloads}}">Find on Hub</button>
+            </div>
+          </sc-for>
+        </section>
+      </sc-if>
+
+      <sc-if value="{{isDownloads}}" hint-placeholder-val="{{ false }}">
+        <div class="head">
+          <h1>Missing</h1>
+          <span class="muted">Checked automatically after every library change</span>
+        </div>
+        <section class="panel">
+          <h2 style="font-size: 20px; font-weight: 600">{{hubTitle}}</h2>
+          <p class="muted">{{hubText}}</p>
+          <sc-if value="{{hubReady}}" hint-placeholder-val="{{ true }}">
+            <div><button class="btn primary" onClick="{{getAll}}">Get all 24</button></div>
+          </sc-if>
+        </section>
+        <section class="panel">
+          <sc-for list="{{missingGroups}}" as="g" hint-placeholder-count="5">
+            <div class="row">
+              <span class="num" style="flex: 0 0 72px; font-size: 22px">{{g.count}}</span>
+              <div class="grow"><b style="font-weight: 600">{{g.title}}</b><p class="muted small">{{g.text}}</p></div>
+              <sc-if value="{{g.hasAction}}" hint-placeholder-val="{{ true }}">
+                <button class="btn" onClick="{{g.act}}">{{g.action}}</button>
+              </sc-if>
+            </div>
+          </sc-for>
+        </section>
+      </sc-if>
+
+    </main>
+  </div>
+
+  <footer class="dock" aria-live="polite">
+    <span style="font-weight: 500">{{jobText}}</span>
+    <sc-if value="{{jobRunning}}" hint-placeholder-val="{{ true }}">
+      <div class="bar"><i style="width: {{jobPct}}%"></i></div>
+      <span class="muted small">{{jobPct}}%</span>
+    </sc-if>
+    <span class="muted small">{{note}}</span>
+    <sc-if value="{{canUndo}}" hint-placeholder-val="{{ false }}">
+      <button class="btn" onClick="{{undoMove}}">Undo move</button>
+    </sc-if>
+    <span class="spacer"></span>
+    <sc-if value="{{hasPicks}}" hint-placeholder-val="{{ false }}">
+      <span>{{pickCountText}}</span>
+      <button class="btn primary" onClick="{{goProfiles}}">Build profile</button>
+    </sc-if>
+  </footer>
+  <p class="foot">Mockup. Thumbnails, package names, the lean var count and the 5 turned-off vars are samples. Health numbers, Missing counts and profile timings are from your library.</p>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  state = {
+    page: 'library', type: 'All', status: 'All', query: '', selected: 1,
+    profile: 'full', picks: [], changed: {}, queued: {}, newName: 'My lean profile',
+    extraProfiles: [], jobPct: 40, jobRunning: true, note: '',
+    authors: [], closed: {}, moved: [], moveOpen: false,
+    jobName: 'Update DB: scanning vars', jobDoneNote: 'Update DB finished. No popup needed.',
+    hubDone: false, updatesDone: false, offDone: false
+  };
+
+  componentDidMount() {
+    this.timer = setInterval(() => {
+      if (!this.state.jobRunning) return;
+      const next = this.state.jobPct + 2;
+      if (next >= 100) this.setState({ jobPct: 100, jobRunning: false, note: this.state.jobDoneNote });
+      else this.setState({ jobPct: next });
+    }, 500);
+  }
+
+  componentWillUnmount() { clearInterval(this.timer); }
+
+  catalog() {
+    const rows = [
+      [1, 'Sample', 'Megan', 3, 'Scene', 412, true, 38, 0, 0],
+      [2, 'Blazedust', 'SceneTools', 7, 'Plugin', 3, true, 0, 0, 0],
+      [3, 'ceq3', 'StudioLights', 2, 'Scene', 154, true, 9, 0, 0],
+      [4, 'JaxZoa', 'LongWaves', 4, 'Hair', 58, true, 1, 0, 0],
+      [5, 'moonlight', 'SummerDress', 2, 'Clothing', 44, false, 2, 1, 0],
+      [6, 'ceq3', 'RooftopDusk', 5, 'Scene', 286, false, 21, 4, 2],
+      [7, 'moonlight', 'GlowJacket', 1, 'Clothing', 31, true, 0, 0, 0],
+      [8, 'Doubbs', 'StandardLook', 6, 'Look', 96, true, 12, 0, 0],
+      [9, 'Blazedust', 'PoseFlow', 3, 'Plugin', 2, true, 1, 0, 0],
+      [10, 'MvFF', 'CityNight', 2, 'Scene', 198, true, 17, 0, 1],
+      [11, 'JaxZoa', 'ShortBob', 1, 'Hair', 27, false, 0, 0, 0],
+      [12, 'Doubbs', 'Portrait', 4, 'Look', 73, false, 8, 3, 0]
+    ];
+    const usedBy = { 2: 14, 4: 3, 9: 6 };
+    return rows.map((r) => ({ id: r[0], creator: r[1], pkg: r[2], ver: r[3], type: r[4], mb: r[5], on: r[6], deps: r[7], off: r[8], miss: r[9], usedBy: usedBy[r[0]] || 0 }));
+  }
+
+  profileList() {
+    return [
+      { id: 'full', name: 'Full library', count: 5553, startup: '46 s', load: '24–28 s', ram: '10.2 GB' },
+      { id: 'megan', name: 'Megan (lean)', count: 212, startup: '24 s', load: '15–18 s', ram: '4.7 GB', ids: [1, 2, 4, 8] }
+    ].concat(this.state.extraProfiles);
+  }
+
+  renderVals() {
+    const s = this.state;
+    const go = (page) => () => this.setState({ page });
+    const icons = {
+      Scene: 'M3 5h18v14H3z M3 15l5-4 4 3 4-5 5 5',
+      Look: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M5 20c1-4 4-6 7-6s6 2 7 6',
+      Plugin: 'M9 3v5 M15 3v5 M6 8h12v4a6 6 0 0 1-12 0z M12 18v3',
+      Hair: 'M5 20c-1-9 2-16 7-16s8 7 7 16 M9 20c-1-5 0-9 3-11 3 2 4 6 3 11',
+      Clothing: 'M8 3l4 3 4-3 5 4-3 3-2-1v12H8V9l-2 1-3-3z'
+    };
+    const tints = { Scene: '#26364A', Look: '#3A2C42', Plugin: '#23403C', Hair: '#463525', Clothing: '#2F3A25' };
+    const profiles = this.profileList();
+    const active = profiles.find((p) => p.id === s.profile) || profiles[0];
+    const isOn = (it) => {
+      const key = s.profile + ':' + it.id;
+      if (key in s.changed) return s.changed[key];
+      return active.ids ? active.ids.includes(it.id) : it.on;
+    };
+    const items = this.catalog().filter((it) => !s.moved.includes(it.id)).map((it) => {
+      const on = isOn(it);
+      const missing = it.miss > 0;
+      const stText = missing ? 'Missing deps' : on ? 'On' : 'Off';
+      const stCls = missing ? 'miss' : on ? 'on' : 'off';
+      const picked = s.picks.includes(it.id);
+      return {
+        ...it, onNow: on, stText, stCls, stTextCls: 'st-' + stCls,
+        tint: tints[it.type], icon: icons[it.type],
+        full: it.creator + '.' + it.pkg + '.' + it.ver,
+        size: it.mb + ' MB',
+        needs: it.deps === 0 ? 'Nothing else' : it.deps + ' vars',
+        isPicked: picked,
+        selCls: s.selected === it.id ? 'sel' : '',
+        aria: it.pkg + ' by ' + it.creator + ', ' + it.type + ', ' + stText,
+        pick: () => this.setState({ selected: it.id, moveOpen: false })
+      };
+    });
+
+    const setOn = (it, value, note) => this.setState({ changed: { ...s.changed, [s.profile + ':' + it.id]: value }, note });
+    const needText = (it) => it.off > 0 ? ' and ' + it.off + ' dependencies that were off' : '';
+    const decorate = (it) => {
+      const depRows = [];
+      const shownDeps = Math.min(it.deps - it.miss, 3);
+      for (let k = 1; k <= shownDeps; k++) {
+        const other = items[(it.id + k * 2) % items.length];
+        const offRow = k <= it.off;
+        depRows.push({ name: other.full, state: offRow ? 'Off, will link' : 'Linked', cls: offRow ? 'st-off' : 'st-on' });
+      }
+      const owned = Math.floor((it.deps - it.miss) * 0.4);
+      const kept = it.deps - it.miss - owned;
+      const moveRows = depRows.filter((d) => d.state !== 'Missing').map((d, i) => ({
+        name: d.name,
+        state: i < owned ? 'Moves, only used here' : 'Stays, used by others',
+        cls: i < owned ? 'st-miss' : 'st-on'
+      }));
+      const blocked = it.usedBy > 0;
+      return {
+        ...it, depRows, moveRows, noDeps: it.deps === 0,
+        blocked,
+        showMoveBtn: !blocked && !s.moveOpen,
+        showMovePlan: !blocked && s.moveOpen,
+        moveCount: owned + 1,
+        moveText: 'Moves this package and ' + owned + ' dependencies only it uses. ' + kept + ' dependencies stay because other vars need them.',
+        openMove: () => this.setState({ moveOpen: true }),
+        confirmMove: () => this.setState({
+          moved: s.moved.concat(it.id), moveOpen: false,
+          selected: items.find((x) => x.id !== it.id).id,
+          note: 'Moved ' + it.pkg + ' and ' + owned + ' dependencies to the holding folder.'
+        }),
+        canLoad: it.type === 'Scene' || it.type === 'Look',
+        hasMissing: it.miss > 0,
+        toggleLabel: it.onNow ? 'Turn off in this profile' : it.off > 0 ? 'Turn on with ' + it.off + ' dependencies' : 'Turn on in this profile',
+        toggle: () => setOn(it, !it.onNow, it.onNow ? it.pkg + ' unlinked from ' + active.name + '.' : it.pkg + needText(it) + ' linked in ' + active.name + '.'),
+        load: () => this.setState({ note: 'Asked VaM to load ' + it.pkg + '.' }),
+        pickLabel: it.isPicked ? 'Remove from picks' : 'Add to profile picks',
+        togglePick: () => this.setState({ picks: it.isPicked ? s.picks.filter((x) => x !== it.id) : s.picks.concat(it.id) })
+      };
+    };
+
+    const q = s.query.trim().toLowerCase();
+    const shown = items.filter((it) =>
+      (s.authors.length === 0 || s.authors.includes(it.creator)) &&
+      (s.type === 'All' || it.type === s.type) &&
+      (s.status === 'All' || it.stText === s.status) &&
+      (!q || it.full.toLowerCase().includes(q)));
+    const sel = decorate(items.find((it) => it.id === s.selected) || items[0]);
+
+    const addAuthor = (name) => this.setState({ authors: s.authors.concat(name), query: '' });
+    const suggestions = !q ? [] : Array.from(new Set(items.map((it) => it.creator)))
+      .filter((name) => name.toLowerCase().includes(q) && !s.authors.includes(name))
+      .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
+      .slice(0, 6)
+      .map((name) => ({
+        name,
+        count: items.filter((it) => it.creator === name).length,
+        add: () => addAuthor(name)
+      }));
+    const authorTags = s.authors.map((name) => ({
+      name,
+      aria: 'Remove author filter ' + name,
+      remove: () => this.setState({ authors: s.authors.filter((x) => x !== name) })
+    }));
+
+    const byAuthor = s.authors.length > 1;
+    const authors = Array.from(new Set(shown.map((it) => it.creator)))
+      .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    const groups = !byAuthor
+      ? [{ name: 'All', showHead: false, open: true, expanded: 'true', items: shown }]
+      : authors.map((name) => {
+        const list = shown.filter((it) => it.creator === name);
+        const open = !s.closed[name];
+        const on = list.filter((it) => it.onNow).length;
+        const mb = list.reduce((n, it) => n + it.mb, 0);
+        return {
+          name, showHead: true, open, expanded: open ? 'true' : 'false', items: list,
+          chevron: open ? 'M6 9l6 6 6-6' : 'M9 6l6 6-6 6',
+          summary: list.length + ' packages · ' + on + ' on · ' + mb + ' MB',
+          toggle: () => this.setState({ closed: { ...s.closed, [name]: open } })
+        };
+      });
+
+    const pills = (list, field) => list.map((label) => ({
+      label, cls: s[field] === label ? 'active' : '', go: () => this.setState({ [field]: label })
+    }));
+
+    const nav = [
+      { id: 'library', label: 'Library', count: '5,945', d: 'M4 4h6v6H4z M14 4h6v6h-6z M4 14h6v6H4z M14 14h6v6h-6z' },
+      { id: 'scenes', label: 'Scenes', count: '', d: 'M3 5h18v14H3z M10 9l5 3-5 3z' },
+      { id: 'profiles', label: 'Profiles', count: String(profiles.length), d: 'M4 7h16 M4 12h16 M4 17h10' },
+      { id: 'health', label: 'Health', count: '', d: 'M3 12h4l3-7 4 14 3-7h4' },
+      { id: 'downloads', label: 'Missing', count: s.hubDone ? '323' : '347', d: 'M12 4v11 M7 11l5 5 5-5 M5 20h14' }
+    ].map((n) => ({ ...n, cls: s.page === n.id ? 'active' : '', go: go(n.id) }));
+
+    const scenes = items.filter((it) => it.type === 'Scene').map((it) => {
+      const blocked = it.miss > 0;
+      const ready = it.onNow && !blocked;
+      return {
+        ...it,
+        fit: blocked ? it.miss + ' missing vars' : ready ? 'Ready in this profile' : 'Not in this profile',
+        fitCls: blocked ? 'st-miss' : ready ? 'st-on' : 'st-off',
+        actLabel: blocked ? 'Find missing on Hub' : ready ? 'Load in VaM' : 'Add to this profile',
+        btnCls: ready ? 'primary' : '',
+        act: blocked ? go('downloads') : ready
+          ? () => this.setState({ note: 'Asked VaM to load ' + it.pkg + '.' })
+          : () => setOn(it, true, it.pkg + ' linked in ' + active.name + '.')
+      };
+    });
+
+    const profileCards = profiles.map((p) => ({
+      ...p,
+      active: p.id === s.profile,
+      countText: p.count.toLocaleString('en-US') + ' vars linked',
+      useLabel: p.id === s.profile ? 'In use' : 'Switch to this profile',
+      use: () => this.setState({ profile: p.id, note: 'Switched to ' + p.name + '.' })
+    }));
+
+    const pickItems = items.filter((it) => it.isPicked);
+    const total = pickItems.reduce((n, it) => n + 1 + it.deps, 0);
+    const missing = [
+      { id: 1, name: 'Sample.MissingPack1.1', by: 'RooftopDusk, CityNight', size: '18 MB' },
+      { id: 2, name: 'Sample.MissingPack2.1', by: 'RooftopDusk', size: '6 MB' }
+    ].map((m) => ({
+      ...m,
+      queueLabel: s.queued[m.id] ? 'Queued' : 'Add to queue',
+      btnCls: s.queued[m.id] ? '' : 'primary',
+      queue: () => this.setState({ queued: { ...s.queued, [m.id]: !s.queued[m.id] } })
+    }));
+
+    const runJob = (changes, jobName, jobDoneNote) => this.setState({ ...changes, jobName, jobDoneNote, jobRunning: true, jobPct: 0, note: '' });
+    const missingGroups = [
+      {
+        title: 'Turned off in your library', count: s.offDone ? 0 : 5,
+        text: 'Already stored, so nothing to download.',
+        hasAction: !s.offDone, action: 'Turn on all',
+        act: () => this.setState({ offDone: true, note: '5 stored vars turned on.' })
+      },
+      {
+        title: 'Updates on Hub', count: s.updatesDone ? 0 : 78,
+        text: 'Never automatic, because a new version can change a scene.',
+        hasAction: !s.updatesDone, action: 'Get updates',
+        act: () => runJob({ updatesDone: true }, 'Getting 78 updates from Hub', '78 updates stored and scanned.')
+      },
+      {
+        title: 'Listed in SharpVaMTools', count: 290,
+        text: 'Copy once. Files you add to the repository are found and scanned automatically.',
+        hasAction: true, action: 'Copy list',
+        act: () => this.setState({ note: 'List of 290 copied.' })
+      },
+      { title: 'Not found anywhere', count: 34, text: 'Listed with the scenes that need them.', hasAction: false },
+      { title: 'Already covered', count: 112, text: 'You own a newer version, so these are skipped.', hasAction: false }
+    ];
+
+    return {
+      missingGroups,
+      hubReady: !s.hubDone,
+      hubTitle: s.hubDone ? 'Nothing left on the Hub' : '24 packages ready on the Hub',
+      hubText: s.hubDone
+        ? 'Downloaded, scanned and added to the current profile.'
+        : 'One click downloads, scans and links them to the current profile. You keep using the app.',
+      getAll: () => runJob({ hubDone: true }, 'Getting 24 packages from Hub', '24 packages stored, scanned and linked.'),
+      profile: s.profile, profiles, query: s.query, newName: s.newName, note: s.note,
+      nav, groups, sel, scenes, profileCards, missing,
+      authorTags, suggestions, hasSuggest: suggestions.length > 0,
+      searchHint: s.authors.length ? 'Add another author, or narrow by package' : 'Type an author or package',
+      onSearchKey: (e) => {
+        if (e.key === 'Enter' && suggestions.length) addAuthor(suggestions[0].name);
+        if (e.key === 'Escape') this.setState({ query: '' });
+        if (e.key === 'Backspace' && !s.query && s.authors.length) this.setState({ authors: s.authors.slice(0, -1) });
+      },
+      canUndo: s.moved.length > 0,
+      closeMove: () => this.setState({ moveOpen: false }),
+      undoMove: () => this.setState({ moved: s.moved.slice(0, -1), note: 'Move undone. Files and links restored.' }),
+      types: pills(['All', 'Scene', 'Look', 'Plugin', 'Hair', 'Clothing'], 'type'),
+      statuses: pills(['All', 'On', 'Off', 'Missing deps'], 'status'),
+      isLibrary: s.page === 'library', isScenes: s.page === 'scenes', isProfiles: s.page === 'profiles',
+      isHealth: s.page === 'health', isDownloads: s.page === 'downloads',
+      profileName: active.name,
+      linkedText: active.count.toLocaleString('en-US') + ' of 5,945 linked',
+      shownText: byAuthor ? shown.length + ' sample packages by ' + authors.length + ' authors' : shown.length + ' sample packages',
+      jobRunning: s.jobRunning, jobPct: s.jobPct,
+      jobText: s.jobRunning ? s.jobName : 'No jobs running',
+      hasPicks: pickItems.length > 0, noPicks: pickItems.length === 0,
+      pickCountText: pickItems.length + ' picked',
+      planText: pickItems.length + ' picks plus their dependencies link about ' + total + ' vars.',
+      pickRows: pickItems,
+      onProfile: (e) => { const p = profiles.find((x) => x.id === e.target.value); this.setState({ profile: e.target.value, note: 'Switched to ' + p.name + '.' }); },
+      onQuery: (e) => this.setState({ query: e.target.value }),
+      onName: (e) => this.setState({ newName: e.target.value }),
+      startUpdate: () => { if (!s.jobRunning) runJob({}, 'Update DB: scanning vars', 'Update DB finished. No popup needed.'); },
+      launch: () => this.setState({ note: 'VaM starting with ' + active.name + '.' }),
+      reviewDupes: () => this.setState({ note: 'Would open the 141 duplicates for review. Nothing is deleted here.' }),
+      goDownloads: go('downloads'), goProfiles: go('profiles'), goLibrary: go('library'),
+      saveProfile: () => {
+        const id = 'p' + (s.extraProfiles.length + 1);
+        const name = s.newName.trim() || 'New profile';
+        const made = { id, name, count: total, startup: 'Not measured', load: 'Not measured', ram: 'Not measured', ids: pickItems.map((it) => it.id) };
+        this.setState({ extraProfiles: s.extraProfiles.concat(made), profile: id, picks: [], note: 'Saved ' + name + ' and switched to it.' });
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>
