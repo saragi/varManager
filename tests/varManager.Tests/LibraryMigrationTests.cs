@@ -351,14 +351,19 @@ namespace varManagerTests
         [Fact]
         public void Rollback_leaves_links_alone_when_nothing_was_migrated()
         {
-            Add(@"A\A.B.1.var", "one");
+            string var = Add(@"A\A.B.1.var", "one");
             Directory.CreateDirectory(Path.GetDirectoryName(log));
             File.WriteAllText(log, "");
+            string otherLinks = Path.Combine(root, "switches", "other", "___VarsLink___");
+            Directory.CreateDirectory(otherLinks);
+            string link = Path.Combine(otherLinks, "A.B.1.var");
+            Link(link, var, 0);
 
             MigrationUndoResult result = LibraryMigration.Rollback(log, addon, Path.Combine(root, "switches", "default"), LinkDirs);
 
             Assert.Equal(0, result.Restored);
-            Assert.True(File.Exists(Path.Combine(addon, @"A\A.B.1.var")));
+            Assert.True(File.Exists(var));
+            Assert.True(new FileInfo(link).Attributes.HasFlag(FileAttributes.ReparsePoint));
         }
 
         [Fact]
