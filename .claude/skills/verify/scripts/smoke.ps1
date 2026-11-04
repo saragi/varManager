@@ -157,13 +157,13 @@ function Check([bool]$Ok, [string]$Name) {
     Step "$(if ($Ok) { 'PASS' } else { 'FAIL' }) $Name"
     if (-not $Ok) { throw "Check failed: $Name" }
 }
-function New-FakeVar([string]$Path, [string]$Creator, [string]$Package, [string]$ExtraReference = 'Smoke.Alpha.1') {
+function New-FakeVar([string]$Path, [string]$Creator, [string]$Package, [string]$ExtraReference = 'Smoke.Alpha.1', [string]$HairReference = 'Deep Creator.Hidden_Pack.min2') {
     Add-Type -AssemblyName System.IO.Compression
     $file = [IO.File]::Open($Path, 'CreateNew')
     $zip = New-Object IO.Compression.ZipArchive($file, [IO.Compression.ZipArchiveMode]::Create)
     $entries = @{
         'meta.json' = "{`"licenseType`":`"CC BY`",`"creatorName`":`"$Creator`",`"packageName`":`"$Package`",`"description`":`"verify seed`",`"dependencies`":{}}"
-        'Saves/scene/smoke.json' = '{"hair":"Deep Creator.Hidden_Pack.min2:/Custom/x.vap","own":"' + $ExtraReference + ':/Custom/y.vap","local":"SELF:/Custom/z.vap"}'
+        'Saves/scene/smoke.json' = '{"hair":"' + $HairReference + ':/Custom/x.vap","own":"' + $ExtraReference + ':/Custom/y.vap","local":"SELF:/Custom/z.vap"}'
     }
     foreach ($name in $entries.Keys) {
         $writer = New-Object IO.StreamWriter($zip.CreateEntry($name).Open())
@@ -360,20 +360,41 @@ try {
     Save-Shot $main 'main-after-updatedb'
     Check ((Get-FileHash -LiteralPath $tidied).Hash -eq $alphaHash) 'var contents unchanged by first Update DB'
 
+    $firstDependencies = Get-DependencyRows
+    Check (@($firstDependencies.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Deep Creator.Hidden_Pack.min2'")).Count -eq 1) 'deep scan finds a scene reference absent from meta.json'
+    Check (@($firstDependencies.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Smoke.Alpha.1'")).Count -eq 0) 'a var is not its own dependency'
+
     # A var replaced by a different file must be read again, not skipped by name.
+    $oldLength = (Get-Item -LiteralPath $tidied).Length
     [IO.File]::Delete($tidied)
-    New-FakeVar $tidied 'Smoke' 'Alpha' 'Replaced.Package_With_A_Longer_Name.latest'
+    New-FakeVar $tidied 'Smoke' 'Alpha' 'Replaced.Package_With_A_Longer_Name.latest' 'Replaced.Hair_Package.latest'
+    Check ((Get-Item -LiteralPath $tidied).Length -ne $oldLength) 'replacement var has a different size'
     $alphaHash = (Get-FileHash -LiteralPath $tidied).Hash
-    [Win]::Click((Find-Child $main '^UPD_DB$'))
-    $confirm = Wait-Window '^UpdateDB$' 'Update DB confirmation' 10
-    [Win]::Click((Find-Child $confirm '^&?Yes$'))
+    $started = $false
+    for ($try = 0; $try -lt 5 -and -not $started; $try++) {
+        [Win]::Click((Find-Child $main '^UPD_DB$'))
+        $confirm = Wait-Window '^UpdateDB$' 'Update DB confirmation' 10
+        [Win]::Click((Find-Child $confirm '^&?Yes$'))
+        Start-Sleep -Seconds 1
+        $box = Get-MessageBox
+        if ($box -ne [IntPtr]::Zero -and (Get-BoxText $box) -match 'still running') {
+            [Win]::Click((Find-Child $box '^OK$'))
+            Start-Sleep -Seconds 2
+        } else { $started = $true }
+    }
+    Check $started 'second Update DB job started'
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $rescanned = $false
     while ((Get-Date) -lt $deadline -and -not $rescanned) {
         Start-Sleep -Milliseconds 700
-        $rescanned = @((Get-DependencyRows).Select("varName = 'Smoke.Alpha.1' AND dependency = 'Replaced.Package_With_A_Longer_Name.latest'")).Count -eq 1
+        $current = Get-DependencyRows
+        $rescanned = (@($current.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Replaced.Package_With_A_Longer_Name.latest'")).Count -eq 1) -and
+            (@($current.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Replaced.Hair_Package.latest'")).Count -eq 1) -and
+            (Test-Path -LiteralPath $link)
     }
     Check $rescanned 'Update DB rescans a var whose file changed'
+    Check (@($current.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Deep Creator.Hidden_Pack.min2'")).Count -eq 0) 'rescan removes stale dependency rows'
+    # The app gives no completion signal, so allow its last steps to finish.
     Start-Sleep -Seconds 2
 
     [Win]::Close($main)
@@ -391,9 +412,7 @@ try {
     Check (@($rows.Select("varName = 'Smoke.Beta.1'")).Count -eq 1) 'database row for the disabled var'
     $dependencies = Get-DependencyRows
     $dependencies | Select-Object varName, dependency | Format-Table -AutoSize | Out-File -LiteralPath (Join-Path $Evidence 'dependencies-table.txt') -Encoding utf8
-    Check (@($dependencies.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Deep Creator.Hidden_Pack.min2'")).Count -eq 1) 'deep scan finds a scene reference absent from meta.json'
     Check (@($dependencies.Select("varName = 'Smoke.Beta.1' AND dependency = 'Smoke.Alpha.1'")).Count -eq 1) 'deep scan finds a reference to another var'
-    Check (@($dependencies.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Smoke.Alpha.1'")).Count -eq 0) 'a var is not its own dependency'
     $logFile = Join-Path $App 'varManager.log'
     Check (-not (Select-String -LiteralPath $logFile -Pattern 'ERROR|FATAL' -Quiet)) 'app log has no errors'
 }

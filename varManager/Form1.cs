@@ -425,7 +425,7 @@ namespace varManager
         }
 
         /// <summary>Reads meta.json and every scene or preset file, because meta.json can be incomplete.</summary>
-        private static List<string> ScanVarDependencies(ZipFile varzipfile, string varName)
+        private List<string> ScanVarDependencies(ZipFile varzipfile, string varName)
         {
             HashSet<string> references = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (KeyValuePair<string, HashSet<string>> file in ReadFileReferences(varzipfile))
@@ -434,16 +434,24 @@ namespace varManager
             return references.ToList();
         }
 
-        private static List<KeyValuePair<string, HashSet<string>>> ReadFileReferences(ZipFile varzipfile)
+        private List<KeyValuePair<string, HashSet<string>>> ReadFileReferences(ZipFile varzipfile)
         {
             List<KeyValuePair<string, HashSet<string>>> files = new List<KeyValuePair<string, HashSet<string>>>();
             foreach (ZipEntry entry in varzipfile)
             {
                 if (!entry.IsFile || !DependencyScanner.IsScannable(entry.Name) || entry.Size > maxScannedEntryBytes)
                     continue;
-                using (StreamReader reader = new StreamReader(varzipfile.GetInputStream(entry)))
+                try
                 {
-                    files.Add(new KeyValuePair<string, HashSet<string>>(entry.Name, DependencyScanner.Extract(entry.Name, reader.ReadToEnd())));
+                    using (StreamReader reader = new StreamReader(varzipfile.GetInputStream(entry)))
+                    {
+                        files.Add(new KeyValuePair<string, HashSet<string>>(entry.Name, DependencyScanner.Extract(entry.Name, reader.ReadToEnd())));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // One damaged file must not cost the var its other dependencies.
+                    this.BeginInvoke(addlog, new Object[] { $"{varzipfile.Name}: skipped {entry.Name}, {ex.Message}", LogLevel.WARNING });
                 }
             }
             return files;
@@ -455,9 +463,16 @@ namespace varManager
             string varfile = getVarFilePath(varName);
             if (!File.Exists(varfile))
                 return "Var file not found: " + varfile;
-            using (ZipFile varzipfile = new ZipFile(varfile))
+            try
             {
-                return DependencyScanner.Describe(ReadFileReferences(varzipfile), VarLookup, varName);
+                using (ZipFile varzipfile = new ZipFile(varfile))
+                {
+                    return DependencyScanner.Describe(ReadFileReferences(varzipfile), VarLookup, varName);
+                }
+            }
+            catch (Exception ex)
+            {
+                return "Could not read " + varfile + ": " + ex.Message;
             }
         }
 
@@ -487,7 +502,7 @@ namespace varManager
                 if (int.TryParse(varname.Substring(package.Length + 1), out version))
                     varnames.AddRange(DependencyLookup.MinimumDependentsOf(package, version));
             }
-            return varnames;
+            return varnames.Distinct().ToList();
         }
         private List<string> DependentSaved(string varname)
         {

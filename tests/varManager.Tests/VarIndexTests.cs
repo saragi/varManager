@@ -94,6 +94,21 @@ namespace varManagerTests
         }
 
         [Fact]
+        public void Min_reference_equal_to_highest_version_is_satisfied()
+        {
+            Assert.Equal(DependencyStatus.Latest, Index("A.B.5").ResolveReference("A.B.min5").Status);
+        }
+
+        [Theory]
+        [InlineData("A.B.min")]
+        [InlineData("A.B.minx")]
+        [InlineData("A.B.min99999999999")]
+        public void Malformed_min_reference_is_missing(string reference)
+        {
+            Assert.Equal(DependencyStatus.Missing, Index("A.B.1").ResolveReference(reference).Status);
+        }
+
+        [Fact]
         public void Min_reference_below_floor_is_a_marked_fallback()
         {
             VarIndex index = Index("A.B.2", "A.B.5");
@@ -201,6 +216,7 @@ namespace varManagerTests
                 new KeyValuePair<string, string>("Scene.C.1", "Plugin.X.latest"),
             });
             Assert.Equal(new[] { "Scene.A.1" }, index.MinimumDependentsOf("plugin.x", 5));
+            Assert.Equal(new[] { "Scene.A.1" }, index.MinimumDependentsOf("Plugin.X", 3));
             Assert.Empty(index.MinimumDependentsOf("Plugin.Y", 5));
         }
 
