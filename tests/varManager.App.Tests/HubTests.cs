@@ -34,6 +34,7 @@ namespace varManager.App.Tests
         {
             public string Page { get; set; } = HubTests.Resources(1, 1);
             public string DetailResponse { get; set; } = "{}";
+            public string InfoResponse { get; set; } = HubTests.Info;
             public bool Down { get; set; }
             public bool ResourcesDown { get; set; }
             public Exception? DetailError { get; set; }
@@ -42,7 +43,7 @@ namespace varManager.App.Tests
 
             public Task<string> Info()
             {
-                return Down ? Task.FromException<string>(new IOException("no network")) : Task.FromResult(HubTests.Info);
+                return Down ? Task.FromException<string>(new IOException("no network")) : Task.FromResult(InfoResponse);
             }
 
             public async Task<string> Resources(HubQuery query)
@@ -345,19 +346,22 @@ namespace varManager.App.Tests
         public async Task A_tile_asks_for_its_picture_once()
         {
             int fetches = 0;
+            var held = new TaskCompletionSource<byte[]>();
             var cache = new HubImageCache(Path.Combine(data, "images"), url =>
             {
                 Interlocked.Increment(ref fetches);
-                return Task.FromResult(new byte[] { 1, 2, 3 });
+                return held.Task;
             });
             var tile = new HubTile(new HubResource { ImageUrl = "https://hub/a.jpg" }, cache, new ThumbnailLoader(), null);
 
+            // The fetch stays open, so only the tile's own guard can stop a second one.
             Assert.Null(tile.Thumbnail);
             Assert.Null(tile.Thumbnail);
-            await Task.Delay(200);
+            Assert.Null(tile.Thumbnail);
 
             Assert.Equal(1, Volatile.Read(ref fetches));
-            Assert.Null(tile.Thumbnail);
+            held.SetResult(new byte[] { 1, 2, 3 });
+            await Task.Delay(50);
         }
 
         [Theory]
@@ -498,22 +502,27 @@ namespace varManager.App.Tests
         [Fact]
         public async Task The_box_defaults_fall_back_when_the_hub_lists_something_else()
         {
+            browser.InfoResponse = "{\"category\":[\"Paid\"],\"location\":[\"Hub Only\"],\"type\":[],\"sort\":[\"Rating\"],\"tags\":{},\"users\":{}}";
             HubViewModel hub = Hub();
 
             await hub.Open().WaitAsync(Timeout);
 
-            Assert.Contains(hub.PayType, hub.PayTypes);
-            Assert.Contains(hub.Location, hub.Locations);
-            Assert.Contains(hub.Sort, hub.Sorts);
-            Assert.Equal("All", hub.Locations[0]);
-            Assert.Equal("All", hub.PayTypes[0]);
+            Assert.Equal("All", hub.PayType);
+            Assert.Equal("Rating", hub.Sort);
+            Assert.Equal("All", hub.Location);
+            Assert.Equal("Rating", browser.Queries[^1].Sort);
         }
 
         [Fact]
         public async Task Ownership_uses_the_newest_version_and_ignores_case()
         {
-            Own("A.B.1", "A.B.3", "c.d.2");
-            browser.Page = Resources(1, 1, Resource("1", "Older", File1("A.B.2")), Resource("2", "Case", File1("C.D.2")), Resource("3", "Newer", File1("A.B.4")));
+            // Added newest first as well as oldest first, so neither first-wins nor last-wins passes.
+            Own("A.B.1");
+            Own("A.B.3");
+            Own("E.F.9");
+            Own("E.F.2");
+            Own("c.d.2");
+            browser.Page = Resources(1, 1, Resource("1", "Older", File1("A.B.2")), Resource("2", "Case", File1("C.D.2")), Resource("3", "Newer", File1("A.B.4")), Resource("4", "Other", File1("E.F.5")));
             HubViewModel hub = Hub();
 
             await hub.Open().WaitAsync(Timeout);
@@ -521,6 +530,7 @@ namespace varManager.App.Tests
             Assert.Equal(HubOwnership.Owned, Tiles(hub)[0].Resource.Ownership);
             Assert.Equal(HubOwnership.Owned, Tiles(hub)[1].Resource.Ownership);
             Assert.Equal("Get update from 3", Tiles(hub)[2].ActionLabel);
+            Assert.Equal(HubOwnership.Owned, Tiles(hub)[3].Resource.Ownership);
         }
 
         [Fact]
@@ -678,11 +688,23 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public void A_get_that_stored_nothing_turns_nothing_on_later()
+        {
+            Own("Have.It.1");
+            downloads.Fail = true;
+            var packages = new[] { new HubPackage("A.B.1", "https://hub.virtamate.com/a", 10) };
+
+            MissingCheck.GetPackages(packages, new[] { "Have.It.1" }, storeFile, paths, downloads, _ => long.MaxValue, (done, total) => { }, default);
+
+            Assert.False(File.Exists(paths.MigratedList));
+        }
+
+        [Fact]
         public void A_get_that_wont_fit_stops_and_says_why()
         {
             var packages = new[] { new HubPackage("A.B.1", "https://hub.virtamate.com/a", 500L << 20) };
 
-            string text = MissingCheck.GetPackages(packages, new string[0], storeFile, paths, downloads, _ => 1L << 30, (done, total) => { }, default);
+            string text = MissingCheck.GetPackages(packages, new string[0], storeFile, paths, downloads, _ => 1200L << 20, (done, total) => { }, default);
 
             Assert.Contains("but only", text);
             Assert.Empty(downloads.Names);

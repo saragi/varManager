@@ -231,9 +231,7 @@ namespace varManager
                 LinkAndUpdate(alsoLink.ToList(), storeFile, paths, progress, token);
                 return alsoLink.Count == 1 ? "Turned on 1 var." : $"Turned on {alsoLink.Count} vars.";
             }
-            if (alsoLink.Count > 0)
-                File.AppendAllLines(paths.MigratedList, alsoLink);
-            DownloadResult result = Store(packages, packages.Select(package => package.Name).ToList(), storeFile, paths, hub, progress, token);
+            DownloadResult result = Store(packages, packages.Select(package => package.Name).ToList(), storeFile, paths, hub, progress, token, alsoLink);
             string text = $"Stored {result.Stored.Count}, failed {result.Failed.Count}.";
             return result.Failed.Count == 0 ? text : text + " First problem: " + result.Failed.Values.First();
         }
@@ -266,13 +264,14 @@ namespace varManager
         }
 
         private static DownloadResult Store(IReadOnlyList<HubPackage> packages, List<string> toLink, string storeFile, LibraryPaths paths,
-            IHubSource hub, Action<int, int> progress, CancellationToken token)
+            IHubSource hub, Action<int, int> progress, CancellationToken token, IReadOnlyList<string> alsoLink = null)
         {
             int done = 0;
             DownloadResult result = hub.Download(packages, paths.VarsPath,
                 package => progress(Interlocked.Increment(ref done), packages.Count), token).GetAwaiter().GetResult();
+            // Only once something arrived: a Get that stored nothing mustn't turn anything on later.
             if (result.Stored.Count > 0)
-                LinkAndUpdate(toLink.Where(name => result.Stored.Contains(name, StringComparer.OrdinalIgnoreCase)).ToList(), storeFile, paths, progress, token);
+                LinkAndUpdate(toLink.Where(name => result.Stored.Contains(name, StringComparer.OrdinalIgnoreCase)).Concat(alsoLink ?? new string[0]).ToList(), storeFile, paths, progress, token);
             return result;
         }
 
