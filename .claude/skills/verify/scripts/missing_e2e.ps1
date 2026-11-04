@@ -72,15 +72,22 @@ try {
   Need ([bool]$cancel) 'Cancel button shown'
   Press $cancel
   Start-Sleep -Seconds 12
-  "button after: $((All $p | Where-Object { $_.Current.Name -match '^Missing \d' } | Select-Object -First 1).Current.Name)"
+  $after = All $p | Where-Object { $_.Current.Name -match '^Missing \d' } | Select-Object -First 1
+  Need ([bool]$after) "Missing button back after cancel: $($after.Current.Name)"
+  $stored = (Get-ChildItem $vars -Filter *.var -Recurse | Measure-Object).Count
+  Start-Sleep -Seconds 8
+  $storedLater = (Get-ChildItem $vars -Filter *.var -Recurse | Measure-Object).Count
+  Need ($storedLater -eq $stored) "cancel stopped the chain ($stored vars)"
   $parts = (Get-ChildItem $vars -Filter *.part -Recurse | Measure-Object).Count
   Need ($parts -eq 0) "no leftover parts ($parts)"
-  "varsMigrated left: $(Test-Path "$app\varsMigrated.txt")"
+  Need (-not (Test-Path "$app\varsMigrated.txt")) 'varsMigrated.txt consumed'
   $done = (All $p | ForEach-Object { $_.Current.Name } | Where-Object { $_ -match 'ready on the Hub|Nothing|Not found|Checked|Stored' } | Select-Object -Unique) -join ' | '
   "window says: $done"
 } finally {
   if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
   Start-Sleep -Seconds 1
-  if (Test-Path "$app\varManager.log") { "log errors: $((Select-String -LiteralPath "$app\varManager.log" -Pattern 'ERROR' | Measure-Object).Count)"; Select-String -LiteralPath "$app\varManager.log" -Pattern 'ERROR' | Select-Object -First 3 | ForEach-Object { $_.Line } }
+  $logErrors = 0
+  if (Test-Path "$app\varManager.log") { $logErrors = (Select-String -LiteralPath "$app\varManager.log" -Pattern 'ERROR' | Measure-Object).Count; Select-String -LiteralPath "$app\varManager.log" -Pattern 'ERROR' | Select-Object -First 3 | ForEach-Object { $_.Line } }
   cmd /c rmdir /s /q "$base"
 }
+Need ($logErrors -eq 0) "no log errors ($logErrors)"
