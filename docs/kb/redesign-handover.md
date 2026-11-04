@@ -18,7 +18,7 @@ The clickable mockup is at https://claude.ai/artifact/2ugrax4vYy63wpfpRVBKWH. Th
 
 ## Resume here
 
-Step 7 is built and committed locally, not pushed. Review rounds 1 and 2 are done, and their fixes are in. Next: run review round 3 on the commits after `origin/release-0`, fix real findings, push, tick step 7, then go on to step 8. Drive the real window for every screen: `Named`, `Press` and `WaitFor` over UI Automation, on a temp copy of `varManager.App\bin\Debug\net10.0-windows` with a settings.json pointing at fake folders.
+Step 7 is done and pushed. Next: step 8, Health. Drive the real window for every screen: `Named`, `Press` and `WaitFor` over UI Automation, on a temp copy of `varManager.App\bin\Debug\net10.0-windows` with a settings.json pointing at fake folders.
 
 Open for step 11: on 4 November the window showed white on this PC with hardware rendering, in the pushed build as well as the new one, and correct with `RenderOptions.ProcessRenderMode = SoftwareOnly`. Earlier screenshots were fine, and the cause isn't known. Retest. If it stays, the user would see a white window, so raise it at step 12.
 
@@ -39,7 +39,7 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - [x] 4. Build the WPF shell from the mockup: dark look, side nav, profile switcher, Update DB, Launch VaM, bottom job bar instead of popups. Update DB is `LibraryUpdate`, on `LibraryStore`. The import runs at startup when `varManager.mdb` sits beside the program and `library.db` doesn't exist yet.
 - [x] 5. Library: virtualized gallery that loads only on-screen thumbnails, search with author suggestions and tags, type and status filters, detail panel, turn on or off, Move out with undo.
 - [x] 6. Scenes: readiness per profile, one-click Fix, Load in VaM. Also add Load in VaM to the Library's detail panel.
-- [ ] 7. Profiles: lean and exclude profiles, timing cards, switch, Profile Check. Also add picks to the Library, with the Build profile button in the job bar.
+- [x] 7. Profiles: lean and exclude profiles, timing cards, switch, Profile Check. Also add picks to the Library, with the Build profile button in the job bar.
 - [ ] 8. Health: stale, duplicates, disabled, storage. Nothing fixed without asking.
 - [ ] 9. Missing: the same one-click flow. Add a "Not owned" Hub filter, image cache, and author search in place of the Creator dropdown. Also watch the repository, so a var dropped in is scanned by itself, as the old app's `WatchRepository` does.
 - [ ] 10. Parity: list every WinForms button and form, and confirm each has a home in the new app or a stated reason to drop it.
