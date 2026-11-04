@@ -36,6 +36,7 @@ namespace varManager
         private static string oldVersionVarsDirName = "___OldVersionVars___";
         private static string deleVarsDirName = "___DeletedVars___";
         private static string profilesDirName = "___Profiles___";
+        private const string migratedVarsFile = "varsMigrated.txt";
 
         internal static string addonPacksSwitch = "___AddonPacksSwitch ___";
 
@@ -1076,7 +1077,7 @@ namespace varManager
             string logPath = Path.Combine(varspath, "___MigrationLogs___", $"migration-{DateTime.Now:yyyyMMdd-HHmmss}.tsv");
             try
             {
-                LibraryMigration.Apply(plan, logPath, Path.Combine(Directory.GetCurrentDirectory(), "varsForInstall.txt"));
+                LibraryMigration.Apply(plan, logPath, Path.Combine(Directory.GetCurrentDirectory(), migratedVarsFile));
             }
             catch (Exception ex)
             {
@@ -1653,6 +1654,19 @@ namespace varManager
             }
         }
 
+        /// <summary>
+        /// Links exactly what was enabled before migration. Dependencies aren't followed,
+        /// because that would turn disabled vars back on.
+        /// </summary>
+        private void InstallMigratedVars()
+        {
+            if (!File.Exists(migratedVarsFile))
+                return;
+            foreach (string varname in File.ReadAllLines(migratedVarsFile))
+                VarInstall(varname);
+            File.Delete(migratedVarsFile);
+        }
+
         private void RunBackgroundJob(string job)
         {
             if (job == "FillDataTables")
@@ -1674,6 +1688,7 @@ namespace varManager
             {
                 TidyVars();
                 UpdDB();
+                InstallMigratedVars();
 
                 if (varsForInstall.Count() > 0)
                 {

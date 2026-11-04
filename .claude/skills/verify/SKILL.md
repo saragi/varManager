@@ -32,7 +32,7 @@ Add `-NoBuild` to test the existing `varManager\bin\Release`. `-TimeoutSeconds <
 The script does these steps in order:
 
 1. Builds Release with MSBuild.
-2. Copies `bin\Release` to `%TEMP%\varManager-verify\run\<stamp>\app`, leaving out any `varManager.log` and `varsForInstall.txt`.
+2. Copies `bin\Release` to `%TEMP%\varManager-verify\run\<stamp>\app`, leaving out any `varManager.log`, `varsForInstall.txt` and `varsMigrated.txt`.
 3. Sets `varspath` and `vampath` in the copied `varManager.exe.config` to fake folders in the sandbox.
 4. Creates a fake `VaM.exe`, then seeds a real `AddonPackages` folder with `Smoke.Alpha.1.var`, `Smoke.Beta.1.var.disabled` and `readme.txt`.
 5. Launches with `__COMPAT_LAYER=RunAsInvoker`, so no elevation is needed. The working directory is the app copy, because `varsForInstall.txt` and `varManager.log` are resolved against it.
@@ -86,6 +86,6 @@ Delete sandboxes with `cmd /c rmdir /s /q`, as the script does. `Remove-Item -Re
 - Seed vars need a `meta.json` entry. Without it, Update DB moves them to `___VarnotComplyRule___`.
 - Symlink creation without elevation depends on Windows Developer Mode. Without it, the app fails to create links and the run fails at `AddonPackages is now a symlink`.
 - Vars and VaM must share a drive, or `Move files` is disabled. The sandbox keeps both under `%TEMP%`.
-- `RescanPackages` does nothing here, because it runs only while VaM is running. Update DB has no completion dialog either. The script treats it as finished when the link exists and `varsForInstall.txt` is gone.
+- `RescanPackages` does nothing here, because it runs only while VaM is running. Update DB has no completion dialog either. The script treats it as finished when the link exists and `varsMigrated.txt` is gone.
 - A running VaM makes startup refuse migration, so the script stops first.
 - `FormSettings` opens if `VaM.exe` is not found, and the run then times out waiting for the preview. Check `varManager.exe.config` in the evidence.

@@ -267,7 +267,7 @@ try {
 
     Step "sandbox $Sandbox"
     New-Item -ItemType Directory -Force $App, $Vars, $Pack | Out-Null
-    Copy-Item (Join-Path $BinDir '*') $App -Recurse -Exclude 'varManager.log', 'varsForInstall.txt'
+    Copy-Item (Join-Path $BinDir '*') $App -Recurse -Exclude 'varManager.log', 'varsForInstall.txt', 'varsMigrated.txt'
     Set-Content -LiteralPath (Join-Path $VaM 'VaM.exe') -Value '' -NoNewline
 
     $configPath = Join-Path $App 'varManager.exe.config'
@@ -283,7 +283,8 @@ try {
            ($saved.SelectSingleNode("//setting[@name='vampath']/value").InnerText -eq $VaM)) 'copied config points at the sandbox'
     Check ((Get-VarRows).Rows.Count -eq 0) 'copied database starts with no vars'
 
-    New-FakeVar (Join-Path $Pack 'Smoke.Alpha.1.var') 'Smoke' 'Alpha'
+    # Alpha depends on disabled Beta, so the unlinked check below proves dependencies aren't followed.
+    New-FakeVar (Join-Path $Pack 'Smoke.Alpha.1.var') 'Smoke' 'Alpha' 'Smoke.Alpha.1' 'Smoke.Beta.1'
     New-FakeVar (Join-Path $Pack 'Smoke.Beta.1.var.disabled') 'Smoke' 'Beta'
     Set-Content -LiteralPath (Join-Path $Pack 'readme.txt') -Value 'verify seed: not a var'
     $alphaHash = (Get-FileHash (Join-Path $Pack 'Smoke.Alpha.1.var')).Hash
@@ -324,7 +325,7 @@ try {
     $main = Wait-Window '^VarManager\s+v' 'main window'
     Check ((Get-Item -LiteralPath $Pack).Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) 'AddonPackages is now a symlink'
     Check (@(Get-ChildItem -LiteralPath (Join-Path $Vars '___MigrationLogs___') -Filter '*.tsv').Count -eq 1) 'migration log written'
-    Check ((Get-Content -LiteralPath (Join-Path $App 'varsForInstall.txt')) -contains 'Smoke.Alpha.1') 'enabled var queued in varsForInstall.txt'
+    Check ((Get-Content -LiteralPath (Join-Path $App 'varsMigrated.txt')) -contains 'Smoke.Alpha.1') 'enabled var queued in varsMigrated.txt'
 
     # Update DB. The startup job can still hold the worker, so retry on the "still running" box.
     $tidied = Join-Path $Vars '___VarTidied___\Smoke\Smoke.Alpha.1.var'
@@ -352,17 +353,19 @@ try {
             Save-Shot $box 'unexpected-dialog'
             throw "Unexpected dialog during Update DB: $(Get-BoxText $box)"
         }
-        $done = (Test-Path -LiteralPath $link) -and -not (Test-Path -LiteralPath (Join-Path $App 'varsForInstall.txt'))
+        $done = (Test-Path -LiteralPath $link) -and -not (Test-Path -LiteralPath (Join-Path $App 'varsMigrated.txt'))
         if (-not $done) { Start-Sleep -Milliseconds 500 }
     }
-    Check $done 'Update DB finished: link created and varsForInstall.txt consumed'
+    Check $done 'Update DB finished: link created and varsMigrated.txt consumed'
     Start-Sleep -Seconds 2
     Save-Shot $main 'main-after-updatedb'
     Check ((Get-FileHash -LiteralPath $tidied).Hash -eq $alphaHash) 'var contents unchanged by first Update DB'
 
     $firstDependencies = Get-DependencyRows
-    Check (@($firstDependencies.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Deep Creator.Hidden_Pack.min2'")).Count -eq 1) 'deep scan finds a scene reference absent from meta.json'
+    Check (@($firstDependencies.Select("varName = 'Smoke.Beta.1' AND dependency = 'Deep Creator.Hidden_Pack.min2'")).Count -eq 1) 'deep scan finds a scene reference absent from meta.json'
     Check (@($firstDependencies.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Smoke.Alpha.1'")).Count -eq 0) 'a var is not its own dependency'
+    Check (@($firstDependencies.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Smoke.Beta.1'")).Count -eq 1) 'enabled var depends on the disabled var'
+    Check (-not (Test-Path -LiteralPath (Join-Path $Pack '___VarsLink___\Smoke.Beta.1.var'))) 'migration leaves a needed disabled var unlinked'
 
     # A var replaced by a different file must be read again, not skipped by name.
     $oldLength = (Get-Item -LiteralPath $tidied).Length
@@ -392,7 +395,7 @@ try {
             (@($current.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Replaced.Hair_Package.latest'")).Count -eq 1)
     }
     Check $rescanned 'Update DB rescans a var whose file changed'
-    Check (@($current.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Deep Creator.Hidden_Pack.min2'")).Count -eq 0) 'rescan clears the old dependency rows'
+    Check (@($current.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Smoke.Beta.1'")).Count -eq 0) 'rescan clears the old dependency rows'
     # The app gives no completion signal, so allow its last steps to finish.
     Start-Sleep -Seconds 2
 
