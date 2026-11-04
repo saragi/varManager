@@ -28,7 +28,7 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - [x] 0. Review commit `558c942` and the handover commit with the loop below, then push.
 - [x] 1. Confirm the SDK. Create `varManager.App` (WPF, `net10.0-windows`) referencing `varManager.Core`, with a test project that can target it.
 - [x] 2. Add a SQLite store to Core, with a one-time import from `varManager.mdb` that only reads the Access file. Keep the schema simple. Prove it on a copy.
-- [ ] 3. Move logic out of `Form1.cs` into Core, one area per commit, keeping WinForms working. Done: Tidy (`VarTidier`, `LibraryFolders`), reading a var for Update DB (`VarScanner`). Left: the Update DB loop and its database writes, which wait for the new store; install and link; switches; scenes and previews (`ReExtractedPreview` still has its own zip code); dependency analysis.
+- [ ] 3. Move logic out of `Form1.cs` into Core, one area per commit, keeping WinForms working. Done: Tidy (`VarTidier`, `LibraryFolders`), reading a var for Update DB (`VarScanner`), install and link (`VarLinks`, and `Comm` now lives in Core). Left: the Update DB loop and its database writes, which wait for the new store; switches; scenes and previews (`ReExtractedPreview` still has its own zip code); dependency analysis.
 - [ ] 4. Build the WPF shell from the mockup: dark look, side nav, profile switcher, Update DB, Launch VaM, bottom job bar instead of popups.
 - [ ] 5. Library: virtualized gallery that loads only on-screen thumbnails, search with author suggestions and tags, type and status filters, detail panel, Move out with undo.
 - [ ] 6. Scenes: readiness per profile, one-click Fix, Load in VaM.
@@ -36,7 +36,7 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - [ ] 8. Health: stale, duplicates, disabled, storage. Nothing fixed without asking.
 - [ ] 9. Missing: the same one-click flow. Add a "Not owned" Hub filter, image cache, and author search in place of the Creator dropdown.
 - [ ] 10. Parity: list every WinForms button and form, and confirm each has a home in the new app or a stated reason to drop it.
-- [ ] 11. Prove it on fake folders with a verify script like `smoke.ps1`.
+- [ ] 11. Prove it on fake folders with a verify script like `smoke.ps1`. Include Fix Rebuild Link and temporary links, which `smoke.ps1` has never covered.
 - [ ] 12. Stop. Tell the user it's ready and how to try it. Don't run it on the real library and don't replace `D:\X\varManagerApp` without their approval.
 
 ## Design rules from the user
@@ -80,5 +80,6 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - Access columns hold 255 characters, and adding a longer value throws `ArgumentException`. SQLite has no such limit. In WinForms, catch it per row so one long path can't cost a var its record.
 - SharpZipLib decodes zip names without the UTF-8 flag using the system code page, which is UTF-8 on .NET 10 and ANSI on .NET Framework. Non-ASCII names in old vars may differ between the apps. Check this before the new app scans anything, because preview file names come from entry names.
 - Smoke's log check ignores the overlong entry's error on purpose, through `Get-LogErrors`.
-- Don't chain `git commit` after a smoke run with `;`. Check the result first.
+- Don't chain `git commit` after a smoke run or a `git add` with `;`. Check the result first. A failed `git add` still lets the commit run with whatever was staged.
+- `git mv` a file, then stage only its new path. The old path no longer matches, and `git add` fails on it.
 - The compiler drops an unused project reference, so `GetReferencedAssemblies` won't list Core until the app calls it.
