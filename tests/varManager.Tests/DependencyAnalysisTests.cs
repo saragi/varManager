@@ -78,6 +78,15 @@ namespace varManagerTests
         }
 
         [Fact]
+        public void Implicated_vars_stop_at_another_version_further_down_the_chain()
+        {
+            VarIndex vars = Vars("A.B.1", "C.D.1", "C.D.2", "E.F.1");
+            DependencyIndex deps = Deps("C.D.1>A.B.1", "E.F.1>C.D.1");
+
+            Assert.Equal(new[] { "A.B.1", "C.D.1" }, DependencyAnalysis.ImplicatedVars(new[] { "A.B.1" }, vars, deps));
+        }
+
+        [Fact]
         public void Implicated_vars_survive_a_dependency_loop()
         {
             VarIndex vars = Vars("A.B.1", "C.D.1");
@@ -109,6 +118,15 @@ namespace varManagerTests
             DependencyIndex deps = Deps("A.B.1>C.D.2", "A.B.1>Gone.Pack.1");
 
             Assert.Equal(new[] { "A.B.1", "C.D.3" }, DependencyAnalysis.WithDependencies(new[] { "A.B.1" }, vars, deps));
+        }
+
+        [Fact]
+        public void With_dependencies_follows_a_substitute()
+        {
+            VarIndex vars = Vars("A.B.1", "C.D.3", "E.F.1");
+            DependencyIndex deps = Deps("A.B.1>C.D.2", "C.D.3>E.F.1");
+
+            Assert.Equal(new[] { "A.B.1", "C.D.3", "E.F.1" }, DependencyAnalysis.WithDependencies(new[] { "A.B.1" }, vars, deps));
         }
 
         [Fact]
