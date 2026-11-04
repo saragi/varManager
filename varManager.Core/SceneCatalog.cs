@@ -116,12 +116,14 @@ namespace varManager
             Dictionary<string, VarRecord> byName = records.ToDictionary(v => v.VarName, StringComparer.OrdinalIgnoreCase);
             Dictionary<string, string> installed = VarLinks.Installed(paths.AddonPackages);
 
+            Directory.CreateDirectory(Path.Combine(paths.AddonPackages, LibraryFolders.TempVarLink));
             bool rescan = false;
             foreach (string needed in DependencyAnalysis.WithDependencies(SceneAnalysis.ReadDepends(cache), vars, dependencies))
             {
-                stale.Remove(needed.ToLower() + ".var");
+                // A var the profile links needs no temporary link, so an old one can go.
                 if (installed.ContainsKey(needed))
                     continue;
+                stale.Remove(needed.ToLower() + ".var");
                 int errorCode;
                 if (VarLinks.Install(paths.AddonPackages, needed, FileOf(paths, byName[needed]), true, out errorCode) == VarLinkResult.Linked)
                     rescan = true;

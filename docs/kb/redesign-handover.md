@@ -16,6 +16,10 @@ The clickable mockup is at https://claude.ai/artifact/2ugrax4vYy63wpfpRVBKWH. Th
 - `LibraryStore` is the new app's database. Add reads to it as screens need them. `savedepens` has no reads or writes yet.
 - Import proof on a copy of the real `varManager.mdb`: all 147,943 rows in 5 tables matched, it took 1.3 s, and `LoadVars` read 5,791 vars in 27 ms. The copy was deleted afterwards.
 
+## Resume here
+
+Step 6 is built and committed locally, not pushed. Review round 1 is done and its fixes are in. Next: run review round 2 on the commits after `origin/release-0`, fix real findings, push, tick step 6, then go on to step 7. Drive the real window for every screen: `Named`, `Press` and `WaitFor` over UI Automation, on a temp copy of `varManager.App\bin\Debug\net10.0-windows` with a settings.json pointing at fake folders.
+
 ## SDK
 
 The .NET SDK 10.0.403 is installed. If `dotnet --list-sdks` ever shows no 10.x, stop and ask the user to install it. Don't install it yourself.

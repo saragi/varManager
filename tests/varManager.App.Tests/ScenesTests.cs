@@ -271,6 +271,37 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public void A_temporary_link_the_profile_now_covers_is_stale()
+        {
+            MakeVar("A.B.1", "Dep.Pack.1:/Custom/a.vap");
+            MakeVar("Dep.Pack.1", scene: false);
+            Update();
+            string tidied = Path.Combine(vars, LibraryFolders.Tidied);
+            VarLinks.Create(Path.Combine(links, "Dep.Pack.1.var"), Path.Combine(tidied, "Dep", "Dep.Pack.1.var"));
+            VarLinks.Create(Path.Combine(temp, "Dep.Pack.1.var"), Path.Combine(tidied, "Dep", "Dep.Pack.1.var"));
+            using LibraryStore store = LibraryStore.Open(storeFile);
+
+            List<string> stale = SceneLauncher.Load(store, paths, "A.B.1", "Saves/scene/My Scene.json", "scenes");
+
+            Assert.Equal(new[] { "dep.pack.1.var" }, stale);
+        }
+
+        [Fact]
+        public void Load_makes_the_temporary_folder_for_any_type()
+        {
+            MakeVar("A.B.1", "Dep.Pack.1:/Custom/a.vap");
+            MakeVar("Dep.Pack.1", scene: false);
+            Update();
+            Directory.Delete(temp);
+            using LibraryStore store = LibraryStore.Open(storeFile);
+
+            List<string> stale = SceneLauncher.Load(store, paths, "A.B.1", "Saves/scene/My Scene.json", "looks");
+
+            Assert.Empty(stale);
+            Assert.True(VarLinks.IsLink(Path.Combine(temp, "Dep.Pack.1.var")));
+        }
+
+        [Fact]
         public async Task Old_temporary_links_go_once_vam_takes_the_request()
         {
             string target = Path.Combine(vars, "x.var");
@@ -333,6 +364,21 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task Fix_says_when_a_link_failed()
+        {
+            MakeVar("A.B.1", "Dep.Pack.1:/Custom/a.vap");
+            MakeVar("Dep.Pack.1", scene: false);
+            Update();
+            Directory.CreateDirectory(Path.Combine(links, "Dep.Pack.1.var"));
+            (ScenesViewModel scenes, JobRunner jobs, _) = await Open();
+
+            scenes.ActCommand.Execute(Tile(scenes, "A.B.1"));
+            WaitForJob(jobs);
+
+            Assert.Contains("1 could not be linked", jobs.Note);
+        }
+
+        [Fact]
         public async Task Fix_links_what_it_can_and_opens_missing_only_for_what_is_left()
         {
             MakeVar("A.B.1", "Dep.Pack.1:/Custom/a.vap\",\"y\":\"Gone.Pack.1:/Custom/b.vap");
@@ -384,6 +430,21 @@ namespace varManager.App.Tests
             WaitForJob(jobs);
 
             Assert.True(File.Exists(VamBridge.RequestFile(vam)));
+        }
+
+        [Fact]
+        public async Task Rows_make_their_tiles_only_when_shown()
+        {
+            MakeVar("A.B.1");
+            MakeVar("C.D.1");
+            Update();
+            (ScenesViewModel scenes, _, _) = await Open();
+
+            scenes.Columns = 1;
+
+            Assert.Equal(2, scenes.Rows.Count);
+            Assert.Equal("A.B.1", Assert.Single(scenes.Rows[0].Tiles).Scene.VarName);
+            Assert.Same(scenes.Rows[0].Tiles, scenes.Rows[0].Tiles);
         }
 
         [Fact]

@@ -244,9 +244,10 @@ namespace varManager.Ui
 
         private async Task ReadLibrary(LibraryViewModel reading)
         {
+            Task scenesRead = ReadScenes();
             try
             {
-                await Task.WhenAll(reading.Reload(), Scenes?.Reload() ?? Task.CompletedTask).ConfigureAwait(true);
+                await reading.Reload().ConfigureAwait(true);
                 // After a failed switch nothing is linked, and a read that started earlier mustn't say otherwise.
                 if (selectedSwitch != null)
                     LinkedText = reading.LinkedCount == 1 ? "1 package linked" : $"{reading.LinkedCount:N0} packages linked";
@@ -255,6 +256,22 @@ namespace varManager.Ui
             {
                 if (selectedSwitch != null)
                     Jobs.Say("Could not read the library: " + ex.Message);
+            }
+            await scenesRead.ConfigureAwait(true);
+        }
+
+        private async Task ReadScenes()
+        {
+            if (Scenes == null)
+                return;
+            try
+            {
+                await Scenes.Reload().ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                if (selectedSwitch != null)
+                    Jobs.Say("Could not read the scenes: " + ex.Message);
             }
         }
 

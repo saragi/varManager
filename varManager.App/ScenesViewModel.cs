@@ -39,14 +39,17 @@ namespace varManager.Ui
         };
     }
 
+    // Tiles are made when a row first shows, because a library has far more scenes than fit on screen.
     public sealed class SceneRow
     {
-        public SceneRow(IReadOnlyList<SceneTile> tiles)
+        private readonly Lazy<IReadOnlyList<SceneTile>> tiles;
+
+        public SceneRow(Func<IReadOnlyList<SceneTile>> makeTiles)
         {
-            Tiles = tiles;
+            tiles = new Lazy<IReadOnlyList<SceneTile>>(makeTiles);
         }
 
-        public IReadOnlyList<SceneTile> Tiles { get; }
+        public IReadOnlyList<SceneTile> Tiles => tiles.Value;
     }
 
     /// <summary>The Scenes screen: whether each scene is ready in the current profile, with one button for the next step.</summary>
@@ -172,7 +175,12 @@ namespace varManager.Ui
             ShownText = $"{shown.Count:N0} of {scenes.Count:N0} scenes";
             var built = new List<SceneRow>();
             for (int start = 0; start < shown.Count; start += columns)
-                built.Add(new SceneRow(shown.Skip(start).Take(columns).Select(scene => new SceneTile(scene, thumbnails, ui)).ToList()));
+            {
+                int first = start;
+                built.Add(new SceneRow(() => shown.GetRange(first, Math.Min(columns, shown.Count - first))
+                    .Select(scene => new SceneTile(scene, thumbnails, ui))
+                    .ToList()));
+            }
             Rows = built;
         }
 
@@ -209,17 +217,23 @@ namespace varManager.Ui
                 Directory.CreateDirectory(Path.Combine(paths.AddonPackages, LibraryFolders.VarsLink));
 
                 int linked = 0;
+                int failed = 0;
                 foreach (string name in DependencyAnalysis.WithDependencies(new[] { scene.VarName }, vars, dependencies))
                 {
                     if (installed.ContainsKey(name))
                         continue;
                     string file = Path.Combine(paths.VarsPath, byName[name].VarPath ?? "", name + ".var");
-                    if (VarLinks.Install(paths.AddonPackages, name, file, false, out _) == VarLinkResult.Linked)
+                    VarLinkResult result = VarLinks.Install(paths.AddonPackages, name, file, false, out _);
+                    if (result == VarLinkResult.Linked)
                         linked++;
+                    else if (result == VarLinkResult.Failed)
+                        failed++;
                 }
                 VamBridge.RequestRescan(paths.VamPath);
 
                 string text = linked == 1 ? "Turned on 1 var." : $"Turned on {linked} vars.";
+                if (failed > 0)
+                    text += $" {failed} could not be linked.";
                 if (scene.MissingCount == 0)
                     return text;
                 if (ui == null)
