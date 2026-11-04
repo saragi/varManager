@@ -73,6 +73,7 @@ namespace varManager.Ui
         private readonly SynchronizationContext? ui;
         private WeakReference<ImageSource>? picture;
         private bool loading;
+        private bool unreadable;
         private bool isSelected;
 
         public LibraryTile(LibraryItem item, ThumbnailLoader thumbnails, SynchronizationContext? ui)
@@ -105,7 +106,7 @@ namespace varManager.Ui
             {
                 if (picture != null && picture.TryGetTarget(out ImageSource? image))
                     return image;
-                if (!loading && Item.PreviewPath != null)
+                if (!loading && !unreadable && Item.PreviewPath != null)
                 {
                     loading = true;
                     _ = thumbnails.Load(Item.PreviewPath, Show);
@@ -120,7 +121,10 @@ namespace varManager.Ui
             {
                 loading = false;
                 if (image == null)
+                {
+                    unreadable = true;
                     return;
+                }
                 picture = new WeakReference<ImageSource>(image);
                 Changed(nameof(Thumbnail));
             }
@@ -177,7 +181,7 @@ namespace varManager.Ui
 
         private readonly ThumbnailLoader thumbnails = new ThumbnailLoader();
         private readonly SynchronizationContext? ui;
-        private readonly Func<IReadOnlySet<string>> linkedVars;
+        private readonly Func<IReadOnlyCollection<string>> linkedVars;
         private readonly string storeFile;
         private readonly string varsPath;
         private readonly HashSet<string> closedAuthors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -192,8 +196,10 @@ namespace varManager.Ui
         private int columns = 1;
         private LibraryTile? selected;
         private string shownText = "";
+        private IReadOnlyList<object> rows = new object[0];
+        private int reloads;
 
-        public LibraryViewModel(string storeFile, string varsPath, Func<IReadOnlySet<string>> linkedVars, SynchronizationContext? ui)
+        public LibraryViewModel(string storeFile, string varsPath, Func<IReadOnlyCollection<string>> linkedVars, SynchronizationContext? ui)
         {
             this.storeFile = storeFile;
             this.varsPath = varsPath;
@@ -216,7 +222,6 @@ namespace varManager.Ui
         public ObservableCollection<Pill> StatePills { get; } = new ObservableCollection<Pill>();
         public ObservableCollection<string> AuthorTags { get; } = new ObservableCollection<string>();
         public ObservableCollection<AuthorSuggestion> Suggestions { get; } = new ObservableCollection<AuthorSuggestion>();
-        public ObservableCollection<object> Rows { get; } = new ObservableCollection<object>();
         public ObservableCollection<DependencyLine> SelectedDependencies { get; } = new ObservableCollection<DependencyLine>();
 
         public ICommand AddAuthorCommand { get; }
@@ -224,6 +229,18 @@ namespace varManager.Ui
         public ICommand ToggleAuthorCommand { get; }
         public ICommand SelectCommand { get; }
 
+        // Replaced whole, because adding 1,500 rows one by one would raise 1,500 changes on every keystroke.
+        public IReadOnlyList<object> Rows
+        {
+            get => rows;
+            private set
+            {
+                rows = value;
+                Changed();
+            }
+        }
+
+        public int LinkedCount => linked.Count;
         public bool HasSuggestions => Suggestions.Count > 0;
         public bool HasSelection => selected != null;
         public string SearchHint => AuthorTags.Count == 0 ? "Search packages and authors" : "Add another author, or filter by name";
@@ -307,18 +324,24 @@ namespace varManager.Ui
         /// <summary>Reads the library off the UI thread. A store that doesn't exist yet is an empty library.</summary>
         public async Task Reload()
         {
-            string? keep = selected?.Item.VarName;
-            ISet<string> names = new HashSet<string>(linkedVars(), StringComparer.OrdinalIgnoreCase);
-            List<LibraryItem> loaded = await Task.Run(() =>
+            int reload = ++reloads;
+            (ISet<string> names, List<LibraryItem> loaded) = await Task.Run(() =>
             {
+                ISet<string> found = new HashSet<string>(linkedVars(), StringComparer.OrdinalIgnoreCase);
                 if (!File.Exists(storeFile))
-                    return new List<LibraryItem>();
+                    return (found, new List<LibraryItem>());
                 using LibraryStore store = LibraryStore.Open(storeFile);
-                return LibraryCatalog.Load(store, varsPath, names);
+                return (found, LibraryCatalog.Load(store, varsPath, found));
             }).ConfigureAwait(true);
 
+            // An older reload that finishes late has stale link state.
+            if (reload != reloads)
+                return;
+
+            string? keep = selected?.Item.VarName;
             items = loaded;
             linked = names;
+            Changed(nameof(LinkedCount));
             index = new VarIndex(items.Select(i => new VarEntry(i.VarName, i.Creator, i.Package, i.Version)));
             tiles = items.ToDictionary(i => i.VarName, i => new LibraryTile(i, thumbnails, ui), StringComparer.OrdinalIgnoreCase);
             Selected = keep != null && tiles.TryGetValue(keep, out LibraryTile? tile) ? tile : null;
@@ -418,14 +441,15 @@ namespace varManager.Ui
 
         private void BuildRows()
         {
-            Rows.Clear();
+            var built = new List<object>();
             foreach (GalleryRow row in LibraryCatalog.Rows(shown, columns, AuthorTags.Count > 1, closedAuthors))
             {
                 if (row.Header != null)
-                    Rows.Add(new AuthorHeaderRow(row.Header, row.HeaderCount, row.IsOpen));
+                    built.Add(new AuthorHeaderRow(row.Header, row.HeaderCount, row.IsOpen));
                 else
-                    Rows.Add(new TileRow(row.Items.Select(item => tiles[item.VarName]).ToList()));
+                    built.Add(new TileRow(row.Items.Select(item => tiles[item.VarName]).ToList()));
             }
+            Rows = built;
         }
 
         private void RefreshDependencies()

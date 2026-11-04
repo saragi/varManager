@@ -214,6 +214,7 @@ namespace varManager.App.Tests
             VarLinks.Create(Path.Combine(vam, "AddonPackages", LibraryFolders.VarsLink, "A.B.1.var"), var);
 
             ShellViewModel shell = Shell();
+            Assert.True(shell.LibraryLoaded.Wait(Timeout));
 
             Assert.Equal("lean", shell.SelectedSwitch);
             Assert.Equal(new[] { "default", "lean" }, shell.Switches);
@@ -233,6 +234,7 @@ namespace varManager.App.Tests
 
             Assert.Equal("lean", File.ReadAllText(Path.Combine(vam, "AddonPackages", "marker.txt")));
             Assert.Contains("lean", jobs.Note);
+            Assert.True(shell.LibraryLoaded.Wait(Timeout));
             Assert.Equal("0 packages linked", shell.LinkedText);
         }
 

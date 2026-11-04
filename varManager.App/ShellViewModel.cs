@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -122,6 +121,9 @@ namespace varManager.Ui
             private set => Set(ref library, value);
         }
 
+        /// <summary>The latest library read, which also brings the linked count up to date.</summary>
+        public Task LibraryLoaded { get; private set; } = Task.CompletedTask;
+
         public bool NeedsSetup
         {
             get => needsSetup;
@@ -190,7 +192,6 @@ namespace varManager.Ui
                 }
                 selectedSwitch = value;
                 Changed();
-                RefreshLinked();
                 ReloadLibrary();
                 VamBridge.RequestRescan(VamPath);
                 Jobs.Say("Switched to " + value + ".");
@@ -215,19 +216,29 @@ namespace varManager.Ui
         private void JobChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(JobRunner.IsRunning) && !Jobs.IsRunning && IsReady && selectedSwitch != null)
-            {
-                RefreshLinked();
                 ReloadLibrary();
-            }
         }
 
         private void ReloadLibrary()
         {
-            if (Library == null)
-                return;
-            Library.Reload().ContinueWith(
-                failed => Jobs.Say("Could not read the library: " + failed.Exception?.GetBaseException().Message),
-                TaskContinuationOptions.OnlyOnFaulted);
+            if (Library != null)
+                LibraryLoaded = ReadLibrary(Library);
+        }
+
+        private async Task ReadLibrary(LibraryViewModel reading)
+        {
+            try
+            {
+                await reading.Reload().ConfigureAwait(true);
+                // After a failed switch nothing is linked, and a read that started earlier mustn't say otherwise.
+                if (selectedSwitch != null)
+                    LinkedText = $"{reading.LinkedCount:N0} packages linked";
+            }
+            catch (Exception ex)
+            {
+                if (selectedSwitch != null)
+                    Jobs.Say("Could not read the library: " + ex.Message);
+            }
         }
 
         // Without this, a failed import would leave Update DB to create an empty store, and the import would never run again.
@@ -290,19 +301,11 @@ namespace varManager.Ui
                 Switches.Add(name);
             selectedSwitch = VarSwitches.EnsureLink(VamPath);
             Changed(nameof(SelectedSwitch));
-            RefreshLinked();
-            Library = new LibraryViewModel(StoreFile, VarsPath,
-                () => new HashSet<string>(VarLinks.Installed(VarSwitches.AddonPackages(VamPath)).Keys, StringComparer.OrdinalIgnoreCase),
-                SynchronizationContext.Current);
+            string packs = VarSwitches.AddonPackages(VamPath);
+            Library = new LibraryViewModel(StoreFile, VarsPath, () => VarLinks.Installed(packs).Keys, SynchronizationContext.Current);
             ImportOldDatabase();
             if (!Jobs.IsRunning)
                 ReloadLibrary();
-        }
-
-        private void RefreshLinked()
-        {
-            int count = VarLinks.Installed(VarSwitches.AddonPackages(VamPath)).Count;
-            LinkedText = $"{count:N0} packages linked";
         }
 
         private void SaveSetup()

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
@@ -16,6 +15,7 @@ namespace varManager.Ui
         private const int DecodeWidth = 240;
 
         private readonly int capacity;
+        private int requests;
         private readonly SemaphoreSlim decoders = new SemaphoreSlim(2);
         private readonly Dictionary<string, LinkedListNode<KeyValuePair<string, BitmapSource>>> cached =
             new Dictionary<string, LinkedListNode<KeyValuePair<string, BitmapSource>>>(StringComparer.OrdinalIgnoreCase);
@@ -25,6 +25,8 @@ namespace varManager.Ui
         {
             this.capacity = capacity;
         }
+
+        public int Requests => requests;
 
         public int CachedCount
         {
@@ -38,6 +40,7 @@ namespace varManager.Ui
         /// <summary>Calls back on a background thread with the picture, or null if it can't be read.</summary>
         public Task Load(string path, Action<BitmapSource?> done)
         {
+            Interlocked.Increment(ref requests);
             BitmapSource? hit = Find(path);
             if (hit != null)
             {
@@ -97,15 +100,17 @@ namespace varManager.Ui
                 var image = new BitmapImage();
                 image.BeginInit();
                 image.CacheOption = BitmapCacheOption.OnLoad;
-                image.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
+                // WPF has its own cache by address, which would show an old picture after a var changes.
+                image.CreateOptions = BitmapCreateOptions.IgnoreColorProfile | BitmapCreateOptions.IgnoreImageCache;
                 image.DecodePixelWidth = DecodeWidth;
                 image.UriSource = new Uri(path);
                 image.EndInit();
                 image.Freeze();
                 return image;
             }
-            catch (Exception ex) when (ex is IOException or NotSupportedException or UriFormatException or ArgumentException or UnauthorizedAccessException)
+            catch (Exception)
             {
+                // Picture files come from packages, and a bad one can throw almost anything. It just shows no picture.
                 return null;
             }
         }

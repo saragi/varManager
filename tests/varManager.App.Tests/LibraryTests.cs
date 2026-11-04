@@ -427,14 +427,25 @@ namespace varManager.App.Tests
         }
 
         [Fact]
-        public async Task Thumbnails_decode_and_keep_only_the_most_recent()
+        public async Task Thumbnails_forget_the_least_recently_used_first()
         {
             var loader = new ThumbnailLoader(capacity: 2);
-            var pictures = new List<BitmapSource?>();
-            foreach (int i in Enumerable.Range(0, 3))
-                await loader.Load(PngFile(Path.Combine(root, i + ".png")), pictures.Add);
+            string a = PngFile(Path.Combine(root, "a.png"));
+            string b = PngFile(Path.Combine(root, "b.png"));
+            string c = PngFile(Path.Combine(root, "c.png"));
+            await loader.Load(a, _ => { });
+            await loader.Load(b, _ => { });
+            await loader.Load(a, _ => { });
+            await loader.Load(c, _ => { });
+            File.Delete(a);
+            File.Delete(b);
+            BitmapSource? keptA = null, lostB = null;
 
-            Assert.All(pictures, Assert.NotNull);
+            await loader.Load(a, picture => keptA = picture);
+            await loader.Load(b, picture => lostB = picture);
+
+            Assert.NotNull(keptA);
+            Assert.Null(lostB);
             Assert.Equal(2, loader.CachedCount);
         }
 
@@ -469,19 +480,82 @@ namespace varManager.App.Tests
         [Fact]
         public void A_tile_asks_for_its_picture_only_when_read()
         {
+            var loader = new ThumbnailLoader();
             var tile = new LibraryTile(new LibraryItem { VarName = "A.B.1", Creator = "A", Package = "B", PreviewPath = PngFile(Path.Combine(root, "a.png")) },
-                new ThumbnailLoader(), null);
+                loader, null);
             using var loaded = new ManualResetEventSlim();
             tile.PropertyChanged += (_, e) =>
             {
                 if (e.PropertyName == nameof(LibraryTile.Thumbnail))
                     loaded.Set();
             };
+            Assert.Equal(0, loader.Requests);
 
-            Assert.False(loaded.Wait(150));
-            Assert.Null(tile.Thumbnail);
+            _ = tile.Thumbnail;
+
+            Assert.Equal(1, loader.Requests);
             Assert.True(loaded.Wait(TimeSpan.FromSeconds(10)));
             Assert.NotNull(tile.Thumbnail);
+            Assert.Equal(1, loader.Requests);
+        }
+
+        [Fact]
+        public async Task A_tile_with_an_unreadable_picture_asks_only_once()
+        {
+            string bad = Path.Combine(root, "bad.jpg");
+            File.WriteAllText(bad, "not a picture");
+            var loader = new ThumbnailLoader();
+            var tile = new LibraryTile(new LibraryItem { VarName = "A.B.1", Creator = "A", Package = "B", PreviewPath = bad }, loader, null);
+
+            _ = tile.Thumbnail;
+            for (int i = 0; i < 100 && tile.Thumbnail == null && loader.Requests == 1; i++)
+                await Task.Delay(10);
+
+            Assert.Null(tile.Thumbnail);
+            Assert.Equal(1, loader.Requests);
+        }
+
+        [Fact]
+        public async Task An_older_reload_finishing_late_is_ignored()
+        {
+            Save("A.B.1");
+            using var gate = new ManualResetEventSlim();
+            int calls = 0;
+            var library = new LibraryViewModel(storeFile, root, () =>
+            {
+                if (Interlocked.Increment(ref calls) == 1)
+                {
+                    gate.Wait(TimeSpan.FromSeconds(10));
+                    return new string[0];
+                }
+                return new[] { "A.B.1" };
+            }, null);
+
+            Task older = library.Reload();
+            while (Volatile.Read(ref calls) == 0)
+                await Task.Delay(5);
+            await library.Reload();
+            gate.Set();
+            await older;
+
+            Assert.Equal(1, library.LinkedCount);
+            Assert.Equal("On", ((TileRow)library.Rows.Single()).Tiles[0].StateText);
+        }
+
+        [Fact]
+        public async Task Filters_and_tags_survive_a_reload()
+        {
+            Save("Ann.Hair.1", scan => scan.Hairstyle = 1);
+            Save("Ann.Coat.1", scan => scan.Clothing = 1);
+            Save("Bob.Hair.1", scan => scan.Hairstyle = 1);
+            LibraryViewModel library = await Library();
+            library.AddAuthorCommand.Execute("Ann");
+            library.TypePills.Single(p => p.Label == "Hair").Command.Execute(null);
+
+            await library.Reload();
+
+            Assert.Equal(new[] { "Ann.Hair.1" }, Shown(library));
+            Assert.Equal(new[] { "Ann" }, library.AuthorTags);
         }
 
         [Fact]
