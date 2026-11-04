@@ -833,6 +833,24 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task An_empty_profile_needs_no_picks_and_a_good_name()
+        {
+            MakeVar("A.B.1");
+            Update();
+            ShellViewModel shell = await Shell();
+
+            shell.Profiles!.Name = "default";
+            Assert.False(shell.Profiles.CanMakeEmpty);
+
+            shell.Profiles.Name = "blank";
+            shell.Picks.Toggle("A.B.1");
+            Assert.False(shell.Profiles.CanMakeEmpty);
+            shell.Profiles.MakeEmptyCommand.Execute(null);
+
+            Assert.False(Directory.Exists(Links("blank")));
+        }
+
+        [Fact]
         public async Task A_list_of_linked_vars_saves_and_turns_back_on_with_dependencies()
         {
             ShellViewModel shell = await ShellWithLean();
@@ -848,7 +866,28 @@ namespace varManager.App.Tests
             WaitUntil(() => !jobs.IsRunning);
 
             Assert.Equal(new[] { "A.B.1", "Dep.Pack.1" }, LinkedIn("default"));
-            Assert.Equal("Turned on 2 vars. 1 names aren't in the library.", jobs.Note);
+            Assert.Equal("Turned on 2 vars. 1 name isn't in the library.", jobs.Note);
+
+            File.WriteAllLines(file, new[] { "A.B.1", "a.b.1" });
+            shell.Profiles.TurnOnFromList(file);
+            WaitUntil(() => !jobs.IsRunning);
+            Assert.Equal("Turned on 0 vars.", jobs.Note);
+        }
+
+        [Fact]
+        public void A_list_says_what_could_not_be_linked()
+        {
+            MakeVar("A.B.1");
+            Update();
+            Directory.CreateDirectory(Path.Combine(paths.AddonPackages, LibraryFolders.VarsLink, "A.B.1.var"));
+            string file = Path.Combine(data, "list.txt");
+            File.WriteAllLines(file, new[] { "A.B.1" });
+            using LibraryStore store = LibraryStore.Open(storeFile);
+
+            ListResult result = ProfileCatalog.LinkFromList(store, paths, file);
+
+            Assert.Equal(1, result.Failed);
+            Assert.Equal(0, result.Linked);
         }
 
         [Fact]
@@ -863,10 +902,48 @@ namespace varManager.App.Tests
             Assert.True(shell.CanCancelSetup);
             shell.VarsPath = Path.Combine(root, "elsewhere");
 
+            shell.VamPath = Path.Combine(root, "elsewhere2");
+
             shell.CancelSetupCommand.Execute(null);
 
             Assert.False(shell.NeedsSetup);
             Assert.Equal(vars, shell.VarsPath);
+            Assert.Equal(vam, shell.VamPath);
+            await shell.LibraryLoaded.WaitAsync(Timeout);
+        }
+
+        [Fact]
+        public async Task Settings_wait_for_a_running_job()
+        {
+            MakeVar("A.B.1");
+            Update();
+            ShellViewModel shell = await Shell();
+            using var gate = new ManualResetEventSlim();
+            Task busy = jobs.Start("Busy", "done", _ => gate.Wait(Timeout))!;
+
+            shell.OpenSettingsCommand.Execute(null);
+
+            Assert.False(shell.NeedsSetup);
+            Assert.Contains("Wait for the current job", jobs.Note);
+            gate.Set();
+            await busy.WaitAsync(Timeout);
+        }
+
+        [Fact]
+        public async Task Leaving_settings_picks_up_a_change_made_while_they_were_open()
+        {
+            MakeVar("A.B.1");
+            Update();
+            ShellViewModel shell = await Shell();
+            shell.OpenSettingsCommand.Execute(null);
+            MakeVar("C.D.1");
+            Update();
+
+            Task before = shell.LibraryLoaded;
+            shell.CancelSetupCommand.Execute(null);
+
+            Assert.NotSame(before, shell.LibraryLoaded);
+            await shell.LibraryLoaded.WaitAsync(Timeout);
         }
 
         [Fact]

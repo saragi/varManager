@@ -29,7 +29,10 @@ namespace varManager.Ui
         private string? PickFolder(string title)
         {
             var dialog = new OpenFolderDialog { Title = title };
-            return dialog.ShowDialog(this) == true ? dialog.FolderName : null;
+            bool chosen = dialog.ShowDialog(this) == true;
+            // The dialog can move the working directory, which the scene cache hangs off.
+            System.IO.Directory.SetCurrentDirectory(System.AppContext.BaseDirectory);
+            return chosen ? dialog.FolderName : null;
         }
     }
 }

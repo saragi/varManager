@@ -569,8 +569,7 @@ namespace varManager.Ui
             Health = new HealthViewModel(StoreFile, paths, Jobs, () => SelectedPage = Pages[^1]);
             Missing = new MissingViewModel(StoreFile, paths, Jobs, hub, text => System.Windows.Clipboard.SetText(text), ShowMissingCount);
             Hub = new HubViewModel(StoreFile, paths, Jobs, browser, hub, OpenUrl, ShowInLibrary, SynchronizationContext.Current);
-            // Scans the folders this was opened with, not ones typed into setup and not saved.
-            watch = new RepositoryWatch(VarsPath, () => Jobs.IsRunning, () => UpdateDb(paths), SynchronizationContext.Current, watchWait);
+            Watch(paths);
             ImportOldDatabase();
             if (!Jobs.IsRunning)
                 ReloadLibrary();
@@ -584,6 +583,9 @@ namespace varManager.Ui
                 Jobs.Say("Wait for the current job to finish before changing settings.");
                 return;
             }
+            // A scan started now would run under folders about to change.
+            watch?.Dispose();
+            watch = null;
             CanCancelSetup = true;
             SetupProblem = "";
             NeedsSetup = true;
@@ -597,10 +599,18 @@ namespace varManager.Ui
             CanCancelSetup = false;
             SetupProblem = "";
             NeedsSetup = false;
+            Watch(new LibraryPaths(VarsPath, VamPath, dataFolder));
+            if (!Jobs.IsRunning)
+                ReloadLibrary();
         }
 
         private void SaveSetup()
         {
+            if (Jobs.IsRunning)
+            {
+                SetupProblem = "Wait for the current job to finish.";
+                return;
+            }
             string? problem = settings.Problem();
             SetupProblem = problem ?? "";
             if (problem != null)
@@ -634,6 +644,12 @@ namespace varManager.Ui
             {
                 Jobs.Say("Could not start VaM: " + ex.Message);
             }
+        }
+
+        // Scans the folders given here, not ones typed into setup and not saved.
+        private void Watch(LibraryPaths paths)
+        {
+            watch = new RepositoryWatch(paths.VarsPath, () => Jobs.IsRunning, () => UpdateDb(paths), SynchronizationContext.Current, watchWait);
         }
 
         private void ShowInLibrary(string package)

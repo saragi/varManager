@@ -663,6 +663,51 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task Your_saves_turns_on_what_they_need_and_offers_no_updates()
+        {
+            MakeVar("Stored.Pack.1");
+            Update();
+            Directory.CreateDirectory(Path.Combine(vam, "Custom"));
+            string scene = Path.Combine(vam, "Saves", "scene", "mine.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(scene)!);
+            File.WriteAllText(scene, "{\"a\":\"Stored.Pack.1:/Custom/a.vap\"}");
+            hub.Packages["Stored.Pack.2"] = "";
+            MissingViewModel missing = await Open();
+            Assert.Equal(1, Group(missing, "Updates on the Hub").Count);
+
+            missing.ScopePills.Single(pill => pill.Label == "Your saves").Command.Execute(null);
+            await missing.Checked.WaitAsync(Timeout);
+            Assert.Equal(0, Group(missing, "Updates on the Hub").Count);
+
+            Group(missing, "Turned off in your library").Action!.Execute(null);
+            WaitForJob();
+
+            Assert.True(IsLinked("Stored.Pack.1"));
+        }
+
+        [Fact]
+        public async Task An_unreadable_save_is_left_out_and_the_rest_still_count()
+        {
+            MakeVar("A.B.1");
+            Update();
+            Directory.CreateDirectory(Path.Combine(vam, "Custom"));
+            string folder = Path.Combine(vam, "Saves", "scene");
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder, "fine.json"), "{\"a\":\"Gone.One.1:/Custom/a.vap\"}");
+            string locked = Path.Combine(folder, "locked.json");
+            File.WriteAllText(locked, "{\"a\":\"Gone.Two.1:/Custom/a.vap\"}");
+            MissingViewModel missing = await Open();
+
+            using (new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                missing.ScopePills.Single(pill => pill.Label == "Your saves").Command.Execute(null);
+                await missing.Checked.WaitAsync(Timeout);
+            }
+
+            Assert.Equal(1, Group(missing, "Not found anywhere").Count);
+        }
+
+        [Fact]
         public async Task A_group_shows_its_lines_and_hides_them_again()
         {
             MakeVar("A.B.1", "Gone.One.1:/Custom/a.vap");

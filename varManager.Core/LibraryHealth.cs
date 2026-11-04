@@ -106,11 +106,29 @@ namespace varManager
             if (present.Count > 0)
                 report.GoneRecords.AddRange(records.Select(v => v.VarName).Where(name => !present.ContainsKey(name)));
             report.Missing.AddRange(MissingNeeds(vars, dependencies));
-            report.MissingPreviews = store.LoadPreviews().Count(preview => byName.ContainsKey(preview.VarName)
-                && !File.Exists(ScenePreviews.PicturePath(paths.VarsPath, preview.Type, preview.VarName, preview.Picture)));
-            if (Directory.Exists(SceneAnalysis.CacheRoot))
-                report.CacheBytes = new DirectoryInfo(SceneAnalysis.CacheRoot).GetFiles("*", SearchOption.AllDirectories).Sum(file => file.Length);
+            // Only what a repair can bring back: a var that's gone has nothing to take the picture from.
+            report.MissingPreviews = store.LoadPreviews()
+                .Where(preview => present.ContainsKey(preview.VarName))
+                .Select(preview => ScenePreviews.PicturePath(paths.VarsPath, preview.Type, preview.VarName, preview.Picture))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count(picture => !File.Exists(picture));
+            report.CacheBytes = CacheSize();
             return report;
+        }
+
+        // A load or a clear can be changing the cache, and a size isn't worth failing the whole report.
+        private static long CacheSize()
+        {
+            try
+            {
+                return Directory.Exists(SceneAnalysis.CacheRoot)
+                    ? new DirectoryInfo(SceneAnalysis.CacheRoot).GetFiles("*", SearchOption.AllDirectories).Sum(file => file.Length)
+                    : 0;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                return 0;
+            }
         }
 
         // VarSwitches.Names would create the default switch, and reading must change nothing.
@@ -264,8 +282,14 @@ namespace varManager
         /// <summary>The scene cache only saves time, and each scene rebuilds its own on the next load.</summary>
         public static void ClearSceneCache()
         {
-            if (Directory.Exists(SceneAnalysis.CacheRoot))
+            try
+            {
                 Directory.Delete(SceneAnalysis.CacheRoot, true);
+            }
+            catch (DirectoryNotFoundException)
+            {
+                // Already gone is what was asked for.
+            }
         }
 
         /// <summary>Points broken links at where their var is now. A link to a var the library lost goes.</summary>

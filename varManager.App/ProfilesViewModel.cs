@@ -293,6 +293,7 @@ namespace varManager.Ui
                 return;
             string? current = currentProfile();
             Cards = loaded.Select(profile => new ProfileTile(profile, string.Equals(profile.Name, current, StringComparison.OrdinalIgnoreCase))).ToList();
+            Changed(nameof(CanMakeEmpty));
             // Not a lock: a plan in progress holds it, and this runs on the screen's thread.
             Interlocked.Increment(ref libraryVersion);
             await Preview().ConfigureAwait(true);
@@ -413,7 +414,15 @@ namespace varManager.Ui
             if (!CanMakeEmpty || jobs.IsRunning)
                 return;
             string typed = name.Trim();
-            Directory.CreateDirectory(VarSwitches.LinkFolder(paths.VamPath, typed));
+            try
+            {
+                Directory.CreateDirectory(VarSwitches.LinkFolder(paths.VamPath, typed));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                jobs.Say("Could not make the profile: " + ex.Message);
+                return;
+            }
             switchTo(typed);
         }
 
@@ -433,10 +442,14 @@ namespace varManager.Ui
             jobs.Start("Turning on from a list", context =>
             {
                 using LibraryStore store = LibraryStore.Open(storeFile);
-                KeyValuePair<int, int> result = ProfileCatalog.LinkFromList(store, paths, file);
+                ListResult result = ProfileCatalog.LinkFromList(store, paths, file);
                 VamBridge.RequestRescan(paths.VamPath);
-                string text = result.Key == 1 ? "Turned on 1 var." : $"Turned on {result.Key:N0} vars.";
-                return result.Value == 0 ? text : $"{text} {result.Value:N0} names aren't in the library.";
+                string text = result.Linked == 1 ? "Turned on 1 var." : $"Turned on {result.Linked:N0} vars.";
+                if (result.Failed > 0)
+                    text += $" {result.Failed:N0} could not be linked.";
+                if (result.Unknown > 0)
+                    text += result.Unknown == 1 ? " 1 name isn't in the library." : $" {result.Unknown:N0} names aren't in the library.";
+                return text;
             });
         }
 

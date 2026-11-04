@@ -440,6 +440,40 @@ namespace varManager.App.Tests
             WaitForJob(jobs);
 
             Assert.Equal("true", JSON.Parse(File.ReadAllText(VamBridge.RequestFile(vam)))["resources"][0]["merge"].Value);
+
+            scenes.Merge = false;
+            scenes.ActCommand.Execute(Tile(scenes, "A.B.1"));
+            WaitForJob(jobs);
+            Assert.Equal("false", JSON.Parse(File.ReadAllText(VamBridge.RequestFile(vam)))["resources"][0]["merge"].Value);
+        }
+
+        [Fact]
+        public async Task The_cache_card_clears_the_cache_and_goes()
+        {
+            string cached = Path.Combine(SceneAnalysis.CacheRoot, "A.B.1", "scene", "depend.txt");
+            Directory.CreateDirectory(Path.GetDirectoryName(cached)!);
+            File.WriteAllText(cached, "x");
+            MakeVar("A.B.1");
+            Update();
+            var jobs = new JobRunner(null);
+            var health = new HealthViewModel(storeFile, paths, jobs, () => { });
+            await health.Reload();
+
+            health.Cards.Single(card => card.Text == "Scene cache").Action!.Execute(null);
+            health.ConfirmCommand.Execute(null);
+            await health.Work.WaitAsync(Timeout);
+
+            Assert.False(Directory.Exists(SceneAnalysis.CacheRoot));
+            Assert.Equal("Scene cache cleared.", jobs.Note);
+            await health.Reload();
+            Assert.DoesNotContain(health.Cards, card => card.Text == "Scene cache");
+        }
+
+        [Fact]
+        public void Clearing_a_cache_that_is_gone_is_fine()
+        {
+            LibraryHealth.ClearSceneCache();
+            LibraryHealth.ClearSceneCache();
         }
 
         [Fact]

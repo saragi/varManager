@@ -9,7 +9,7 @@ Every button and form in the old app, and where it went in the new one. The old 
 | UPD_DB | Update DB in the top bar. It also runs by itself when a var is dropped in the repository |
 | Settings | Settings in the top bar |
 | Launch VaM | Launch VaM in the top bar, which also times the launch |
-| Profile box, Add, Rename, Del | Profile box in the top bar. Profiles page: Make an empty profile, Rename, Delete |
+| Profile box, Add, Rename, Del | Profile box in the top bar. Profiles page: Make an empty profile, shown when nothing is picked, Rename, Delete |
 | Lean Profile, Exclude Profile | Profiles page, built from picks made in the Library |
 | Profile Check, Repair, Restore previous | Check on a profile's card |
 | Install Selected, preview Install | Turn on in the Library, with dependencies |

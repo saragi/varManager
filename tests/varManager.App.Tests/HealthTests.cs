@@ -812,6 +812,31 @@ namespace varManager.App.Tests
 
             Assert.True(File.Exists(picture));
             Assert.Equal("Pictures repaired.", jobs.Note);
+            Assert.Equal(0, Report().MissingPreviews);
+        }
+
+        [Fact]
+        public void A_missing_picture_of_a_var_that_is_gone_is_not_counted()
+        {
+            string file = Path.Combine(vars, "A.B.1.var");
+            using (ZipOutputStream zip = new ZipOutputStream(File.Create(file)))
+            {
+                foreach (string entry in new[] { "meta.json", "Saves/scene/S.json", "Saves/scene/S.jpg" })
+                {
+                    zip.PutNextEntry(new ZipEntry(entry));
+                    byte[] bytes = Encoding.UTF8.GetBytes("{}");
+                    zip.Write(bytes, 0, bytes.Length);
+                    zip.CloseEntry();
+                }
+            }
+            MakeVar("Keep.Pack.1");
+            Update();
+            Assert.Equal(0, Report().MissingPreviews);
+
+            File.Delete(Directory.GetFiles(Path.Combine(vars, LibraryFolders.PreviewPics), "*.jpg", SearchOption.AllDirectories).Single());
+            File.Delete(Tidied("A.B.1"));
+
+            Assert.Equal(0, Report().MissingPreviews);
         }
 
         [Fact]
