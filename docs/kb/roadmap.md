@@ -14,11 +14,11 @@ Goal: make VaM faster through lean, reliable symlink profiles, without rewriting
 
 ## Release status
 
-Releases 0 to 2 are built. Migrating a real library and using a profile in VaM are still to do.
+Releases 0 to 2 are built, and the real library is migrated. Using a lean profile in VaM is still to do.
 
 ## Migration
 
-Built and tested on a small copy of real vars: preview, move, Update DB, and undo with file hashes unchanged. It stores `.var.disabled` content as unlinked vars, keeps companion files beside their vars, and refuses a repository on a different drive. Migrating a real library is still a separate decision.
+Built and tested on a small copy of real vars: preview, move, Update DB, and undo with file hashes unchanged. It stores `.var.disabled` content as unlinked vars, keeps companion files beside their vars, and refuses a repository on a different drive. The real migration moved 5,945 vars and took 106 minutes, nearly all of it the first Update DB.
 
 ## Redesign
 
@@ -67,7 +67,7 @@ Move out takes a package and the dependencies only it uses out of the library.
 - Open var contents once, when a var enters the library, in the background.
 - Never scan at profile switch or launch. Switching repoints `AddonPackages` and refreshes link status.
 - Plan profiles from the database, without opening var files.
-- Load only the thumbnails on screen. The library has over 35,000 preview images.
+- Load only the thumbnails on screen. The library has over 53,000 preview images.
 - VaM's own startup scan stays inside VaM, so only fewer links make it faster.
 
 ## Decisions
