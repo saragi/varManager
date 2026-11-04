@@ -312,6 +312,44 @@ namespace varManager
             }
         }
 
+        /// <summary>
+        /// Returns a migrated library to a real AddonPackages folder: removes var links, turns the
+        /// default switch back into AddonPackages, then replays the move log. Safe to run again.
+        /// </summary>
+        public static MigrationUndoResult Rollback(string logPath, string addonPackagesPath,
+            string defaultSwitchPath, IEnumerable<string> linkDirNames)
+        {
+            DirectoryInfo addon = new DirectoryInfo(addonPackagesPath);
+            if (addon.Exists && addon.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                if (!Directory.Exists(defaultSwitchPath))
+                    throw new DirectoryNotFoundException("The default switch was not found: " + defaultSwitchPath);
+                foreach (string linkDirName in linkDirNames)
+                    RemoveLinks(Path.Combine(defaultSwitchPath, linkDirName));
+                addon.Delete();
+                Directory.Move(defaultSwitchPath, addonPackagesPath);
+            }
+            return Undo(logPath);
+        }
+
+        private static void RemoveLinks(string directory)
+        {
+            if (!Directory.Exists(directory))
+                return;
+            foreach (string path in Directory.GetFiles(directory, "*", SearchOption.AllDirectories))
+            {
+                if (new FileInfo(path).Attributes.HasFlag(FileAttributes.ReparsePoint))
+                    File.Delete(path);
+            }
+            foreach (string subdirectory in Directory.GetDirectories(directory, "*", SearchOption.AllDirectories).OrderByDescending(Depth))
+            {
+                if (!Directory.EnumerateFileSystemEntries(subdirectory).Any())
+                    Directory.Delete(subdirectory);
+            }
+            if (!Directory.EnumerateFileSystemEntries(directory).Any())
+                Directory.Delete(directory);
+        }
+
         public static MigrationUndoResult Undo(string logPath)
         {
             MigrationUndoResult result = new MigrationUndoResult();

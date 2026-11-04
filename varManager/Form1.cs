@@ -37,11 +37,11 @@ namespace varManager
         private static string deleVarsDirName = "___DeletedVars___";
         private static string profilesDirName = "___Profiles___";
 
-        private static string addonPacksSwitch = "___AddonPacksSwitch ___";
+        internal static string addonPacksSwitch = "___AddonPacksSwitch ___";
 
-        private static string installLinkDirName = "___VarsLink___";
-        private static string missingVarLinkDirName = "___MissingVarLink___";
-        private static string tempVarLinkDirName = "___TempVarLink___";
+        internal static string installLinkDirName = "___VarsLink___";
+        internal static string missingVarLinkDirName = "___MissingVarLink___";
+        internal static string tempVarLinkDirName = "___TempVarLink___";
         //private varManagerDataSet.dependenciesDataTable installedDependencies = new varManagerDataSet.dependenciesDataTable();
         private InvokeAddLoglist addlog;
         public Form1()

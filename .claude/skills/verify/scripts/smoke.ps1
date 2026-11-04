@@ -519,6 +519,21 @@ namespace Smoke {
     [Win]::Close($main)
     Wait-Exit
     Check (-not (Select-String -LiteralPath $logFile -Pattern 'ERROR|FATAL' -Quiet)) 'app log has no errors after profile work'
+
+    # Full rollback returns the library to a real folder.
+    $moveLog = (Get-ChildItem -LiteralPath (Join-Path $Vars '___MigrationLogs___') -Filter '*.tsv' | Select-Object -First 1).FullName
+    $env:__COMPAT_LAYER = 'RunAsInvoker'
+    $script:Proc = Start-Process -FilePath (Join-Path $App 'varManager.exe') -ArgumentList '--rollback-migration', "`"$moveLog`"" -WorkingDirectory $App -PassThru
+    $resultBox = Wait-MessageBox 'rollback result' 20
+    $resultText = Get-BoxText $resultBox
+    [Win]::Click((Find-Child $resultBox '^OK$'))
+    Wait-Exit
+    Check ($resultText -match 'Failed: 0') 'rollback reports no failures'
+    Check (-not (Get-Item -LiteralPath $Pack).Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) 'rollback leaves AddonPackages a real folder'
+    Check (Test-Path -LiteralPath (Join-Path $Pack 'Smoke.Alpha.1.var')) 'rollback returns the var'
+    Check (Test-Path -LiteralPath (Join-Path $Pack 'Smoke.Beta.1.var.disabled')) 'rollback returns the disabled var'
+    Check (Test-Path -LiteralPath (Join-Path $Pack 'readme.txt')) 'rollback returns other files'
+    Check (-not (Test-Path -LiteralPath (Join-Path $Pack '___VarsLink___'))) 'rollback removes var links'
 }
 catch {
     $failure = $_.Exception.Message

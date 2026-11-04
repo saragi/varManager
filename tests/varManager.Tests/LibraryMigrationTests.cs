@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using varManager;
 using Xunit;
 
@@ -255,6 +256,94 @@ namespace varManagerTests
             Assert.Equal(0, result.Restored);
             Assert.Empty(result.Failed);
             Assert.True(File.Exists(source));
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        private static extern bool CreateSymbolicLink(string link, string target, int flags);
+
+        private static void Link(string link, string target, int flags)
+        {
+            if (!CreateSymbolicLink(link, target, flags | 2))
+                throw new InvalidOperationException("These tests need Windows Developer Mode to create symlinks.");
+        }
+
+        /// <summary>Puts the folders where the app leaves them after migration and Update DB.</summary>
+        private string SimulateFirstRun()
+        {
+            string defaultSwitch = Path.Combine(root, "switches", "default");
+            Directory.CreateDirectory(Path.GetDirectoryName(defaultSwitch));
+            Directory.Move(addon, defaultSwitch);
+            Link(addon, defaultSwitch, 1);
+            string links = Path.Combine(defaultSwitch, "___VarsLink___");
+            Directory.CreateDirectory(Path.Combine(links, "sub"));
+            Link(Path.Combine(links, "A.B.1.var"), Tidied(@"A\A.B.1.var"), 0);
+            Link(Path.Combine(links, "sub", "A.D.1.var"), Tidied(@"A\A.B.1.var"), 0);
+            return defaultSwitch;
+        }
+
+        private static readonly string[] LinkDirs = { "___VarsLink___", "___MissingVarLink___" };
+
+        [Fact]
+        public void Rollback_returns_a_real_folder_with_every_file()
+        {
+            Add(@"A\A.B.1.var", "one");
+            Add(@"A\A.C.1.var.disabled", "two");
+            Add("Dependencies_ReadMe.txt", "note");
+            LibraryMigration.Apply(Plan(), log, installList);
+            string defaultSwitch = SimulateFirstRun();
+
+            MigrationUndoResult result = LibraryMigration.Rollback(log, addon, defaultSwitch, LinkDirs);
+
+            Assert.Empty(result.Failed);
+            Assert.False(new DirectoryInfo(addon).Attributes.HasFlag(FileAttributes.ReparsePoint));
+            Assert.False(Directory.Exists(defaultSwitch));
+            Assert.Equal("one", File.ReadAllText(Path.Combine(addon, @"A\A.B.1.var")));
+            Assert.Equal("two", File.ReadAllText(Path.Combine(addon, @"A\A.C.1.var.disabled")));
+            Assert.Equal("note", File.ReadAllText(Path.Combine(addon, "Dependencies_ReadMe.txt")));
+            Assert.False(Directory.Exists(Path.Combine(addon, "___VarsLink___")));
+        }
+
+        [Fact]
+        public void Rollback_can_run_again_after_finishing()
+        {
+            Add(@"A\A.B.1.var", "one");
+            LibraryMigration.Apply(Plan(), log, installList);
+            string defaultSwitch = SimulateFirstRun();
+            LibraryMigration.Rollback(log, addon, defaultSwitch, LinkDirs);
+
+            MigrationUndoResult again = LibraryMigration.Rollback(log, addon, defaultSwitch, LinkDirs);
+
+            Assert.Equal(0, again.Restored);
+            Assert.Empty(again.Failed);
+            Assert.Equal("one", File.ReadAllText(Path.Combine(addon, @"A\A.B.1.var")));
+        }
+
+        [Fact]
+        public void Rollback_keeps_a_real_var_found_in_a_link_folder()
+        {
+            Add(@"A\A.B.1.var", "one");
+            LibraryMigration.Apply(Plan(), log, installList);
+            string defaultSwitch = SimulateFirstRun();
+            File.WriteAllText(Path.Combine(defaultSwitch, "___VarsLink___", "Real.Var.1.var"), "real");
+
+            LibraryMigration.Rollback(log, addon, defaultSwitch, LinkDirs);
+
+            Assert.Equal("real", File.ReadAllText(Path.Combine(addon, "___VarsLink___", "Real.Var.1.var")));
+        }
+
+        [Fact]
+        public void Rollback_stops_before_changing_anything_if_the_default_switch_is_gone()
+        {
+            string elsewhere = Path.Combine(root, "elsewhere");
+            Directory.CreateDirectory(elsewhere);
+            Directory.Delete(addon);
+            Link(addon, elsewhere, 1);
+
+            Assert.Throws<DirectoryNotFoundException>(() => LibraryMigration.Rollback(log, addon, Path.Combine(root, "missing"), LinkDirs));
+
+            Assert.True(new DirectoryInfo(addon).Attributes.HasFlag(FileAttributes.ReparsePoint));
+            Directory.Delete(addon);
         }
 
         [Theory]

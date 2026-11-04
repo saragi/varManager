@@ -28,6 +28,7 @@ Preconditions: doctor passes and VaM is not running. The script creates all seed
 
 - Lean profile: runs after the stored-state checks, and it repoints `AddonPackages`. Relaunch, click the first row header, click `Lean Profile`, then `Create profile`. `___Profiles___\lean.profile` records `Smoke.Alpha.1`, the `lean` switch holds only links, and the var hash is unchanged. `Profile Check` lists the missing packages.
 - Repair and restore: delete a lean link and `Repair` brings it back. Create a version from the second row, then `Restore previous` brings the first back and removes the extra link. `Del` removes the switch and profile files, keeps the var, and returns to `default`. The app log still has no errors.
+- Rollback: run `varManager.exe --rollback-migration <log>`. `AddonPackages` is a real folder again, with the var, disabled var and `readme.txt`, and no `___VarsLink___`.
 
 ## Gotchas
 
