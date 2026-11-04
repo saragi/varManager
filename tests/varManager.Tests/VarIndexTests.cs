@@ -41,9 +41,15 @@ namespace varManagerTests
         }
 
         [Fact]
-        public void Exact_lookup_ignores_case_like_the_table_key()
+        public void Exact_lookup_ignores_case_and_returns_stored_spelling()
         {
-            Assert.Equal("a.b.3", Index("A.B.3").Resolve("a.b.3"));
+            Assert.Equal("A.B.3", Index("A.B.3").Resolve("a.b.3"));
+        }
+
+        [Fact]
+        public void Latest_lookup_ignores_package_case()
+        {
+            Assert.Equal("A.B.2", Index("A.B.2").Resolve("a.b.latest"));
         }
 
         [Fact]
@@ -76,7 +82,41 @@ namespace varManagerTests
         [Fact]
         public void Non_numeric_version_is_missing_instead_of_throwing()
         {
-            Assert.Equal(VarIndex.Missing, Index("A.B.1").Resolve("A.B.min1"));
+            Assert.Equal(VarIndex.Missing, Index("A.B.1").Resolve("A.B.beta"));
+        }
+
+        [Fact]
+        public void Min_reference_uses_highest_version_at_or_above_floor()
+        {
+            DependencyResolution result = Index("A.B.2", "A.B.5", "A.B.9").ResolveReference("A.B.min3");
+            Assert.Equal("A.B.9", result.VarName);
+            Assert.Equal(DependencyStatus.Latest, result.Status);
+        }
+
+        [Fact]
+        public void Min_reference_below_floor_is_a_marked_fallback()
+        {
+            VarIndex index = Index("A.B.2", "A.B.5");
+            Assert.Equal(DependencyStatus.Fallback, index.ResolveReference("A.B.min9").Status);
+            Assert.Equal("A.B.5$", index.Resolve("A.B.min9"));
+        }
+
+        [Fact]
+        public void Min_reference_to_unknown_package_is_missing()
+        {
+            Assert.Equal(DependencyStatus.Missing, Index("A.B.1").ResolveReference("X.Y.min1").Status);
+        }
+
+        [Theory]
+        [InlineData("A.B.3", "A.B.3", DependencyStatus.Exact)]
+        [InlineData("A.B.latest", "A.B.5", DependencyStatus.Latest)]
+        [InlineData("A.B.4", "A.B.5", DependencyStatus.Fallback)]
+        [InlineData("X.Y.1", null, DependencyStatus.Missing)]
+        public void ResolveReference_reports_how_it_matched(string reference, string varName, DependencyStatus status)
+        {
+            DependencyResolution result = Index("A.B.3", "A.B.5").ResolveReference(reference);
+            Assert.Equal(varName, result.VarName);
+            Assert.Equal(status, result.Status);
         }
 
         [Fact]
@@ -149,6 +189,19 @@ namespace varManagerTests
         public void DependentsOf_finds_every_var()
         {
             Assert.Equal(new[] { "Scene.A.1", "Scene.B.1" }, Index().DependentsOf("Plugin.X.latest"));
+        }
+
+        [Fact]
+        public void MinimumDependentsOf_returns_only_satisfied_references()
+        {
+            DependencyIndex index = new DependencyIndex(new[]
+            {
+                new KeyValuePair<string, string>("Scene.A.1", "Plugin.X.min3"),
+                new KeyValuePair<string, string>("Scene.B.1", "Plugin.X.min7"),
+                new KeyValuePair<string, string>("Scene.C.1", "Plugin.X.latest"),
+            });
+            Assert.Equal(new[] { "Scene.A.1" }, index.MinimumDependentsOf("plugin.x", 5));
+            Assert.Empty(index.MinimumDependentsOf("Plugin.Y", 5));
         }
 
         [Fact]

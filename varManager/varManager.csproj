@@ -83,6 +83,7 @@
   <ItemGroup>
     <Compile Include="Comm.cs" />
     <Compile Include="VarIndex.cs" />
+    <Compile Include="DependencyScanner.cs" />
     <Compile Include="LibraryMigration.cs" />
     <Compile Include="FormMigrationPreview.cs">
       <SubType>Form</SubType>

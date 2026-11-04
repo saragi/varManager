@@ -24,7 +24,7 @@ A `.var.disabled` file can be an empty marker or hold the full var content. VaM 
 
 - Forms: `creator.package.123`, `.latest`, and `.minN`.
 - Creator names can contain spaces, for example `s p l i n e  VR`.
-- `meta.json` can be wrong or incomplete. Scene JSON references packages as `creator.package.version:/path`, and `SELF:/` means the same var.
+- `meta.json` can be wrong or incomplete. An audit of 5,557 vars found 279 unique references in 154 vars that `meta.json` parsing missed, so Update DB also scans scene and preset files. Scene JSON references packages as `creator.package.version:/path`, and `SELF:/` means the same var.
 - If an exact version is unavailable or disabled, VaM can fall back to another version. A scene can therefore work in a full library while its requested version is disabled. A lean profile has to include a version that VaM can actually use.
 
 ## Other VaM-native files

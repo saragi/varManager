@@ -20,6 +20,27 @@ namespace varManager
         public int Version { get; }
     }
 
+    public enum DependencyStatus
+    {
+        Exact,
+        Latest,
+        Fallback,
+        Missing
+    }
+
+    public struct DependencyResolution
+    {
+        public DependencyResolution(string varName, DependencyStatus status)
+        {
+            VarName = varName;
+            Status = status;
+        }
+
+        /// <summary>The var this reference uses, or null when Status is Missing.</summary>
+        public string VarName { get; }
+        public DependencyStatus Status { get; }
+    }
+
     /// <summary>
     /// In-memory lookup of package versions, replacing per-call scans of the vars table.
     /// Resolve keeps the result format callers rely on: a var name, "missing", or a
@@ -32,16 +53,16 @@ namespace varManager
         private static readonly List<VarEntry> NoVersions = new List<VarEntry>();
 
         private readonly Dictionary<string, List<VarEntry>> packages =
-            new Dictionary<string, List<VarEntry>>(StringComparer.Ordinal);
+            new Dictionary<string, List<VarEntry>>(StringComparer.OrdinalIgnoreCase);
 
-        // The vars table primary key ignores case, so exact lookups do too.
-        private readonly HashSet<string> names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Maps any casing of a var name to its stored spelling.
+        private readonly Dictionary<string, string> names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         public VarIndex(IEnumerable<VarEntry> entries)
         {
             foreach (VarEntry entry in entries)
             {
-                names.Add(entry.VarName);
+                names[entry.VarName] = entry.VarName;
                 string key = PackageKey(entry.CreatorName, entry.PackageName);
                 List<VarEntry> versions;
                 if (!packages.TryGetValue(key, out versions))
@@ -70,7 +91,7 @@ namespace varManager
 
         public bool Contains(string varName)
         {
-            return names.Contains(varName);
+            return names.ContainsKey(varName);
         }
 
         public int VersionCount(string creatorName, string packageName)
@@ -115,27 +136,59 @@ namespace varManager
         /// </summary>
         public string Resolve(string varName)
         {
-            string[] parts = varName.Split('.');
+            DependencyResolution resolution = ResolveReference(varName);
+            switch (resolution.Status)
+            {
+                case DependencyStatus.Missing:
+                    return Missing;
+                case DependencyStatus.Fallback:
+                    return resolution.VarName + "$";
+                default:
+                    return resolution.VarName;
+            }
+        }
+
+        /// <summary>
+        /// Resolves creator.package.N, .latest or .minN. A .minN reference uses the highest
+        /// version at or above N, like .latest with a floor.
+        /// </summary>
+        public DependencyResolution ResolveReference(string reference)
+        {
+            string[] parts = reference.Split('.');
             if (parts.Length != 3)
             {
-                return Missing;
+                return new DependencyResolution(null, DependencyStatus.Missing);
             }
-            if (parts[2].ToLower() == "latest")
+            List<VarEntry> versions = Versions(parts[0], parts[1]);
+            string highest = versions.Count > 0 ? versions[versions.Count - 1].VarName : null;
+            if (string.Equals(parts[2], "latest", StringComparison.OrdinalIgnoreCase))
             {
-                List<VarEntry> versions = Versions(parts[0], parts[1]);
-                return versions.Count > 0 ? versions[versions.Count - 1].VarName : Missing;
+                return Found(highest, DependencyStatus.Latest);
             }
-            if (names.Contains(varName))
+            int minimum;
+            if (parts[2].StartsWith("min", StringComparison.OrdinalIgnoreCase)
+                && int.TryParse(parts[2].Substring(3), out minimum))
             {
-                return varName;
+                bool satisfied = versions.Count > 0 && versions[versions.Count - 1].Version >= minimum;
+                return Found(highest, satisfied ? DependencyStatus.Latest : DependencyStatus.Fallback);
+            }
+            string stored;
+            if (names.TryGetValue(reference, out stored))
+            {
+                return new DependencyResolution(stored, DependencyStatus.Exact);
             }
             int version;
             if (!int.TryParse(parts[2], out version))
             {
-                return Missing;
+                return new DependencyResolution(null, DependencyStatus.Missing);
             }
             string closest = Closest(parts[0], parts[1], version);
-            return closest == Missing ? Missing : closest + "$";
+            return Found(closest == Missing ? null : closest, DependencyStatus.Fallback);
+        }
+
+        private static DependencyResolution Found(string varName, DependencyStatus status)
+        {
+            return new DependencyResolution(varName, varName == null ? DependencyStatus.Missing : status);
         }
     }
 
@@ -145,10 +198,13 @@ namespace varManager
         private static readonly List<string> Empty = new List<string>();
 
         private readonly Dictionary<string, List<string>> byVar =
-            new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
         private readonly Dictionary<string, List<string>> byDependency =
-            new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+        private readonly Dictionary<string, List<KeyValuePair<int, string>>> byMinimum =
+            new Dictionary<string, List<KeyValuePair<int, string>>>(StringComparer.OrdinalIgnoreCase);
 
         public DependencyIndex(IEnumerable<KeyValuePair<string, string>> varAndDependency)
         {
@@ -156,7 +212,27 @@ namespace varManager
             {
                 Add(byVar, pair.Key, pair.Value);
                 Add(byDependency, pair.Value, pair.Key);
+                AddMinimum(pair.Value, pair.Key);
             }
+        }
+
+        private void AddMinimum(string dependency, string varName)
+        {
+            int dot = dependency.LastIndexOf('.');
+            int minimum;
+            if (dot < 0 || string.Compare(dependency, dot + 1, "min", 0, 3, StringComparison.OrdinalIgnoreCase) != 0
+                || !int.TryParse(dependency.Substring(dot + 4), out minimum))
+            {
+                return;
+            }
+            string package = dependency.Substring(0, dot);
+            List<KeyValuePair<int, string>> values;
+            if (!byMinimum.TryGetValue(package, out values))
+            {
+                values = new List<KeyValuePair<int, string>>();
+                byMinimum.Add(package, values);
+            }
+            values.Add(new KeyValuePair<int, string>(minimum, varName));
         }
 
         private static void Add(Dictionary<string, List<string>> map, string key, string value)
@@ -175,6 +251,19 @@ namespace varManager
         {
             List<string> values;
             return byVar.TryGetValue(varName, out values) ? values : Empty;
+        }
+
+        /// <summary>Which vars have a creator.package.minN reference this version satisfies.</summary>
+        public IEnumerable<string> MinimumDependentsOf(string package, int version)
+        {
+            List<KeyValuePair<int, string>> values;
+            if (!byMinimum.TryGetValue(package, out values))
+                yield break;
+            foreach (KeyValuePair<int, string> value in values)
+            {
+                if (version >= value.Key)
+                    yield return value.Value;
+            }
         }
 
         /// <summary>Which vars depend on this reference.</summary>

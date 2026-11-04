@@ -235,6 +235,7 @@ namespace varManager
             return false;
         }
 
+        private const long maxScannedEntryBytes = 96L * 1024 * 1024;
         private List<string> varsForInstall = new List<string>();
         private void TidyVars()
         {
@@ -419,39 +420,26 @@ namespace varManager
 
         private List<string> Getdependencies(string jsonstring)
         {
-            string dependencies = "";
-            List<string> dependenciesList = new List<string>();
-            try
-            {
-                //JsonDocument jsondoc = JsonDocument.Parse(jsonstring);
-                // dependencies = jsondoc.RootElement.GetProperty("dependencies").GetRawText().ToString();
-                dependencies = jsonstring;
-                Regex regexObj = new Regex(@"\x22(([^\r\n\x22\x3A\x2E]{1,60})\x2E([^\r\n\x22\x3A\x2E]{1,80})\x2E(\d+|latest))(\x22?\s*)\x3A", RegexOptions.IgnoreCase | RegexOptions.Singleline);
-                Match matchResults = regexObj.Match(dependencies);
-                while (matchResults.Success)
-                {
-                    Group groupObj = matchResults.Groups[1];
-                    if (groupObj.Success)
-                    {
-                        string depstr = groupObj.Value;
-                        if (depstr.IndexOf('/') > 0)
-                            depstr = depstr.Substring(depstr.IndexOf('/') + 1);
-                        dependenciesList.Add(depstr);
-                        // match start: groupObj.Index
-                        // match length: groupObj.Length
-                    }
-
-                    matchResults = matchResults.NextMatch();
-                }
-                dependenciesList = dependenciesList.Distinct().ToList();
-            }
-            catch (Exception ex)
-            {
-                throw ex;
-            }
-            return dependenciesList;
+            return DependencyScanner.Extract("meta.json", jsonstring).ToList();
         }
-        
+
+        /// <summary>Reads meta.json and every scene or preset file, because meta.json can be incomplete.</summary>
+        private static List<string> ScanVarDependencies(ZipFile varzipfile, string varName)
+        {
+            HashSet<string> references = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (ZipEntry entry in varzipfile)
+            {
+                if (!entry.IsFile || !DependencyScanner.IsScannable(entry.Name) || entry.Size > maxScannedEntryBytes)
+                    continue;
+                using (StreamReader reader = new StreamReader(varzipfile.GetInputStream(entry)))
+                {
+                    references.UnionWith(DependencyScanner.Extract(entry.Name, reader.ReadToEnd()));
+                }
+            }
+            references.Remove(varName);
+            return references.ToList();
+        }
+
         private bool Varislatest(string varname)
         {
             return VarLookup.IsLatest(varname);
@@ -472,8 +460,11 @@ namespace varManager
             List<string> varnames = new List<string>(DependencyLookup.DependentsOf(varname));
             if (Varislatest(varname))
             {
-                string latest = varname.Substring(0, varname.LastIndexOf('.')) + ".latest";
-                varnames.AddRange(DependencyLookup.DependentsOf(latest));
+                string package = varname.Substring(0, varname.LastIndexOf('.'));
+                varnames.AddRange(DependencyLookup.DependentsOf(package + ".latest"));
+                int version;
+                if (int.TryParse(varname.Substring(package.Length + 1), out version))
+                    varnames.AddRange(DependencyLookup.MinimumDependentsOf(package, version));
             }
             return varnames;
         }
@@ -1208,14 +1199,9 @@ namespace varManager
 
                         List<string> dependencies = new List<string>();
 
-                        string jsonstring;
-                        using (var metajsonsteam = new StreamReader(varzipfile.GetInputStream(metajson)))
-                        {
-                            jsonstring = metajsonsteam.ReadToEnd();
-                        }
                         try
                         {
-                            dependencies = Getdependencies(jsonstring);
+                            dependencies = ScanVarDependencies(varzipfile, basename);
                         }
                         catch (Exception ex)
                         {

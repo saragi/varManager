@@ -163,7 +163,7 @@ function New-FakeVar([string]$Path, [string]$Creator, [string]$Package) {
     $zip = New-Object IO.Compression.ZipArchive($file, [IO.Compression.ZipArchiveMode]::Create)
     $entries = @{
         'meta.json' = "{`"licenseType`":`"CC BY`",`"creatorName`":`"$Creator`",`"packageName`":`"$Package`",`"description`":`"verify seed`",`"dependencies`":{}}"
-        'Saves/scene/smoke.json' = '{}'
+        'Saves/scene/smoke.json' = '{"hair":"Deep Creator.Hidden_Pack.min2:/Custom/x.vap","own":"Smoke.Alpha.1:/Custom/y.vap","local":"SELF:/Custom/z.vap"}'
     }
     foreach ($name in $entries.Keys) {
         $writer = New-Object IO.StreamWriter($zip.CreateEntry($name).Open())
@@ -240,12 +240,14 @@ function Stop-App {
         Step "killed pid $($script:Proc.Id) (started by this run)"
     }
 }
-function Get-VarRows {
+function Get-VarRows { Get-TableRows 'SELECT varName, varPath, creatorName, scenes FROM vars' }
+function Get-DependencyRows { Get-TableRows 'SELECT varName, dependency FROM dependencies' }
+function Get-TableRows([string]$Query) {
     $db = New-Object System.Data.OleDb.OleDbConnection "Provider=Microsoft.ACE.OLEDB.12.0;Data Source=$App\varManager.mdb"
     $db.Open()
     try {
         $cmd = $db.CreateCommand()
-        $cmd.CommandText = 'SELECT varName, varPath, creatorName, scenes FROM vars'
+        $cmd.CommandText = $Query
         $table = New-Object System.Data.DataTable
         $table.Load($cmd.ExecuteReader())
         return ,$table
@@ -370,6 +372,11 @@ try {
     $rows | Select-Object varName, varPath, creatorName, scenes | Format-Table -AutoSize | Out-File -LiteralPath (Join-Path $Evidence 'vars-table.txt') -Encoding utf8
     Check (@($rows.Select("varName = 'Smoke.Alpha.1' AND creatorName = 'Smoke' AND scenes = 1")).Count -eq 1) 'database row for Smoke.Alpha.1 with 1 scene'
     Check (@($rows.Select("varName = 'Smoke.Beta.1'")).Count -eq 1) 'database row for the disabled var'
+    $dependencies = Get-DependencyRows
+    $dependencies | Select-Object varName, dependency | Format-Table -AutoSize | Out-File -LiteralPath (Join-Path $Evidence 'dependencies-table.txt') -Encoding utf8
+    Check (@($dependencies.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Deep Creator.Hidden_Pack.min2'")).Count -eq 1) 'deep scan finds a scene reference absent from meta.json'
+    Check (@($dependencies.Select("varName = 'Smoke.Beta.1' AND dependency = 'Smoke.Alpha.1'")).Count -eq 1) 'deep scan finds a reference to another var'
+    Check (@($dependencies.Select("varName = 'Smoke.Alpha.1' AND dependency = 'Smoke.Alpha.1'")).Count -eq 0) 'a var is not its own dependency'
     $logFile = Join-Path $App 'varManager.log'
     Check (-not (Select-String -LiteralPath $logFile -Pattern 'ERROR|FATAL' -Quiet)) 'app log has no errors'
 }
