@@ -292,23 +292,6 @@ namespace varManager
             return candidate;
         }
 
-        private static bool CreateVarLink(string link, string target)
-        {
-            if (!File.Exists(target))
-                return false;
-            if (!Comm.CreateSymbolicLink(link, target, Comm.SYMBOLIC_LINK_FLAG.File | Comm.SYMBOLIC_LINK_FLAG.AllowUnprivilegedCreate))
-                return false;
-            try
-            {
-                Comm.SetSymboLinkFileTime(link, File.GetCreationTime(target), File.GetLastWriteTime(target));
-            }
-            catch (Win32Exception)
-            {
-                // The link works without its timestamp.
-            }
-            return true;
-        }
-
         /// <summary>Applies links first, so a failure leaves the saved profile describing the last good state.</summary>
         private void ApplyProfile(string name, ProfilePlan plan, LeanProfile toSave)
         {
@@ -322,7 +305,7 @@ namespace varManager
             }
             try
             {
-                LeanProfiles.ApplyLinks(plan.Closure.Vars, SwitchLinkPath(switchName), getVarFilePath, CreateVarLink);
+                LeanProfiles.ApplyLinks(plan.Closure.Vars, SwitchLinkPath(switchName), getVarFilePath, VarLinks.Create);
             }
             catch (Exception)
             {
@@ -821,14 +804,8 @@ namespace varManager
                 var installedvars = GetInstalledVars();
                 foreach (string varname in varimplics)
                 {
-                    string linkvar;
-                    if (installedvars.TryGetValue(varname, out linkvar))
-                        if (File.Exists(linkvar))
-                        {
-                            File.Delete(linkvar);
-                            this.BeginInvoke(addlog, new Object[] { $"{varname} is uninstalled.", LogLevel.INFO });
-
-                        }
+                    if (VarLinks.Remove(installedvars, varname))
+                        this.BeginInvoke(addlog, new Object[] { $"{varname} is uninstalled.", LogLevel.INFO });
                 }
             }
         }
@@ -868,10 +845,7 @@ namespace varManager
                 var installedvars = GetInstalledVars();
                 foreach (string varname in varimplics)
                 {
-                    string linkvar;
-                    if (installedvars.TryGetValue(varname, out linkvar))
-                        if (File.Exists(linkvar))
-                            File.Delete(linkvar);
+                    VarLinks.Remove(installedvars, varname);
 
                     string operav = Path.Combine(Settings.Default.varspath, varManagerDataSet.vars.FindByvarName(varname).varPath, varname + ".var");
                     string deletedv = Path.Combine(delevarspath, varname + ".var");
@@ -891,25 +865,7 @@ namespace varManager
         private DgvFilterManager dgvFilterManager;
         private Dictionary<string, string> GetInstalledVars()
         {
-            Dictionary<string, string> installedVars = new Dictionary<string, string>();
-            DirectoryInfo dilink = Directory.CreateDirectory(Path.Combine(Settings.Default.vampath, "AddonPackages", installLinkDirName));
-            foreach (string varfile in Directory.GetFiles(Path.Combine(Settings.Default.vampath, "AddonPackages", installLinkDirName), "*.var", SearchOption.AllDirectories))
-            {
-                FileInfo fileInfo = new FileInfo(varfile);
-                if (fileInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
-                {
-                    installedVars[Path.GetFileNameWithoutExtension(varfile)] = varfile;
-                }
-            }
-            foreach (string varfile in Directory.GetFiles(Path.Combine(Settings.Default.vampath, "AddonPackages"), "*.var", SearchOption.TopDirectoryOnly))
-            {
-                FileInfo fileInfo = new FileInfo(varfile);
-                if (fileInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
-                {
-                    installedVars[Path.GetFileNameWithoutExtension(varfile)] = varfile;
-                }
-            }
-            return installedVars;
+            return VarLinks.Installed(AddonPackagesPath);
         }
         private void UpdateVarsInstalled()
         {
@@ -1442,40 +1398,20 @@ namespace varManager
         /// <param name="bTemp"></param>
         /// <param name="operate"></param>
         /// <returns>0:faile,1:success，2：installed</returns>
-        private int VarInstall(string varName, bool bTemp = false, int operate = 1)
+        private VarLinkResult VarInstall(string varName, bool bTemp = false)
         {
-            int success = 0;
-            if (operate >= 1)
-            {
-                varManagerDataSet.varsRow varsrow = varManagerDataSet.vars.FindByvarName(varName);
-                if (varsrow != null)
-                {
-                    //string[] varexist = Directory.GetFiles(Path.Combine(Settings.Default.vampath, "AddonPackages"), varName + ".var");
-                    string linkvar = Path.Combine(Settings.Default.vampath, "AddonPackages", installLinkDirName, varName + ".var");
-                    if (bTemp) linkvar = Path.Combine(Settings.Default.vampath, "AddonPackages", tempVarLinkDirName, varName + ".var");
-                    if (File.Exists(linkvar + ".disabled") && operate == 1)
-                        File.Delete(linkvar + ".disabled");
-                    if (File.Exists(linkvar))
-                        return 2;
+            varManagerDataSet.varsRow varsrow = varManagerDataSet.vars.FindByvarName(varName);
+            if (varsrow == null)
+                return VarLinkResult.Failed;
 
-                    string destvarfile = Path.Combine(Settings.Default.varspath, varsrow.varPath, varsrow.varName + ".var");
-
-                    if (!Comm.CreateSymbolicLink(linkvar, destvarfile, Comm.SYMBOLIC_LINK_FLAG.File | Comm.SYMBOLIC_LINK_FLAG.AllowUnprivilegedCreate))
-                    {
-                        MessageBox.Show("Error: Unable to create symbolic link. " +
-                                "(Error Code: " + Marshal.GetLastWin32Error() + ")");
-                        return 0;
-                    }
-                    if (operate == 2)
-                    {
-                        using (File.Create(linkvar + ".disabled")) { }
-                    }
-                    Comm.SetSymboLinkFileTime(linkvar, File.GetCreationTime(destvarfile), File.GetLastWriteTime(destvarfile));
-                    this.BeginInvoke(addlog, new Object[] { $"{varName}  Installed", LogLevel.INFO });
-                    success = 1;
-                }
-            }
-            return success;
+            string destvarfile = Path.Combine(Settings.Default.varspath, varsrow.varPath, varsrow.varName + ".var");
+            int errorCode;
+            VarLinkResult result = VarLinks.Install(AddonPackagesPath, varName, destvarfile, bTemp, out errorCode);
+            if (result == VarLinkResult.Failed)
+                MessageBox.Show("Error: Unable to create symbolic link. (Error Code: " + errorCode + ")");
+            else if (result == VarLinkResult.Linked)
+                this.BeginInvoke(addlog, new Object[] { $"{varName}  Installed", LogLevel.INFO });
+            return result;
         }
 
         private void backgroundWorkerInstall_DoWork(object sender, DoWorkEventArgs e)
@@ -1500,7 +1436,7 @@ namespace varManager
             if (!File.Exists(migratedVarsFile))
                 return;
             List<string> notLinked = File.ReadAllLines(migratedVarsFile)
-                .Where(varname => varname.Length > 0 && VarInstall(varname) == 0).ToList();
+                .Where(varname => varname.Length > 0 && VarInstall(varname) == VarLinkResult.Failed).ToList();
             if (notLinked.Count == 0)
             {
                 File.Delete(migratedVarsFile);
@@ -1792,19 +1728,14 @@ namespace varManager
             {
                 try
                 {
-                    FileInfo pathInfo = new FileInfo(linkvar);
-                    if (pathInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                    if (VarLinks.IsLink(linkvar))
                     {
-                        string destfilename = Comm.ReparsePoint(linkvar);
                         this.BeginInvoke(addlog, new Object[] { $"symlink {linkvar} rebuilding ...", LogLevel.INFO });
-                        varManagerDataSet.varsRow varsrow = varManagerDataSet.vars.FindByvarName(Path.GetFileNameWithoutExtension(destfilename));
-                        File.Delete(linkvar);
-                        if (varsrow != null)
+                        VarLinks.Rebuild(linkvar, varName =>
                         {
-                            string destvarfile = Path.Combine(Settings.Default.varspath, varsrow.varPath, varsrow.varName + ".var");
-                            Comm.CreateSymbolicLink(linkvar, destvarfile, Comm.SYMBOLIC_LINK_FLAG.File | Comm.SYMBOLIC_LINK_FLAG.AllowUnprivilegedCreate);
-                            Comm.SetSymboLinkFileTime(linkvar, File.GetCreationTime(destvarfile), File.GetLastWriteTime(destvarfile));
-                        }
+                            varManagerDataSet.varsRow varsrow = varManagerDataSet.vars.FindByvarName(varName);
+                            return varsrow == null ? null : Path.Combine(Settings.Default.varspath, varsrow.varPath, varsrow.varName + ".var");
+                        });
                     }
                 }
                 catch (Exception ex)
@@ -3296,7 +3227,7 @@ namespace varManager
                 {
                     if (resource["type"].Value == "scenes")
                     {
-                        deletetempfiles = AddDeleteTemp();
+                        deletetempfiles = VarLinks.TempLinks(AddonPackagesPath);
                         break;
                     }
                 }
@@ -3344,20 +3275,6 @@ namespace varManager
             }
         }
 
-        public static List<string> AddDeleteTemp()
-        {
-            DirectoryInfo templinkdirinfo = Directory.CreateDirectory(Path.Combine(Settings.Default.vampath, "AddonPackages", tempVarLinkDirName));
-
-            List<string> tempfiles = new List<string>();
-            foreach (FileInfo tempfinfo in templinkdirinfo.GetFiles())
-            {
-                if (tempfinfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
-                    tempfiles.Add(tempfinfo.Name.ToLower());
-                    //tempfinfo.Delete();
-            }
-            return tempfiles;
-        }
-
         public static void DeleteTempThread(object data)
         {
             List<string> tempfiles = data as List<string>;
@@ -3373,15 +3290,7 @@ namespace varManager
                 else
                 {
                     Thread.Sleep(20000);
-                    foreach (string tempf in tempfiles)
-                    {
-                        try
-                        {
-                            if (File.Exists(Path.Combine(Settings.Default.vampath, "AddonPackages", tempVarLinkDirName, tempf)))
-                                File.Delete(Path.Combine(Settings.Default.vampath, "AddonPackages", tempVarLinkDirName, tempf));
-                        }
-                        catch { }
-                    }
+                    VarLinks.RemoveTempLinks(AddonPackagesPath, tempfiles);
                     break;
                 }
             }
@@ -3402,7 +3311,7 @@ namespace varManager
                 if (rows.Count() > 0)
                 {
                     if (!rows.First().Installed)
-                        if (VarInstall(varname, true) == 1) 
+                        if (VarInstall(varname, true) == VarLinkResult.Linked)
                             rescan = true;
                 }
                 else

@@ -7,7 +7,7 @@ using System.Runtime.InteropServices;
 
 namespace varManager
 {
-    static class Comm
+    public static class Comm
     {
         public static void LocateFile(string filePath)
         {

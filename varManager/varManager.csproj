@@ -81,7 +81,6 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Comm.cs" />
     <Compile Include="FormMissing.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -344,6 +343,12 @@
     </Compile>
     <Compile Include="..\varManager.Core\VarScanner.cs">
       <Link>Core\VarScanner.cs</Link>
+    </Compile>
+    <Compile Include="..\varManager.Core\Comm.cs">
+      <Link>Core\Comm.cs</Link>
+    </Compile>
+    <Compile Include="..\varManager.Core\VarLinks.cs">
+      <Link>Core\VarLinks.cs</Link>
     </Compile>
     <Compile Include="..\varManager.Core\HubDownloader.cs">
       <Link>Core\HubDownloader.cs</Link>
