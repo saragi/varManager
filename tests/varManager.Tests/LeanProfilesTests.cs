@@ -556,5 +556,46 @@ namespace varManagerTests
                 LeanProfiles.ActiveLinks(links, SearchOption.AllDirectories).OrderBy(name => name));
             Assert.Equal(new[] { "A.Top.1" }, LeanProfiles.ActiveLinks(links, SearchOption.TopDirectoryOnly));
         }
+
+        [Fact]
+        public void Excluding_the_newest_version_keeps_an_older_one_that_names_its_package()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Scene.2" }, new[] { "A.Scene.1", "A.Scene.2" },
+                new Dictionary<string, string[]> { ["A.Scene.1"] = new[] { "A.Scene.latest" } });
+
+            Assert.Equal(new[] { "A.Scene.1" }, plan.Closure.Vars);
+            Assert.Equal(new[] { "A.Scene.2" }, plan.LeftOut);
+        }
+
+        [Fact]
+        public void Excluding_moves_latest_references_to_a_version_that_stays()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Hair.2" }, new[] { "A.Hair.1", "A.Hair.2", "B.Scene.1" },
+                new Dictionary<string, string[]> { ["B.Scene.1"] = new[] { "A.Hair.latest" } });
+
+            Assert.Equal(new[] { "A.Hair.1", "B.Scene.1" }, plan.Closure.Vars);
+        }
+
+        [Fact]
+        public void Excluding_keeps_a_version_named_exactly()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Hair.2" }, new[] { "A.Hair.1", "A.Hair.2", "B.Scene.1" },
+                new Dictionary<string, string[]> { ["B.Scene.1"] = new[] { "A.Hair.2" } });
+
+            Assert.Equal(new[] { "A.Hair.2 needed by B.Scene.1" }, plan.StillNeeded);
+        }
+
+        [Fact]
+        public void Excluding_keeps_a_sibling_version_reached_through_another_package()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Scene.1" }, new[] { "A.Scene.1", "A.Scene.2", "B.Dep.1" },
+                new Dictionary<string, string[]>
+                {
+                    ["A.Scene.1"] = new[] { "B.Dep.1" },
+                    ["B.Dep.1"] = new[] { "A.Scene.latest" }
+                });
+
+            Assert.Equal(new[] { "A.Scene.2" }, plan.Closure.Vars);
+        }
     }
 }

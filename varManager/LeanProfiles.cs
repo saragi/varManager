@@ -83,15 +83,25 @@ namespace varManager
             HashSet<string> linked = new HashSet<string>(linkedVars, StringComparer.OrdinalIgnoreCase);
             VarIndex visible = new VarIndex(linked.SelectMany(ToEntry));
             HashSet<string> excluded = new HashSet<string>(profile.Exclude.Where(linked.Contains), StringComparer.OrdinalIgnoreCase);
+            VarIndex remaining = new VarIndex(linked.Except(excluded, StringComparer.OrdinalIgnoreCase).SelectMany(ToEntry));
+            // A reference that accepts any version moves to a version that stays. An exact one keeps its var.
+            Func<string, DependencyResolution> resolve = reference =>
+            {
+                DependencyResolution found = visible.ResolveReference(reference);
+                if (found.Status == DependencyStatus.Missing || found.Status == DependencyStatus.Exact || !excluded.Contains(found.VarName))
+                    return found;
+                DependencyResolution other = remaining.ResolveReference(reference);
+                return other.Status == DependencyStatus.Missing ? found : other;
+            };
             Func<IEnumerable<string>, IEnumerable<string>> resolved = references => references
-                .Select(visible.ResolveReference)
+                .Select(resolve)
                 .Where(resolution => resolution.Status != DependencyStatus.Missing)
                 .Select(resolution => resolution.VarName);
             Func<string, IEnumerable<string>> uses = name => resolved(referencesOf(name));
 
-            // A var can name its own package, and that doesn't make other versions its dependencies.
-            Func<string, IEnumerable<string>> usesOtherPackages = name => uses(name)
-                .Where(next => !string.Equals(PackageOf(next), PackageOf(name), StringComparison.OrdinalIgnoreCase));
+            // Leaving out one version says nothing about the package's other versions.
+            HashSet<string> excludedPackages = new HashSet<string>(excluded.Select(PackageOf), StringComparer.OrdinalIgnoreCase);
+            Func<string, IEnumerable<string>> usesOtherPackages = name => uses(name).Where(next => !excludedPackages.Contains(PackageOf(next)));
             List<string> related = Walk(excluded, usesOtherPackages).Keys.Where(name => !excluded.Contains(name)).ToList();
             IEnumerable<string> roots = linked.Except(excluded, StringComparer.OrdinalIgnoreCase)
                 .Except(related, StringComparer.OrdinalIgnoreCase)
@@ -102,7 +112,7 @@ namespace varManager
             closure.Vars.AddRange(wanted.Keys.OrderBy(name => name, StringComparer.OrdinalIgnoreCase));
             foreach (string reference in profile.Base.Concat(closure.Vars.SelectMany(referencesOf)))
             {
-                DependencyResolution resolution = visible.ResolveReference(reference);
+                DependencyResolution resolution = resolve(reference);
                 if (resolution.Status == DependencyStatus.Fallback)
                     closure.Substitutions[reference] = resolution.VarName;
                 else if (resolution.Status == DependencyStatus.Missing && library.ResolveReference(reference).Status == DependencyStatus.Missing)
