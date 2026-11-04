@@ -106,6 +106,8 @@ namespace varManager.Ui
         private IReadOnlyList<ProfileTile> cards = new ProfileTile[0];
         private IReadOnlyList<string> pickRows = new string[0];
         private ProfileBuilder? builder;
+        private int builtFor;
+        private int libraryVersion;
         private string plannedFor = "";
         private ProfilePlan? plan;
         private bool excluding;
@@ -129,18 +131,18 @@ namespace varManager.Ui
             this.currentProfile = currentProfile;
             this.switchTo = switchTo;
             Picks = picks;
-            picks.PicksChanged += (sender, e) => PicksMoved();
+            picks.PicksChanged += OnPicksChanged;
             UseCommand = new ArgCommand<ProfileTile>(tile => switchTo(tile.Name));
-            CheckCommand = new ArgCommand<ProfileTile>(tile => _ = Check(tile.Name));
+            CheckCommand = new ArgCommand<ProfileTile>(tile => Work = Check(tile.Name));
             RenameCommand = new ArgCommand<ProfileTile>(StartRename);
             DeleteCommand = new ArgCommand<ProfileTile>(StartDelete);
-            ConfirmRenameCommand = new Command(() => _ = Rename());
-            ConfirmDeleteCommand = new Command(() => _ = Delete());
+            ConfirmRenameCommand = new Command(() => Work = Rename());
+            ConfirmDeleteCommand = new Command(() => Work = Delete());
             CancelChangeCommand = new Command(EndChange);
-            RepairCommand = new Command(() => _ = Repair());
-            RestoreCommand = new Command(() => _ = Restore());
+            RepairCommand = new Command(() => Work = Repair());
+            RestoreCommand = new Command(() => Work = Restore());
             CloseCheckCommand = new Command(() => CheckResult = null);
-            SaveCommand = new Command(() => _ = Build());
+            SaveCommand = new Command(() => Work = Build());
             RemovePickCommand = new ArgCommand<string>(picks.Toggle);
             GoToLibraryCommand = new Command(goToLibrary);
             ModePills = new[]
@@ -153,6 +155,10 @@ namespace varManager.Ui
 
         public PickList Picks { get; }
         public IReadOnlyList<Pill> ModePills { get; }
+
+        /// <summary>The last action from a button, including what follows its job.</summary>
+        public Task Work { get; private set; } = Task.CompletedTask;
+
         public ICommand UseCommand { get; }
         public ICommand CheckCommand { get; }
         public ICommand RenameCommand { get; }
@@ -283,12 +289,20 @@ namespace varManager.Ui
                 return;
             string? current = currentProfile();
             Cards = loaded.Select(profile => new ProfileTile(profile, string.Equals(profile.Name, current, StringComparison.OrdinalIgnoreCase))).ToList();
-            lock (planLock)
-            {
-                builder = null;
-                plannedFor = "";
-            }
+            // Not a lock: a plan in progress holds it, and this runs on the screen's thread.
+            Interlocked.Increment(ref libraryVersion);
             await Preview().ConfigureAwait(true);
+        }
+
+        /// <summary>Stops following the picks, once this page is replaced.</summary>
+        public void Detach()
+        {
+            Picks.PicksChanged -= OnPicksChanged;
+        }
+
+        private void OnPicksChanged(object? sender, EventArgs e)
+        {
+            PicksMoved();
         }
 
         private bool IsTaken(string candidate)
@@ -360,12 +374,15 @@ namespace varManager.Ui
 
         private (string Summary, string Details) Describe(List<string> picked, bool exclude, string profileName)
         {
+            int version = Volatile.Read(ref libraryVersion);
             lock (planLock)
             {
-                if (builder == null)
+                if (builder == null || builtFor != version)
                 {
                     using LibraryStore store = LibraryStore.Open(storeFile);
                     builder = new ProfileBuilder(store, paths);
+                    builtFor = version;
+                    plannedFor = "";
                 }
                 string key = exclude + "\n" + string.Join("\n", picked);
                 if (key != plannedFor || plan == null)
@@ -463,6 +480,8 @@ namespace varManager.Ui
 
         private void StartRename(ProfileTile tile)
         {
+            if (!tile.CanChange)
+                return;
             deleting = null;
             renaming = tile;
             NewName = tile.Name;
@@ -471,6 +490,8 @@ namespace varManager.Ui
 
         private void StartDelete(ProfileTile tile)
         {
+            if (!tile.CanChange)
+                return;
             renaming = null;
             deleting = tile;
             TellChange();
@@ -494,29 +515,48 @@ namespace varManager.Ui
 
         private async Task Rename()
         {
-            if (renaming == null || !CanRename)
+            if (renaming == null || !CanRename || !KnowsCurrent())
                 return;
             string oldName = renaming.Name;
             string typed = newName.Trim();
-            bool wasCurrent = string.Equals(oldName, currentProfile(), StringComparison.OrdinalIgnoreCase);
-            bool renamed = false;
+            string current = currentProfile()!;
+            bool wasCurrent = string.Equals(oldName, current, StringComparison.OrdinalIgnoreCase);
             EndChange();
+            bool moved = false;
             Task? job = jobs.Start("Renaming " + oldName, context =>
             {
-                ProfileCatalog.Rename(paths.VamPath, paths.VarsPath, oldName, typed);
-                renamed = true;
+                try
+                {
+                    ProfileCatalog.Rename(paths.VamPath, paths.VarsPath, oldName, typed);
+                }
+                finally
+                {
+                    // The folder moves first, so even a failure after that must follow it. This happens
+                    // inside the job, because the reload when a job ends mustn't meet a link to nothing.
+                    moved = VarSwitches.Names(paths.VamPath).Contains(typed, StringComparer.OrdinalIgnoreCase);
+                    if (moved && wasCurrent)
+                        VarSwitches.Point(paths.VamPath, typed, out _);
+                }
                 return $"Renamed {oldName} to {typed}.";
             });
             if (job == null)
                 return;
             await job.ConfigureAwait(true);
-            if (renamed)
-                switchTo(wasCurrent ? typed : currentProfile() ?? VarSwitches.Default);
+            switchTo(moved && wasCurrent ? typed : current);
+        }
+
+        // After a failed switch the app can't tell what AddonPackages points at, so changing a profile isn't safe.
+        private bool KnowsCurrent()
+        {
+            if (currentProfile() != null)
+                return true;
+            jobs.Say("Choose a profile first.");
+            return false;
         }
 
         private async Task Delete()
         {
-            if (deleting == null || jobs.IsRunning)
+            if (deleting == null || jobs.IsRunning || !KnowsCurrent())
                 return;
             string profile = deleting.Name;
             EndChange();
@@ -529,9 +569,9 @@ namespace varManager.Ui
             bool deleted = false;
             Task? job = jobs.Start("Deleting " + profile, context =>
             {
-                ProfileCatalog.Delete(paths.VamPath, paths.VarsPath, profile);
+                int kept = ProfileCatalog.Delete(paths.VamPath, paths.VarsPath, profile);
                 deleted = true;
-                return "Deleted " + profile + ".";
+                return kept == 0 ? "Deleted " + profile + "." : $"Deleted the links in {profile}. Its folder stays, because it holds {kept} real files.";
             });
             if (job == null)
                 return;

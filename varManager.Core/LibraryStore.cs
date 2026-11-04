@@ -281,10 +281,15 @@ CREATE INDEX savedepens_dependency ON savedepens (dependency);";
 
         private static void CreateSchema(SqliteConnection connection)
         {
-            using (SqliteTransaction transaction = connection.BeginTransaction())
+            // Takes the write lock first, then looks again: on a new file a background read and
+            // Update DB can both get here, and only one of them may make the tables.
+            using (SqliteTransaction transaction = connection.BeginTransaction(false))
             using (SqliteCommand command = connection.CreateCommand())
             {
                 command.Transaction = transaction;
+                command.CommandText = "PRAGMA user_version";
+                if (Convert.ToInt32(command.ExecuteScalar()) != 0)
+                    return;
                 command.CommandText = Schema + "PRAGMA user_version = " + SchemaVersion + ";";
                 command.ExecuteNonQuery();
                 transaction.Commit();

@@ -249,7 +249,7 @@ namespace varManager.Ui
             Action<IReadOnlyList<string>> tempLinksStale, SynchronizationContext? ui, PickList? picks = null)
         {
             this.picks = picks ?? new PickList();
-            this.picks.PicksChanged += (sender, e) => PicksMoved();
+            this.picks.PicksChanged += OnPicksChanged;
             this.tempLinksStale = tempLinksStale;
             this.storeFile = storeFile;
             this.paths = paths;
@@ -566,6 +566,17 @@ namespace varManager.Ui
                 string text = done == 1 ? "Turned on 1 var." : $"Turned on {done} vars.";
                 return failed == 0 ? text : $"{text} {failed} could not be linked.";
             });
+        }
+
+        /// <summary>Stops following the picks, once this page is replaced.</summary>
+        public void Detach()
+        {
+            picks.PicksChanged -= OnPicksChanged;
+        }
+
+        private void OnPicksChanged(object? sender, EventArgs e)
+        {
+            PicksMoved();
         }
 
         private void TogglePick()

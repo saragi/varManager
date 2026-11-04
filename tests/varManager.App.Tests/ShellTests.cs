@@ -75,7 +75,7 @@ namespace varManager.App.Tests
 
         private ShellViewModel Shell(Func<bool>? running = null, Action<string>? start = null)
         {
-            return new ShellViewModel(settingsFile, jobs, running ?? (() => false), start ?? (_ => { }));
+            return new ShellViewModel(settingsFile, jobs, running ?? (() => false), start ?? (_ => { }), () => 0);
         }
 
         [Fact]

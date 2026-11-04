@@ -63,6 +63,7 @@ namespace varManager.Ui
         private ProfilesViewModel? profiles;
         private readonly TempLinkRemoval tempLinks = new TempLinkRemoval();
         private readonly Func<long> vamMemory;
+        private CancellationTokenSource? launchTimer;
 
         public ShellViewModel(string settingsFile, JobRunner jobs)
             : this(settingsFile, jobs, VamBridge.IsRunning, StartVam)
@@ -316,15 +317,17 @@ namespace varManager.Ui
             if (profile == null)
                 return;
             string vars = VarsPath;
+            var timer = new CancellationTokenSource();
+            Interlocked.Exchange(ref launchTimer, timer)?.Cancel();
             try
             {
-                StartupReading? reading = await StartupProbe.Measure(VamPath, vamMemory, TimeSpan.FromSeconds(1), TimeSpan.FromMinutes(5), default).ConfigureAwait(true);
+                StartupReading? reading = await StartupProbe.Measure(VamPath, vamMemory, TimeSpan.FromSeconds(1), TimeSpan.FromMinutes(5), timer.Token).ConfigureAwait(true);
                 if (reading == null)
                     return;
                 ProfileTimings.Record(vars, profile, reading.Startup, reading.RamBytes);
                 await ReadProfiles().ConfigureAwait(true);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            catch (Exception)
             {
                 // A timing is only a nicety, so it never gets in the way of VaM.
             }
@@ -407,6 +410,8 @@ namespace varManager.Ui
             Changed(nameof(SelectedSwitch));
             string packs = VarSwitches.AddonPackages(VamPath);
             var paths = new LibraryPaths(VarsPath, VamPath, dataFolder);
+            Library?.Detach();
+            Profiles?.Detach();
             Library = new LibraryViewModel(StoreFile, paths, Jobs, () => VarLinks.Installed(packs).Keys, ForgetTempLinks, SynchronizationContext.Current, Picks);
             Scenes = new ScenesViewModel(StoreFile, paths, Jobs, () => VarLinks.Installed(packs).Keys,
                 () => SelectedPage = Pages[^1], ForgetTempLinks, SynchronizationContext.Current);

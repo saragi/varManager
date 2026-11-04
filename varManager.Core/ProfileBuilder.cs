@@ -82,12 +82,37 @@ namespace varManager
             return files.Count(file => new FileInfo(file).Attributes.HasFlag(FileAttributes.ReparsePoint));
         }
 
-        /// <summary>Removes a profile's folder of links and its saved picks. Var files aren't touched.</summary>
-        public static void Delete(string vamPath, string varsPath, string name)
+        /// <summary>Removes a profile's links and saved picks. Anything real in its folder stays, and so does the folder then.</summary>
+        /// <returns>How many real files stayed.</returns>
+        public static int Delete(string vamPath, string varsPath, string name)
         {
-            VarSwitches.Delete(vamPath, name);
+            int kept = RemoveLinks(new DirectoryInfo(Path.GetDirectoryName(VarSwitches.LinkFolder(vamPath, name))));
             LeanProfiles.DeleteFiles(LeanProfiles.ProfilePath(varsPath, name));
             ProfileTimings.Remove(varsPath, name);
+            return kept;
+        }
+
+        // Walks by hand, so a folder link is removed and never followed.
+        private static int RemoveLinks(DirectoryInfo folder)
+        {
+            int kept = 0;
+            foreach (FileInfo file in folder.GetFiles())
+            {
+                if (file.Attributes.HasFlag(FileAttributes.ReparsePoint) || file.Name.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase))
+                    file.Delete();
+                else
+                    kept++;
+            }
+            foreach (DirectoryInfo child in folder.GetDirectories())
+            {
+                if (child.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                    child.Delete();
+                else
+                    kept += RemoveLinks(child);
+            }
+            if (kept == 0 && !folder.EnumerateFileSystemInfos().Any())
+                folder.Delete();
+            return kept;
         }
 
         public static void Rename(string vamPath, string varsPath, string oldName, string newName)
@@ -153,6 +178,7 @@ namespace varManager
                 .FirstOrDefault(item => string.Equals(item, name, StringComparison.OrdinalIgnoreCase));
             string switchName = existing ?? name;
             string linkFolder = VarSwitches.LinkFolder(paths.VamPath, switchName);
+            ProfileDiff change = LeanProfiles.Diff(plan.Closure.Vars, LinkedIn(switchName));
             try
             {
                 LeanProfiles.ApplyLinks(plan.Closure.Vars, linkFolder, FileOf, VarLinks.Create);
@@ -165,6 +191,9 @@ namespace varManager
             }
             if (toSave != null)
                 LeanProfiles.Save(toSave, LeanProfiles.ProfilePath(paths.VarsPath, switchName));
+            // A timing describes the links it was measured with.
+            if (change.Add.Count + change.Remove.Count > 0)
+                ProfileTimings.Remove(paths.VarsPath, switchName);
             return switchName;
         }
 
@@ -296,18 +325,23 @@ namespace varManager
         {
             Stopwatch clock = Stopwatch.StartNew();
             string request = VamBridge.RequestFile(vamPath);
+            string written = null;
             if (!File.Exists(request))
             {
                 JSONClass empty = new JSONClass();
                 empty["rescan"] = "false";
                 VamBridge.WriteRequest(vamPath, empty);
+                written = File.ReadAllText(request);
             }
 
+            bool seenRunning = false;
             while (File.Exists(request))
             {
-                if (clock.Elapsed >= limit)
+                bool running = memory() > 0;
+                seenRunning |= running;
+                if (clock.Elapsed >= limit || (seenRunning && !running))
                 {
-                    File.Delete(request);
+                    RemoveOwn(request, written);
                     return null;
                 }
                 await Task.Delay(poll, token).ConfigureAwait(false);
@@ -318,6 +352,13 @@ namespace varManager
             return ram > 0 ? new StartupReading { Startup = startup, RamBytes = ram } : null;
         }
 
+        // Something else may have replaced the request since, and that one isn't ours to delete.
+        private static void RemoveOwn(string request, string written)
+        {
+            if (written != null && File.Exists(request) && File.ReadAllText(request) == written)
+                File.Delete(request);
+        }
+
         /// <summary>The memory VaM holds now, or 0 if it isn't running.</summary>
         public static long VamMemory()
         {
@@ -325,7 +366,16 @@ namespace varManager
             foreach (Process process in Process.GetProcessesByName("vam"))
             {
                 using (process)
-                    total += process.WorkingSet64;
+                {
+                    try
+                    {
+                        total += process.WorkingSet64;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // It closed between listing and reading.
+                    }
+                }
             }
             return total;
         }

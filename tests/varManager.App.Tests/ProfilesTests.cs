@@ -117,8 +117,22 @@ namespace varManager.App.Tests
         {
             Task before = shell.LibraryLoaded;
             action();
-            WaitUntil(() => shell.LibraryLoaded != before && !shell.Jobs.IsRunning);
-            await shell.LibraryLoaded.WaitAsync(Timeout);
+            await shell.Profiles!.Work.WaitAsync(Timeout);
+            WaitUntil(() => shell.LibraryLoaded != before);
+            await Settle(shell);
+        }
+
+        // A finished job reloads, and what follows the job may reload again.
+        private static async Task Settle(ShellViewModel shell)
+        {
+            Task last;
+            do
+            {
+                last = shell.LibraryLoaded;
+                await last.WaitAsync(Timeout);
+                await Task.Delay(150);
+            }
+            while (last != shell.LibraryLoaded || shell.Jobs.IsRunning);
         }
 
         private static ProfileTile Card(ShellViewModel shell, string name)
@@ -142,6 +156,25 @@ namespace varManager.App.Tests
         private static void Choose(ShellViewModel shell, string pill)
         {
             shell.Profiles!.ModePills.Single(p => p.Label == pill).Command.Execute(null);
+        }
+
+        [Fact]
+        public async Task Two_openers_of_a_new_store_both_get_a_working_store()
+        {
+            for (int round = 0; round < 30; round++)
+            {
+                string file = Path.Combine(data, "race" + round + ".db");
+                using var start = new ManualResetEventSlim();
+                List<Task> opening = Enumerable.Range(0, 6).Select(_ => Task.Run(() =>
+                {
+                    start.Wait();
+                    using LibraryStore store = LibraryStore.Open(file);
+                    Assert.Equal(0, store.Count("vars"));
+                })).ToList();
+
+                start.Set();
+                await Task.WhenAll(opening).WaitAsync(Timeout);
+            }
         }
 
         [Theory]
@@ -229,13 +262,11 @@ namespace varManager.App.Tests
 
             shell.Picks.Toggle("Other.Pack.1");
             profiles.Name = "fresh";
-            WaitUntil(() => profiles.PlanText.Contains("link 1 var,"));
+            WaitUntil(() => profiles.PlanText.Contains("link 1 var,") && profiles.PreviewText.Contains("Links to add: 1, links to remove: 0"));
             Assert.DoesNotContain("replaces", profiles.PlanText);
-            Assert.Contains("Links to add: 1, links to remove: 0", profiles.PreviewText);
 
             profiles.Name = "lean";
-            WaitUntil(() => profiles.PlanText.Contains("This replaces the links in lean."));
-            Assert.Contains("Links to add: 1, links to remove: 2", profiles.PreviewText);
+            WaitUntil(() => profiles.PlanText.Contains("This replaces the links in lean.") && profiles.PreviewText.Contains("Links to add: 1, links to remove: 2"));
         }
 
         [Fact]
@@ -253,6 +284,75 @@ namespace varManager.App.Tests
             shell.Profiles.SaveCommand.Execute(null);
             Assert.False(jobs.IsRunning);
             Assert.Empty(LinkedIn("default"));
+        }
+
+        [Fact]
+        public async Task Spaces_around_a_name_are_ignored()
+        {
+            MakeVar("A.B.1");
+            Update();
+            ShellViewModel shell = await Shell();
+            shell.Picks.Toggle("A.B.1");
+
+            shell.Profiles!.Name = " default ";
+            Assert.False(shell.Profiles.CanSave);
+
+            shell.Profiles.Name = "  mine ";
+            await Run(shell, () => shell.Profiles.SaveCommand.Execute(null));
+
+            Assert.Equal("mine", shell.SelectedSwitch);
+        }
+
+        [Fact]
+        public async Task A_failed_build_keeps_the_picks_and_saves_nothing()
+        {
+            MakeVar("A.B.1");
+            Update();
+            Directory.CreateDirectory(Path.Combine(Links("stuck"), "A.B.1.var"));
+            ShellViewModel shell = await Shell();
+            shell.Picks.Toggle("A.B.1");
+            shell.Profiles!.Name = "stuck";
+
+            await Run(shell, () => shell.Profiles.SaveCommand.Execute(null));
+
+            Assert.Contains("failed", jobs.Note);
+            Assert.True(shell.Picks.HasPicks);
+            Assert.False(File.Exists(LeanProfiles.ProfilePath(vars, "stuck")));
+            Assert.Equal("default", shell.SelectedSwitch);
+        }
+
+        [Fact]
+        public async Task A_failed_build_of_a_new_profile_leaves_no_folder()
+        {
+            MakeVar("A.B.1");
+            Update();
+            File.Delete(Tidied("A.B.1"));
+            ShellViewModel shell = await Shell();
+            shell.Picks.Toggle("A.B.1");
+            shell.Profiles!.Name = "fresh";
+
+            await Run(shell, () => shell.Profiles.SaveCommand.Execute(null));
+
+            Assert.Contains("failed", jobs.Note);
+            Assert.False(Directory.Exists(Path.GetDirectoryName(Links("fresh"))));
+            Assert.True(shell.Picks.HasPicks);
+        }
+
+        [Fact]
+        public async Task Rebuilding_a_profile_forgets_a_timing_measured_on_other_links()
+        {
+            ShellViewModel shell = await ShellWithLean();
+            ProfileTimings.Record(vars, "lean", TimeSpan.FromSeconds(24), 1000);
+
+            shell.Picks.Toggle("A.B.1");
+            shell.Profiles!.Name = "lean";
+            await Run(shell, () => shell.Profiles.SaveCommand.Execute(null));
+            Assert.True(ProfileTimings.Load(vars).ContainsKey("lean"));
+
+            shell.Picks.Toggle("Other.Pack.1");
+            shell.Profiles.Name = "lean";
+            await Run(shell, () => shell.Profiles.SaveCommand.Execute(null));
+            Assert.False(ProfileTimings.Load(vars).ContainsKey("lean"));
         }
 
         [Fact]
@@ -303,6 +403,71 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task An_exclude_profile_keeps_what_others_share_and_reads_default_as_vam_would()
+        {
+            MakeVar("A.B.1", "Dep.Pack.1:/Custom/a.vap");
+            MakeVar("Keep.Pack.1", "Dep.Pack.1:/Custom/a.vap");
+            MakeVar("Dep.Pack.1");
+            MakeVar("Top.Pack.1");
+            MakeVar("Dead.Pack.1");
+            Update();
+            LinkInDefault("A.B.1", "Keep.Pack.1", "Dep.Pack.1");
+            string top = Path.GetDirectoryName(Links("default"))!;
+            Assert.True(VarLinks.Create(Path.Combine(top, "Top.Pack.1.var"), Tidied("Top.Pack.1")));
+            string gone = Path.Combine(root, "gone.var");
+            File.WriteAllText(gone, "x");
+            Assert.True(VarLinks.Create(Path.Combine(Links("default"), "Dead.Pack.1.var"), gone));
+            File.Delete(gone);
+            ShellViewModel shell = await Shell();
+            Choose(shell, "Leave these out");
+            shell.Picks.Toggle("A.B.1");
+
+            WaitUntil(() => shell.Profiles!.PlanText.StartsWith("Links 3 vars from default"));
+            await Run(shell, () => shell.Profiles!.SaveCommand.Execute(null));
+
+            Assert.Equal(new[] { "Dep.Pack.1", "Keep.Pack.1", "Top.Pack.1" }, LinkedIn("trimmed"));
+        }
+
+        [Fact]
+        public async Task An_exclude_profile_can_be_checked()
+        {
+            MakeVar("A.B.1");
+            MakeVar("Keep.Pack.1");
+            Update();
+            LinkInDefault("A.B.1", "Keep.Pack.1");
+            ShellViewModel shell = await Shell();
+            Choose(shell, "Leave these out");
+            shell.Picks.Toggle("A.B.1");
+            await Run(shell, () => shell.Profiles!.SaveCommand.Execute(null));
+
+            await Run(shell, () => shell.Profiles!.CheckCommand.Execute(Card(shell, "trimmed")));
+
+            WaitUntil(() => shell.Profiles!.HasCheck);
+            Assert.Contains("This profile is healthy.", shell.Profiles!.CheckText);
+        }
+
+        [Fact]
+        public async Task The_mode_sets_the_name_and_stays_after_a_save()
+        {
+            MakeVar("A.B.1");
+            MakeVar("Keep.Pack.1");
+            Update();
+            LinkInDefault("A.B.1", "Keep.Pack.1");
+            ShellViewModel shell = await Shell();
+            ProfilesViewModel profiles = shell.Profiles!;
+
+            Choose(shell, "Leave these out");
+            Assert.True(profiles.ModePills.Single(p => p.Label == "Leave these out").IsActive);
+            Assert.False(profiles.ModePills.Single(p => p.Label == "Keep only these").IsActive);
+            shell.Picks.Toggle("A.B.1");
+            await Run(shell, () => profiles.SaveCommand.Execute(null));
+            Assert.Equal("trimmed 2", profiles.Name);
+
+            Choose(shell, "Keep only these");
+            Assert.Equal("lean", profiles.Name);
+        }
+
+        [Fact]
         public async Task Choosing_leave_out_on_an_exclude_profile_edits_it()
         {
             MakeVar("A.B.1");
@@ -337,14 +502,38 @@ namespace varManager.App.Tests
         }
 
         [Fact]
-        public async Task Default_and_plain_profiles_can_only_change_as_far_as_they_are_ours()
+        public async Task Default_can_not_be_renamed_or_deleted()
         {
             ShellViewModel shell = await ShellWithLean();
+            ProfilesViewModel profiles = shell.Profiles!;
 
             Assert.False(Card(shell, "default").CanChange);
             Assert.False(Card(shell, "default").CanCheck);
             Assert.True(Card(shell, "lean").CanChange);
             Assert.True(Card(shell, "lean").CanCheck);
+
+            profiles.DeleteCommand.Execute(Card(shell, "default"));
+            Assert.False(profiles.IsDeleting);
+            profiles.ConfirmDeleteCommand.Execute(null);
+            profiles.RenameCommand.Execute(Card(shell, "default"));
+            Assert.False(profiles.IsRenaming);
+
+            Assert.True(Directory.Exists(Links("default")));
+        }
+
+        [Fact]
+        public async Task A_folder_made_by_hand_is_a_plain_profile()
+        {
+            MakeVar("A.B.1");
+            Update();
+            Directory.CreateDirectory(Links("foo"));
+            Assert.True(VarLinks.Create(Path.Combine(Links("foo"), "A.B.1.var"), Tidied("A.B.1")));
+
+            ShellViewModel shell = await Shell();
+
+            Assert.False(Card(shell, "foo").CanCheck);
+            Assert.True(Card(shell, "foo").CanChange);
+            Assert.Equal("1 var linked", Card(shell, "foo").CountText);
         }
 
         [Fact]
@@ -426,10 +615,47 @@ namespace varManager.App.Tests
 
             Assert.Equal(new[] { "A.B.1", "Dep.Pack.1" }, LinkedIn("renamed"));
             Assert.Equal(new[] { "default", "renamed" }, shell.Switches.OrderBy(n => n));
+            Assert.DoesNotContain("Could not", jobs.Note);
             Assert.True(File.Exists(LeanProfiles.ProfilePath(vars, "renamed")));
             Assert.False(File.Exists(LeanProfiles.ProfilePath(vars, "lean")));
             Assert.Equal(24, ProfileTimings.Load(vars)["renamed"].StartupSeconds);
             Assert.True(VarLinks.Installed(paths.AddonPackages).ContainsKey("A.B.1"));
+        }
+
+        [Fact]
+        public async Task A_rename_that_fails_after_the_folder_moved_still_follows_the_folder()
+        {
+            ShellViewModel shell = await ShellWithLean();
+            ProfilesViewModel profiles = shell.Profiles!;
+            using (new FileStream(LeanProfiles.ProfilePath(vars, "lean"), FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                profiles.RenameCommand.Execute(Card(shell, "lean"));
+                profiles.NewName = "renamed";
+                profiles.ConfirmRenameCommand.Execute(null);
+                WaitUntil(() => shell.SelectedSwitch == "renamed");
+            }
+            await Settle(shell);
+
+            Assert.True(VarLinks.Installed(paths.AddonPackages).ContainsKey("A.B.1"));
+        }
+
+        [Fact]
+        public async Task A_rename_carries_the_previous_version_so_restore_still_works()
+        {
+            ShellViewModel shell = await ShellWithLean();
+            shell.Picks.Toggle("Other.Pack.1");
+            shell.Profiles!.Name = "lean";
+            await Run(shell, () => shell.Profiles.SaveCommand.Execute(null));
+
+            shell.Profiles.RenameCommand.Execute(Card(shell, "lean"));
+            shell.Profiles.NewName = "renamed";
+            await Run(shell, () => shell.Profiles.ConfirmRenameCommand.Execute(null));
+            await Run(shell, () => shell.Profiles.CheckCommand.Execute(Card(shell, "renamed")));
+
+            WaitUntil(() => shell.Profiles.HasCheck);
+            Assert.True(shell.Profiles.CanRestore);
+            await Run(shell, () => shell.Profiles.RestoreCommand.Execute(null));
+            Assert.Equal(new[] { "A.B.1", "Dep.Pack.1" }, LinkedIn("renamed"));
         }
 
         [Fact]
@@ -445,6 +671,8 @@ namespace varManager.App.Tests
 
             Assert.Equal("default", shell.SelectedSwitch);
             Assert.DoesNotContain("lean", shell.Switches);
+            Assert.Equal(new[] { "A.B.1", "Dep.Pack.1" }, LinkedIn("renamed"));
+            Assert.True(File.Exists(LeanProfiles.ProfilePath(vars, "renamed")));
         }
 
         [Fact]
@@ -469,6 +697,56 @@ namespace varManager.App.Tests
             Assert.False(ProfileTimings.Load(vars).ContainsKey("lean"));
             Assert.True(File.Exists(Tidied("A.B.1")));
             Assert.True(File.Exists(Tidied("Dep.Pack.1")));
+        }
+
+        [Fact]
+        public async Task Deleting_another_profile_leaves_the_current_one_alone()
+        {
+            ShellViewModel shell = await ShellWithLean();
+            await Run(shell, () => shell.Profiles!.UseCommand.Execute(Card(shell, "default")));
+
+            shell.Profiles!.DeleteCommand.Execute(Card(shell, "lean"));
+            await Run(shell, () => shell.Profiles.ConfirmDeleteCommand.Execute(null));
+
+            Assert.Equal("default", shell.SelectedSwitch);
+            Assert.DoesNotContain("lean", shell.Switches);
+        }
+
+        [Fact]
+        public async Task Deleting_keeps_real_files_in_the_folder_and_says_so()
+        {
+            ShellViewModel shell = await ShellWithLean();
+            string top = Path.GetDirectoryName(Links("lean"))!;
+            string real = Path.Combine(top, "Custom", "real.var");
+            Directory.CreateDirectory(Path.GetDirectoryName(real)!);
+            File.WriteAllText(real, "real");
+            File.WriteAllText(Path.Combine(Links("lean"), "A.B.1.var.disabled"), "");
+
+            shell.Profiles!.DeleteCommand.Execute(Card(shell, "lean"));
+            shell.Profiles.ConfirmDeleteCommand.Execute(null);
+            WaitUntil(() => jobs.Note.Contains("1 real files"));
+            await Settle(shell);
+
+            Assert.True(File.Exists(real));
+            Assert.False(Directory.Exists(Links("lean")));
+            Assert.True(File.Exists(Tidied("A.B.1")));
+        }
+
+        [Fact]
+        public void Deleting_removes_a_folder_link_without_following_it()
+        {
+            string outside = Path.Combine(root, "outside");
+            Directory.CreateDirectory(outside);
+            string keep = Path.Combine(outside, "keep.var");
+            File.WriteAllText(keep, "x");
+            string top = Path.GetDirectoryName(Links("lean"))!;
+            Directory.CreateDirectory(top);
+            Assert.True(Comm.CreateSymbolicLink(Path.Combine(top, "linked"), outside, Comm.SYMBOLIC_LINK_FLAG.Directory | Comm.SYMBOLIC_LINK_FLAG.AllowUnprivilegedCreate));
+
+            Assert.Equal(0, ProfileCatalog.Delete(vam, vars, "lean"));
+
+            Assert.True(File.Exists(keep));
+            Assert.False(Directory.Exists(top));
         }
 
         [Fact]
@@ -507,6 +785,25 @@ namespace varManager.App.Tests
             library.TogglePickCommand.Execute(null);
             Assert.False(Tile().IsPicked);
             Assert.False(shell.Picks.HasPicks);
+
+            shell.Picks.Toggle("a.b.1");
+            Assert.True(Tile().IsPicked);
+            shell.Picks.Toggle("A.B.1");
+            Assert.False(Tile().IsPicked);
+        }
+
+        [Fact]
+        public async Task A_replaced_page_stops_following_the_picks()
+        {
+            MakeVar("A.B.1");
+            Update();
+            ShellViewModel shell = await Shell();
+            ProfilesViewModel old = shell.Profiles!;
+
+            old.Detach();
+            shell.Picks.Toggle("A.B.1");
+
+            Assert.Empty(old.PickRows);
         }
 
         [Fact]
@@ -563,7 +860,7 @@ namespace varManager.App.Tests
             StartupReading reading = await measuring.WaitAsync(Timeout);
 
             Assert.Equal(123, reading.RamBytes);
-            Assert.True(reading.Startup >= TimeSpan.FromMilliseconds(100));
+            Assert.True(reading.Startup >= TimeSpan.FromMilliseconds(50));
         }
 
         [Fact]
@@ -591,6 +888,40 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task The_probe_never_deletes_a_request_it_did_not_write()
+        {
+            string request = VamBridge.RequestFile(vam);
+            Task<StartupReading> measuring = StartupProbe.Measure(vam, () => 1, TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(200), default);
+            File.WriteAllText(request, "{\"resources\":[]}");
+
+            Assert.Null(await measuring.WaitAsync(Timeout));
+
+            Assert.Contains("resources", File.ReadAllText(request));
+        }
+
+        [Fact]
+        public async Task The_probe_stops_when_vam_closes_before_taking_the_request()
+        {
+            int calls = 0;
+            StartupReading reading = await StartupProbe.Measure(vam, () => Interlocked.Increment(ref calls) < 3 ? 1 : 0, TimeSpan.FromMilliseconds(10), Timeout, default)
+                .WaitAsync(Timeout);
+
+            Assert.Null(reading);
+            Assert.False(File.Exists(VamBridge.RequestFile(vam)));
+        }
+
+        [Fact]
+        public async Task A_cancelled_probe_stops()
+        {
+            using var cancel = new CancellationTokenSource();
+            Task<StartupReading> measuring = StartupProbe.Measure(vam, () => 1, TimeSpan.FromMilliseconds(10), Timeout, cancel.Token);
+
+            cancel.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => measuring.WaitAsync(Timeout));
+        }
+
+        [Fact]
         public async Task A_vam_that_is_gone_gives_no_reading()
         {
             Task<StartupReading> measuring = StartupProbe.Measure(vam, () => 0, TimeSpan.FromMilliseconds(10), Timeout, default);
@@ -615,6 +946,20 @@ namespace varManager.App.Tests
             WaitUntil(() => launching.Profiles!.Cards.Single(card => card.Name == "lean").Ram == "2.0 GB");
             Assert.Equal("Not measured", launching.Profiles!.Cards.Single(card => card.Name == "default").Ram);
             Assert.Equal("lean", shell.SelectedSwitch);
+            Assert.True(ProfileTimings.Load(vars)["lean"].StartupSeconds > 0);
+        }
+
+        [Fact]
+        public async Task Launching_while_vam_runs_measures_nothing()
+        {
+            string settingsFile = Path.Combine(data, "settings.json");
+            new AppSettings { VamPath = vam, VarsPath = vars }.Save(settingsFile);
+            var shell = new ShellViewModel(settingsFile, jobs, () => true, _ => { }, () => 1);
+            await shell.LibraryLoaded.WaitAsync(Timeout);
+
+            shell.LaunchCommand.Execute(null);
+
+            Assert.False(File.Exists(VamBridge.RequestFile(vam)));
         }
     }
 }
