@@ -146,6 +146,8 @@ namespace varManager.Ui
             if (reload != reloads)
                 return;
 
+            // A review on screen describes the last check, so it goes with it.
+            Pending = null;
             Cards = MakeCards(report);
             Missing = report.Missing.Take(MostRows).ToList();
             MissingMore = report.Missing.Count > MostRows ? $"And {report.Missing.Count - MostRows:N0} more." : "";
@@ -199,8 +201,9 @@ namespace varManager.Ui
         private HealthChange StaleChange(HealthReport report)
         {
             List<string> stale = report.Stale;
-            return new HealthChange("Old versions nothing uses", $"This moves {Count(stale.Count, "var")} to a holding folder, and Undo move puts them back. No var, profile, base.txt or save needs them.",
-                Rows(stale, stale.Count), "Move out", "Moving stale vars", context =>
+            string linked = report.StaleLinked.Count == 0 ? "" : $" {Count(report.StaleLinked.Count, "var")} of them {(report.StaleLinked.Count == 1 ? "is" : "are")} linked now, and moving turns that off.";
+            return new HealthChange("Old versions nothing uses", $"This moves {Count(stale.Count, "var")} to a holding folder, and Undo move puts them back. No var, profile, base.txt or save needs them.{linked}",
+                Rows(stale.Select(name => report.StaleLinked.Contains(name) ? name + "  (linked now)" : name), stale.Count), "Move out", "Moving stale vars", context =>
                 {
                     using LibraryStore store = LibraryStore.Open(storeFile);
                     if (LibraryHealth.MoveStale(store, paths, stale) == null)

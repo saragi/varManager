@@ -47,6 +47,10 @@ namespace varManager
         public int NotLinked { get; set; }
         public List<string> Stale { get; } = new List<string>();
         public long StaleBytes { get; set; }
+
+        /// <summary>Stale vars some profile links now, which moving turns off.</summary>
+        public HashSet<string> StaleLinked { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         public List<HeldGroup> Held { get; } = new List<HeldGroup>();
         public List<string> BrokenLinks { get; } = new List<string>();
         public List<string> GoneRecords { get; } = new List<string>();
@@ -71,7 +75,6 @@ namespace varManager
             IReadOnlyList<VarRecord> records = store.LoadVars();
             List<KeyValuePair<string, string>> dependencies = store.LoadDependencies().ToList();
             var vars = new VarIndex(records.Select(Entry));
-            var names = new HashSet<string>(records.Select(v => v.VarName), StringComparer.OrdinalIgnoreCase);
             var report = new HealthReport
             {
                 VarCount = records.Count,
@@ -85,29 +88,52 @@ namespace varManager
             Dictionary<string, VarRecord> byName = records.ToDictionary(v => v.VarName, StringComparer.OrdinalIgnoreCase);
             report.Stale.AddRange(StaleVars(records, vars, dependencies, paths, problem));
             report.StaleBytes = report.Stale.Sum(name => (long)(byName[name].FileSize ?? 0));
+            var linkedSomewhere = new HashSet<string>(VarSwitches.Names(paths.VamPath).SelectMany(name =>
+                VarLinks.ReadInstalled(Path.GetDirectoryName(VarSwitches.LinkFolder(paths.VamPath, name))).Keys), StringComparer.OrdinalIgnoreCase);
+            report.StaleLinked.UnionWith(report.Stale.Where(linkedSomewhere.Contains));
 
             foreach (KeyValuePair<string, string> folder in HeldFolders)
             {
-                HeldGroup group = ReadHeld(Path.Combine(paths.VarsPath, folder.Key), folder.Value, names);
+                HeldGroup group = ReadHeld(Path.Combine(paths.VarsPath, folder.Key), folder.Value, paths, byName);
                 if (group.Files.Count > 0)
                     report.Held.Add(group);
             }
 
             report.BrokenLinks.AddRange(VarLinks.ReadInstalled(paths.AddonPackages).Values.Where(link => !LeanProfiles.LinkResolves(link)).OrderBy(link => link, StringComparer.OrdinalIgnoreCase));
-            report.GoneRecords.AddRange(records.Where(v => !File.Exists(FileOf(paths, v))).Select(v => v.VarName));
+            HashSet<string> present = LibraryUpdate.TidiedVars(paths);
+            report.GoneRecords.AddRange(records.Select(v => v.VarName).Where(name => !present.Contains(name)));
             report.Missing.AddRange(MissingNeeds(vars, dependencies));
             return report;
         }
 
-        /// <summary>Old versions that no var, profile, base.txt or save needs.</summary>
+        /// <summary>
+        /// Old versions that no var, profile, base.txt or save needs, in packages whose newest file is really
+        /// there. With a save unreadable nobody can say what's needed, so nothing counts as stale.
+        /// </summary>
         private static IEnumerable<string> StaleVars(IReadOnlyList<VarRecord> records, VarIndex vars,
             List<KeyValuePair<string, string>> dependencies, LibraryPaths paths, Action<string> problem)
         {
             List<VarEntry> entries = records.Select(Entry).ToList();
             List<string> old = DependencyAnalysis.OldVersions(entries, DependencyAnalysis.LatestVersions(entries));
             var usage = new LibraryUsage(vars, dependencies);
-            HashSet<string> referenced = MoveOut.ReferencedOutsideVars(paths, vars, problem);
-            return old.Where(name => !usage.NeedersOf(name).Any() && !referenced.Contains(name))
+            bool unreadable = false;
+            HashSet<string> referenced = MoveOut.ReferencedOutsideVars(paths, vars, text =>
+            {
+                unreadable = true;
+                problem(text);
+            });
+            if (unreadable)
+                return new string[0];
+
+            Dictionary<string, int> latest = DependencyAnalysis.LatestVersions(entries);
+            Dictionary<string, VarRecord> byName = records.ToDictionary(v => v.VarName, StringComparer.OrdinalIgnoreCase);
+            Func<string, bool> newestIsThere = name =>
+            {
+                string package = name.Substring(0, name.LastIndexOf('.'));
+                VarRecord newest;
+                return byName.TryGetValue(package + "." + latest[package], out newest) && File.Exists(FileOf(paths, newest));
+            };
+            return old.Where(name => !usage.NeedersOf(name).Any() && !referenced.Contains(name) && newestIsThere(name))
                 .OrderBy(name => name, StringComparer.OrdinalIgnoreCase);
         }
 
@@ -140,24 +166,35 @@ namespace varManager
             }
         }
 
-        private static HeldGroup ReadHeld(string folder, string title, ISet<string> names)
+        private static HeldGroup ReadHeld(string folder, string title, LibraryPaths paths, Dictionary<string, VarRecord> byName)
         {
             var group = new HeldGroup { Title = title, Folder = folder };
             if (!Directory.Exists(folder))
                 return group;
-            foreach (string file in Directory.GetFiles(folder, "*", SearchOption.AllDirectories))
+            foreach (FileInfo file in RealFiles(new DirectoryInfo(folder)))
             {
-                if (string.Equals(Path.GetFileName(file), HoldingLog, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(file.Name, HoldingLog, StringComparison.OrdinalIgnoreCase))
                     continue;
+                VarRecord record;
                 group.Files.Add(new HeldFile
                 {
-                    Path = file,
-                    Bytes = new FileInfo(file).Length,
-                    InLibrary = names.Contains(Path.GetFileNameWithoutExtension(file)),
+                    Path = file.FullName,
+                    Bytes = file.Length,
+                    // A record alone isn't a copy: its file may be the one that's gone.
+                    InLibrary = byName.TryGetValue(Path.GetFileNameWithoutExtension(file.Name), out record) && File.Exists(FileOf(paths, record)),
                 });
             }
             group.Files.Sort((first, second) => string.Compare(first.Path, second.Path, StringComparison.OrdinalIgnoreCase));
             return group;
+        }
+
+        // Walks by hand, so a folder link can't lead to files outside the group.
+        private static IEnumerable<FileInfo> RealFiles(DirectoryInfo folder)
+        {
+            IEnumerable<FileInfo> files = folder.GetFiles();
+            foreach (DirectoryInfo child in folder.GetDirectories().Where(child => !child.Attributes.HasFlag(FileAttributes.ReparsePoint)))
+                files = files.Concat(RealFiles(child));
+            return files;
         }
 
         /// <summary>Deletes exactly the files reviewed, for good. Anything that arrived since then stays.</summary>
@@ -173,15 +210,16 @@ namespace varManager
                     deleted++;
                 }
             }
-            RemoveEmpty(group.Folder, group.Folder);
+            if (Directory.Exists(group.Folder))
+                RemoveEmpty(group.Folder, group.Folder);
             return deleted;
         }
 
         // A holding folder's log only means something beside its files.
         private static void RemoveEmpty(string folder, string root)
         {
-            foreach (string child in Directory.GetDirectories(folder))
-                RemoveEmpty(child, root);
+            foreach (DirectoryInfo child in new DirectoryInfo(folder).GetDirectories().Where(child => !child.Attributes.HasFlag(FileAttributes.ReparsePoint)))
+                RemoveEmpty(child.FullName, root);
             string log = Path.Combine(folder, HoldingLog);
             if (File.Exists(log) && Directory.GetFileSystemEntries(folder).Length == 1)
                 File.Delete(log);
@@ -195,7 +233,7 @@ namespace varManager
         {
             IReadOnlyList<VarRecord> records = store.LoadVars();
             var vars = new VarIndex(records.Select(Entry));
-            List<string> now = StaleVars(records, vars, store.LoadDependencies().ToList(), paths, _ => { }).ToList();
+            List<string> now = StaleVars(records, vars, store.LoadDependencies().ToList(), paths, text => { }).ToList();
             if (!new HashSet<string>(now, StringComparer.OrdinalIgnoreCase).SetEquals(reviewed))
                 return null;
 
@@ -208,18 +246,21 @@ namespace varManager
         }
 
         /// <summary>Points broken links at where their var is now. A link to a var the library lost goes.</summary>
+        /// <param name="links">The links reviewed. Any that isn't a broken link by now is left alone.</param>
         /// <returns>How many links were dealt with.</returns>
         public static int RepairLinks(LibraryStore store, LibraryPaths paths, IEnumerable<string> links)
         {
             Dictionary<string, VarRecord> byName = store.LoadVars().ToDictionary(v => v.VarName, StringComparer.OrdinalIgnoreCase);
             int repaired = 0;
-            foreach (string link in links.Where(File.Exists))
+            foreach (string link in links.Where(path => File.Exists(path) && VarLinks.IsLink(path) && !LeanProfiles.LinkResolves(path)))
             {
                 VarLinks.Rebuild(link, name =>
                 {
                     VarRecord record;
-                    return byName.TryGetValue(name, out record) ? FileOf(paths, record) : null;
+                    return byName.TryGetValue(name, out record) && File.Exists(FileOf(paths, record)) ? FileOf(paths, record) : null;
                 });
+                if (!File.Exists(link) && File.Exists(link + ".disabled"))
+                    File.Delete(link + ".disabled");
                 repaired++;
             }
             return repaired;

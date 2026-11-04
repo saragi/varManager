@@ -60,8 +60,24 @@ namespace varManager
     /// <summary>Brings the store up to date with the repository: tidy, scan what's new, drop what's gone, link what's waiting.</summary>
     public static class LibraryUpdate
     {
-        // A wrong vars folder looks like a mass removal, and rebuilding the records took 106 minutes on the real library.
-        private const int LargeRemoval = 50;
+        /// <summary>
+        /// A wrong vars folder looks like a mass removal, and rebuilding the records took 106 minutes on the
+        /// real library. A handful gone from a tiny library is normal use.
+        /// </summary>
+        public static bool LooksLikeWrongFolder(int gone, int total)
+        {
+            return (gone >= 5 && gone * 2 >= total) || (gone >= 50 && gone * 5 >= total);
+        }
+
+        /// <summary>Names of the vars in the tidied folder, wherever they sit in it.</summary>
+        public static HashSet<string> TidiedVars(LibraryPaths paths)
+        {
+            string tidied = Path.Combine(paths.VarsPath, LibraryFolders.Tidied);
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (Directory.Exists(tidied))
+                names.UnionWith(Directory.GetFiles(tidied, "*.var", SearchOption.AllDirectories).Select(Path.GetFileNameWithoutExtension));
+            return names;
+        }
 
         public static UpdateReport Run(LibraryStore store, LibraryPaths paths, Action<int, int> progress, CancellationToken token)
         {
@@ -161,7 +177,7 @@ namespace varManager
             List<string> gone = records.Select(v => v.VarName).Where(name => !present.Contains(name)).ToList();
             if (gone.Count == 0)
                 return;
-            if (gone.Count >= LargeRemoval && gone.Count * 5 >= records.Count)
+            if (LooksLikeWrongFolder(gone.Count, records.Count))
             {
                 report.HeldBack = gone.Count;
                 return;
@@ -182,8 +198,9 @@ namespace varManager
         /// <returns>How many went.</returns>
         public static int RemoveMissing(LibraryStore store, LibraryPaths paths, IEnumerable<string> reviewed)
         {
-            Dictionary<string, string> files = VarFiles(store, paths);
-            List<string> gone = reviewed.Where(name => files.ContainsKey(name) && !File.Exists(files[name])).ToList();
+            var known = new HashSet<string>(store.LoadVars().Select(v => v.VarName), StringComparer.OrdinalIgnoreCase);
+            HashSet<string> present = TidiedVars(paths);
+            List<string> gone = reviewed.Where(name => known.Contains(name) && !present.Contains(name)).ToList();
             if (gone.Count > 0)
                 Forget(store, paths, gone, new UpdateReport());
             return gone.Count;
@@ -267,7 +284,7 @@ namespace varManager
         private static Dictionary<string, string> VarFiles(LibraryStore store, LibraryPaths paths)
         {
             return store.LoadVars().ToDictionary(v => v.VarName,
-                v => Path.Combine(paths.VarsPath, v.VarPath, v.VarName + ".var"), StringComparer.OrdinalIgnoreCase);
+                v => Path.Combine(paths.VarsPath, v.VarPath ?? "", v.VarName + ".var"), StringComparer.OrdinalIgnoreCase);
         }
 
         private static void WriteProblems(LibraryPaths paths, UpdateReport report)

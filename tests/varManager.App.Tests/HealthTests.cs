@@ -215,6 +215,96 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task A_held_file_is_flagged_when_the_library_record_has_no_file()
+        {
+            MakeVar("A.B.1");
+            MakeVar("Keep.Pack.1");
+            Update();
+            File.Delete(Tidied("A.B.1"));
+            Held(LibraryFolders.Redundant, "A.B.1.var");
+            HealthViewModel health = await Open();
+
+            Press(health, "Duplicates set aside");
+
+            Assert.Contains("1 var here has no copy", health.Pending!.Note);
+        }
+
+        [Fact]
+        public async Task Deleting_a_holding_group_keeps_the_log_beside_a_file_that_arrived_since()
+        {
+            MakeVar("A.B.1");
+            Update();
+            string reviewed = Held(LibraryFolders.Holding + "\\20260101", "A.B.1.var");
+            string log = Held(LibraryFolders.Holding + "\\20260101", "moved.txt");
+            HealthViewModel health = await Open();
+            Press(health, "Moved out of the library");
+
+            string later = Held(LibraryFolders.Holding + "\\20260101", "Later.Pack.1.var");
+            await Confirm(health);
+
+            Assert.False(File.Exists(reviewed));
+            Assert.True(File.Exists(later));
+            Assert.True(File.Exists(log));
+            Assert.NotNull(MoveOut.LatestHolding(vars));
+        }
+
+        [Fact]
+        public async Task An_emptied_group_folder_stays_and_a_folder_link_is_not_followed()
+        {
+            MakeVar("A.B.1");
+            Update();
+            string outside = Path.Combine(root, "outside");
+            Directory.CreateDirectory(outside);
+            string keep = Path.Combine(outside, "keep.var");
+            File.WriteAllText(keep, "x");
+            Held(LibraryFolders.Redundant, "A.B.1.var");
+            string redundant = Path.Combine(vars, LibraryFolders.Redundant);
+            Assert.True(Comm.CreateSymbolicLink(Path.Combine(redundant, "linked"), outside, Comm.SYMBOLIC_LINK_FLAG.Directory | Comm.SYMBOLIC_LINK_FLAG.AllowUnprivilegedCreate));
+            HealthViewModel health = await Open();
+
+            Press(health, "Duplicates set aside");
+            Assert.Single(health.Pending!.Lines);
+            await Confirm(health);
+
+            Assert.True(File.Exists(keep));
+            Assert.True(Directory.Exists(redundant));
+        }
+
+        [Fact]
+        public async Task A_review_goes_when_the_page_checks_again()
+        {
+            MakeVar("A.B.1");
+            Update();
+            Held(LibraryFolders.Redundant, "A.B.1.var");
+            HealthViewModel health = await Open();
+            Press(health, "Duplicates set aside");
+
+            await health.Reload();
+
+            Assert.False(health.HasPending);
+        }
+
+        [Fact]
+        public async Task Confirming_while_a_job_runs_keeps_the_review_and_deletes_nothing()
+        {
+            MakeVar("A.B.1");
+            Update();
+            string duplicate = Held(LibraryFolders.Redundant, "A.B.1.var");
+            HealthViewModel health = await Open();
+            Press(health, "Duplicates set aside");
+            using var gate = new ManualResetEventSlim();
+            Task busy = jobs.Start("Busy", "done", _ => gate.Wait(Timeout))!;
+
+            health.ConfirmCommand.Execute(null);
+            await health.Work.WaitAsync(Timeout);
+
+            Assert.True(health.HasPending);
+            Assert.True(File.Exists(duplicate));
+            gate.Set();
+            await busy.WaitAsync(Timeout);
+        }
+
+        [Fact]
         public async Task Leaving_it_changes_nothing()
         {
             MakeVar("A.B.1");
@@ -287,6 +377,76 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task A_linked_stale_var_is_flagged_in_the_review()
+        {
+            MakeVar("A.B.1");
+            MakeVar("A.B.2");
+            MakeVar("C.D.1");
+            MakeVar("C.D.2");
+            Update();
+            Assert.True(VarLinks.Create(Path.Combine(links, "A.B.1.var"), Tidied("A.B.1")));
+            HealthViewModel health = await Open();
+
+            Press(health, "Old versions nothing uses");
+
+            Assert.Contains("1 var of them is linked now", health.Pending!.Note);
+            Assert.Contains("A.B.1  (linked now)", health.Pending.Lines);
+            Assert.Contains("C.D.1", health.Pending.Lines);
+        }
+
+        [Fact]
+        public void An_old_version_is_not_stale_when_the_newest_file_is_gone()
+        {
+            MakeVar("A.B.1");
+            MakeVar("A.B.2");
+            MakeVar("Keep.Pack.1");
+            Update();
+            File.Delete(Tidied("A.B.2"));
+
+            Assert.Empty(Report().Stale);
+        }
+
+        [Fact]
+        public void With_a_save_unreadable_nothing_counts_as_stale()
+        {
+            MakeVar("A.B.1");
+            MakeVar("A.B.2");
+            Update();
+            string scene = Path.Combine(vam, "Saves", "scene", "mine.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(scene)!);
+            File.WriteAllText(scene, "{}");
+            var problems = new List<string>();
+
+            using (new FileStream(scene, FileMode.Open, FileAccess.Read, FileShare.None))
+            using (LibraryStore store = LibraryStore.Open(storeFile))
+            {
+                Assert.Empty(LibraryHealth.Load(store, paths, problems.Add).Stale);
+                Assert.Null(LibraryHealth.MoveStale(store, paths, new[] { "A.B.1" }));
+            }
+
+            Assert.NotEmpty(problems);
+            Assert.True(File.Exists(Tidied("A.B.1")));
+        }
+
+        [Fact]
+        public async Task Stale_vars_stay_if_more_became_stale_since_the_review()
+        {
+            MakeVar("A.B.1");
+            MakeVar("A.B.2");
+            Update();
+            HealthViewModel health = await Open();
+            Press(health, "Old versions nothing uses");
+
+            MakeVar("A.B.3");
+            Update();
+            await Confirm(health);
+
+            Assert.True(File.Exists(Tidied("A.B.1")));
+            Assert.True(File.Exists(Tidied("A.B.2")));
+            Assert.Contains("nothing moved", jobs.Note);
+        }
+
+        [Fact]
         public async Task Stale_vars_stay_if_something_came_to_need_them_since_the_review()
         {
             MakeVar("A.B.1");
@@ -328,6 +488,130 @@ namespace varManager.App.Tests
             Assert.False(File.Exists(lost));
             Assert.False(new FileInfo(lost).Exists);
             Assert.Equal("Repaired 2 links.", jobs.Note);
+        }
+
+        [Fact]
+        public async Task Repair_leaves_a_real_file_or_working_link_that_replaced_a_reviewed_one()
+        {
+            MakeVar("A.B.1");
+            Update();
+            string target = Path.Combine(root, "t.var");
+            File.WriteAllText(target, "x");
+            string becomesReal = Path.Combine(links, "Real.Pack.1.var");
+            string becomesGood = Path.Combine(links, "Good.Pack.1.var");
+            Assert.True(VarLinks.Create(becomesReal, target));
+            Assert.True(VarLinks.Create(becomesGood, target));
+            File.Delete(target);
+            HealthViewModel health = await Open();
+            Press(health, "Broken links in this profile");
+
+            File.Delete(becomesReal);
+            File.WriteAllText(becomesReal, "real var");
+            File.WriteAllText(target, "x");
+            await Confirm(health);
+
+            Assert.Equal("real var", File.ReadAllText(becomesReal));
+            Assert.True(VarLinks.IsLink(becomesGood));
+            Assert.Equal("Repaired 0 links.", jobs.Note);
+        }
+
+        [Fact]
+        public async Task Repair_drops_a_link_whose_record_has_no_file_and_its_marker()
+        {
+            MakeVar("A.B.1");
+            MakeVar("Keep.Pack.1");
+            Update();
+            string link = Path.Combine(links, "A.B.1.var");
+            Assert.True(VarLinks.Create(link, Tidied("A.B.1")));
+            File.WriteAllText(link + ".disabled", "");
+            File.Delete(Tidied("A.B.1"));
+            HealthViewModel health = await Open();
+
+            Press(health, "Broken links in this profile");
+            await Confirm(health);
+
+            Assert.False(new FileInfo(link).Exists);
+            Assert.False(File.Exists(link + ".disabled"));
+        }
+
+        [Theory]
+        [InlineData(0, 0, false)]
+        [InlineData(1, 1, false)]
+        [InlineData(4, 4, false)]
+        [InlineData(4, 8, false)]
+        [InlineData(5, 10, true)]
+        [InlineData(5, 11, false)]
+        [InlineData(49, 60, true)]
+        [InlineData(49, 250, false)]
+        [InlineData(50, 250, true)]
+        [InlineData(50, 251, false)]
+        public void A_removal_looks_like_a_wrong_folder_only_when_large(int gone, int total, bool held)
+        {
+            Assert.Equal(held, LibraryUpdate.LooksLikeWrongFolder(gone, total));
+        }
+
+        [Fact]
+        public void Forgetting_counts_only_records_that_are_really_gone()
+        {
+            MakeVar("A.B.1");
+            MakeVar("Keep.Pack.1");
+            Update();
+            File.Delete(Tidied("A.B.1"));
+            using LibraryStore store = LibraryStore.Open(storeFile);
+
+            Assert.Equal(1, LibraryUpdate.RemoveMissing(store, paths, new[] { "A.B.1", "Keep.Pack.1", "Never.Was.1" }));
+
+            Assert.Equal(1, store.Count("vars"));
+        }
+
+        [Fact]
+        public void A_var_moved_inside_the_tidied_folder_is_not_gone()
+        {
+            MakeVar("A.B.1");
+            Update();
+            string moved = Path.Combine(vars, LibraryFolders.Tidied, "Elsewhere", "A.B.1.var");
+            Directory.CreateDirectory(Path.GetDirectoryName(moved)!);
+            File.Move(Tidied("A.B.1"), moved);
+
+            Assert.Empty(Report().GoneRecords);
+        }
+
+        [Fact]
+        public void Checking_health_during_a_switch_leaves_addon_packages_a_link()
+        {
+            MakeVar("A.B.1");
+            Update();
+            Directory.CreateDirectory(VarSwitches.LinkFolder(vam, "other"));
+            string packs = Path.Combine(vam, "AddonPackages");
+            using var stop = new CancellationTokenSource();
+            Task reading = Task.Run(() =>
+            {
+                while (!stop.IsCancellationRequested)
+                {
+                    try
+                    {
+                        Report();
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        // Losing the race is fine. Only the folder matters here.
+                    }
+                }
+            });
+
+            try
+            {
+                for (int i = 0; i < 1500; i++)
+                {
+                    Assert.NotEqual(SwitchChange.Failed, VarSwitches.Point(vam, i % 2 == 0 ? "other" : "default", out _));
+                    Assert.True(new DirectoryInfo(packs).Attributes.HasFlag(FileAttributes.ReparsePoint), "round " + i);
+                }
+            }
+            finally
+            {
+                stop.Cancel();
+            }
+            Assert.True(reading.Wait(Timeout));
         }
 
         [Fact]
