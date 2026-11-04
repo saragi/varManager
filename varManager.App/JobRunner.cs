@@ -118,12 +118,13 @@ namespace varManager.Ui
                 }
                 Post(() =>
                 {
-                    source.Dispose();
-                    cancel = null;
-                    IsRunning = false;
+                    // IsRunning goes last, so anyone waiting for it sees the finished state.
                     Name = "";
                     Percent = 0;
                     Note = result;
+                    source.Dispose();
+                    cancel = null;
+                    IsRunning = false;
                 });
             });
         }

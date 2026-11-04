@@ -199,7 +199,7 @@ namespace varManager
 
             if (File.Exists(paths.InstallList))
             {
-                string[] waiting = File.ReadAllLines(paths.InstallList);
+                string[] waiting = File.ReadAllLines(paths.InstallList).Where(name => name.Length > 0).ToArray();
                 var vars = new VarIndex(store.LoadVars().Select(v => new VarEntry(v.VarName, v.CreatorName, v.PackageName, v.Version ?? 0)));
                 foreach (ResolvedReference gone in DependencyAnalysis.Resolve(waiting, vars).Where(r => r.VarName == null))
                     report.Problems.Add(gone.Reference + " was waiting to be linked, but the library doesn't have it");

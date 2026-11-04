@@ -306,11 +306,11 @@ namespace varManager.App.Tests
         public void A_waiting_var_the_library_lacks_is_reported_and_dropped()
         {
             MakeVar(vars, "A.B.1");
-            File.WriteAllLines(paths.InstallList, new[] { "Ghost.Pack.1" });
+            File.WriteAllLines(paths.InstallList, new[] { "Ghost.Pack.1", "" });
 
             UpdateReport report = Run();
 
-            Assert.Contains(report.Problems, p => p.Contains("Ghost.Pack.1"));
+            Assert.Contains("Ghost.Pack.1", Assert.Single(report.Problems));
             Assert.False(File.Exists(paths.InstallList));
         }
 
