@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
@@ -33,6 +34,38 @@ namespace varManager.App.Tests
             if (Directory.Exists(packs) && new DirectoryInfo(packs).Attributes.HasFlag(FileAttributes.ReparsePoint))
                 new DirectoryInfo(packs).Delete();
             Directory.Delete(root, true);
+        }
+
+        private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
+
+        private sealed class QueueContext : SynchronizationContext
+        {
+            private readonly Queue<Action> queue = new Queue<Action>();
+
+            public int Count
+            {
+                get { lock (queue) return queue.Count; }
+            }
+
+            public override void Post(SendOrPostCallback d, object? state)
+            {
+                lock (queue) queue.Enqueue(() => d(state));
+            }
+
+            public void Run()
+            {
+                while (true)
+                {
+                    Action next;
+                    lock (queue)
+                    {
+                        if (queue.Count == 0)
+                            return;
+                        next = queue.Dequeue();
+                    }
+                    next();
+                }
+            }
         }
 
         private void SaveSettings()
@@ -200,6 +233,7 @@ namespace varManager.App.Tests
 
             Assert.Equal("lean", File.ReadAllText(Path.Combine(vam, "AddonPackages", "marker.txt")));
             Assert.Contains("lean", jobs.Note);
+            Assert.Equal("0 packages linked", shell.LinkedText);
         }
 
         [Fact]
@@ -208,14 +242,16 @@ namespace varManager.App.Tests
             SaveSettings();
             ShellViewModel shell = Shell();
             using var release = new ManualResetEventSlim();
-            Task job = jobs.Start("Scan", "Done.", _ => release.Wait())!;
+            Task job = jobs.Start("Scan", "Done.", _ => release.Wait(Timeout))!;
 
             shell.SelectedSwitch = "lean";
 
             Assert.Equal("default", shell.SelectedSwitch);
+            Assert.False(jobs.IsIdle);
             Assert.Contains("Wait", jobs.Note);
             release.Set();
-            job.Wait();
+            job.Wait(Timeout);
+            Assert.True(jobs.IsIdle);
         }
 
         [Fact]
@@ -230,7 +266,121 @@ namespace varManager.App.Tests
 
             Assert.Null(shell.SelectedSwitch);
             Assert.Contains("Could not switch", jobs.Note);
+            Assert.Equal("Nothing linked", shell.LinkedText);
             File.Delete(Path.Combine(vam, "AddonPackages"));
+        }
+
+        [Fact]
+        public void A_cleared_profile_box_changes_nothing()
+        {
+            SaveSettings();
+            ShellViewModel shell = Shell();
+
+            shell.SelectedSwitch = null;
+
+            Assert.Equal("default", shell.SelectedSwitch);
+        }
+
+        [Fact]
+        public void A_refused_switch_tells_the_box_after_it_finishes_setting()
+        {
+            SaveSettings();
+            ShellViewModel shell = Shell();
+            using var release = new ManualResetEventSlim();
+            Task job = jobs.Start("Scan", "Done.", _ => release.Wait(Timeout))!;
+            var changes = new List<string?>();
+            shell.PropertyChanged += (_, e) => changes.Add(e.PropertyName);
+            SynchronizationContext? before = SynchronizationContext.Current;
+            var context = new QueueContext();
+            SynchronizationContext.SetSynchronizationContext(context);
+            try
+            {
+                shell.SelectedSwitch = "lean";
+
+                Assert.DoesNotContain(nameof(ShellViewModel.SelectedSwitch), changes);
+                context.Run();
+                Assert.Contains(nameof(ShellViewModel.SelectedSwitch), changes);
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(before);
+                release.Set();
+                job.Wait(Timeout);
+            }
+        }
+
+        [Fact]
+        public void An_addon_packages_file_is_refused_and_left_alone()
+        {
+            string packs = Path.Combine(vam, "AddonPackages");
+            File.WriteAllText(packs, "a file in the way");
+            SaveSettings();
+
+            ShellViewModel shell = Shell();
+
+            Assert.True(shell.NeedsSetup);
+            Assert.Contains("is a file", shell.SetupProblem);
+            Assert.Equal("a file in the way", File.ReadAllText(packs));
+            File.Delete(packs);
+        }
+
+        [Fact]
+        public void Setup_can_be_retried_after_a_mistake()
+        {
+            ShellViewModel shell = Shell();
+            shell.VamPath = vars;
+            shell.SaveSetupCommand.Execute(null);
+
+            shell.VamPath = vam;
+            shell.VarsPath = vars;
+            shell.SaveSetupCommand.Execute(null);
+
+            Assert.False(shell.NeedsSetup);
+            Assert.True(shell.IsReady);
+            Assert.Equal("", shell.SetupProblem);
+        }
+
+        [Fact]
+        public void A_settings_file_that_cant_be_written_is_reported_in_setup()
+        {
+            Directory.CreateDirectory(settingsFile);
+            ShellViewModel shell = Shell();
+            shell.VamPath = vam;
+            shell.VarsPath = vars;
+
+            shell.SaveSetupCommand.Execute(null);
+
+            Assert.True(shell.NeedsSetup);
+            Assert.Contains("Could not save", shell.SetupProblem);
+        }
+
+        [Fact]
+        public void Saving_replaces_older_settings()
+        {
+            SaveSettings();
+
+            new AppSettings { VamPath = "other", VarsPath = "other" }.Save(settingsFile);
+
+            Assert.Equal("other", AppSettings.Load(settingsFile).VamPath);
+        }
+
+        [Fact]
+        public void Job_state_changes_on_the_ui_context()
+        {
+            var context = new QueueContext();
+            var runner = new JobRunner(context);
+
+            Task job = runner.Start("Scan", "Scan finished.", work => work.Report(1, 2))!;
+            job.Wait(Timeout);
+
+            Assert.True(runner.IsRunning);
+            Assert.Equal(0, runner.Percent);
+            Assert.True(context.Count > 0);
+
+            context.Run();
+
+            Assert.False(runner.IsRunning);
+            Assert.Equal("Scan finished.", runner.Note);
         }
 
         [Fact]
@@ -292,13 +442,13 @@ namespace varManager.App.Tests
         public void Only_one_job_runs_at_a_time()
         {
             using var release = new ManualResetEventSlim();
-            Task first = jobs.Start("Scan", "Done.", _ => release.Wait())!;
+            Task first = jobs.Start("Scan", "Done.", _ => release.Wait(Timeout))!;
 
             Assert.True(jobs.IsRunning);
             Assert.Null(jobs.Start("Other", "Done.", _ => { }));
 
             release.Set();
-            first.Wait();
+            first.Wait(Timeout);
             Assert.NotNull(jobs.Start("Other", "Done.", _ => { }));
         }
 
@@ -321,10 +471,10 @@ namespace varManager.App.Tests
                 context.Token.WaitHandle.WaitOne(5000);
                 context.Token.ThrowIfCancellationRequested();
             })!;
-            started.Wait();
+            Assert.True(started.Wait(Timeout));
 
-            jobs.Cancel();
-            job.Wait();
+            Shell().CancelCommand.Execute(null);
+            job.Wait(Timeout);
 
             Assert.Equal("Scan stopped.", jobs.Note);
             Assert.False(jobs.IsRunning);

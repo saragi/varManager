@@ -46,6 +46,9 @@ namespace varManager.Ui
                 || vars.StartsWith(packs + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                 return "The vars folder can't be AddonPackages or a folder inside it.";
 
+            if (File.Exists(packs))
+                return "AddonPackages is a file. Move or rename it, then try again.";
+
             var folder = new DirectoryInfo(packs);
             if (folder.Exists && !folder.Attributes.HasFlag(FileAttributes.ReparsePoint))
                 return "AddonPackages is a real folder. Move it into your library with the old varManager first.";

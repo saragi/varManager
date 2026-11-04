@@ -45,8 +45,14 @@ namespace varManager.Ui
         public bool IsRunning
         {
             get => isRunning;
-            private set => Set(ref isRunning, value);
+            private set
+            {
+                Set(ref isRunning, value);
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsIdle)));
+            }
         }
+
+        public bool IsIdle => !isRunning;
 
         public string Name
         {

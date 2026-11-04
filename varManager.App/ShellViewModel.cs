@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Windows.Input;
 
 namespace varManager.Ui
@@ -152,7 +153,7 @@ namespace varManager.Ui
                 if (Jobs.IsRunning)
                 {
                     Jobs.Say("Wait for the current job to finish before switching.");
-                    Changed();
+                    RevertSwitchBox();
                     return;
                 }
                 int errorCode;
@@ -160,7 +161,8 @@ namespace varManager.Ui
                 {
                     Jobs.Say($"Could not switch to {value}. AddonPackages has no link now, so choose a profile to try again. (Error {errorCode})");
                     selectedSwitch = null;
-                    Changed();
+                    LinkedText = "Nothing linked";
+                    RevertSwitchBox();
                     return;
                 }
                 selectedSwitch = value;
@@ -169,6 +171,16 @@ namespace varManager.Ui
                 VamBridge.RequestRescan(VamPath);
                 Jobs.Say("Switched to " + value + ".");
             }
+        }
+
+        // A ComboBox ignores a change raised while it is still setting the value, so this waits until it has finished.
+        private void RevertSwitchBox()
+        {
+            SynchronizationContext? context = SynchronizationContext.Current;
+            if (context == null)
+                Changed(nameof(SelectedSwitch));
+            else
+                context.Post(_ => Changed(nameof(SelectedSwitch)), null);
         }
 
         private void Open()
@@ -199,7 +211,15 @@ namespace varManager.Ui
             SetupProblem = problem ?? "";
             if (problem != null)
                 return;
-            settings.Save(settingsFile);
+            try
+            {
+                settings.Save(settingsFile);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                SetupProblem = "Could not save settings: " + ex.Message;
+                return;
+            }
             Open();
         }
 
