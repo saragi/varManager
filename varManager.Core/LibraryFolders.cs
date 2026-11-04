@@ -10,6 +10,7 @@ namespace varManager
         public const string OldVersionVars = "___OldVersionVars___";
         public const string DeletedVars = "___DeletedVars___";
         public const string Profiles = "___Profiles___";
+        public const string Holding = "___HoldingVars___";
 
         public const string AddonPacksSwitch = "___AddonPacksSwitch ___";
         public const string VarsLink = "___VarsLink___";

@@ -11,7 +11,7 @@ namespace varManager
         private static readonly string[] SortedFolders =
         {
             LibraryFolders.Tidied, LibraryFolders.Redundant, LibraryFolders.NotComplyRule,
-            LibraryFolders.StaleVars, LibraryFolders.OldVersionVars, LibraryFolders.DeletedVars
+            LibraryFolders.StaleVars, LibraryFolders.OldVersionVars, LibraryFolders.DeletedVars, LibraryFolders.Holding
         };
 
         public static bool IsVarName(string name)

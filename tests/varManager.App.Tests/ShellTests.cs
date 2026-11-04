@@ -218,7 +218,7 @@ namespace varManager.App.Tests
 
             Assert.Equal("lean", shell.SelectedSwitch);
             Assert.Equal(new[] { "default", "lean" }, shell.Switches);
-            Assert.Equal("1 packages linked", shell.LinkedText);
+            Assert.Equal("1 package linked", shell.LinkedText);
         }
 
         [Fact]

@@ -244,7 +244,17 @@
                     BorderThickness="1" CornerRadius="8" Visibility="{Binding HasSelection, Converter={StaticResource Visible}}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel>
-                        <Grid Height="150" Background="#26364A" Margin="0,0,0,12">
+                        <Grid Height="150" Margin="0,0,0,12">
+                            <Grid.Style>
+                                <Style TargetType="Grid">
+                                    <Setter Property="Background" Value="#26364A" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasMovePlan}" Value="True">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Grid.Style>
                             <Image Source="{Binding Selected.Thumbnail}" Stretch="UniformToFill" />
                         </Grid>
                         <TextBlock Text="{Binding Selected.Item.Package}" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap" />
@@ -269,6 +279,44 @@
                             <TextBlock Grid.Row="3" Text="Needs" Foreground="{StaticResource Muted}" FontSize="13" />
                             <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SelectedNeeds}" FontSize="13" />
                         </Grid>
+                        <Button Content="{Binding ToggleLabel}" Style="{StaticResource PrimaryButton}" Command="{Binding ToggleCommand}"
+                                IsEnabled="{Binding DataContext.Jobs.IsIdle, RelativeSource={RelativeSource AncestorType=Window}}" Margin="0,0,0,8" />
+                        <Button Content="Find missing on Hub" Margin="0,0,0,8"
+                                Command="{Binding DataContext.GoToMissingCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                Visibility="{Binding Selected.HasMissing, Converter={StaticResource Visible}}" />
+                        <Button Content="Move out of library" Command="{Binding PlanMoveCommand}" Margin="0,0,0,8"
+                                IsEnabled="{Binding DataContext.Jobs.IsIdle, RelativeSource={RelativeSource AncestorType=Window}}"
+                                Visibility="{Binding CanMove, Converter={StaticResource Visible}}" />
+                        <TextBlock Text="{Binding BlockedText}" Foreground="{StaticResource Warning}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,8"
+                                   Visibility="{Binding IsBlocked, Converter={StaticResource Visible}}" />
+                        <Border BorderBrush="{StaticResource Warning}" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,12"
+                                Visibility="{Binding HasMovePlan, Converter={StaticResource Visible}}">
+                            <StackPanel>
+                                <TextBlock FontSize="13" FontWeight="SemiBold" Margin="0,0,0,6">
+                                    <Run Text="Move out " /><Run Text="{Binding Selected.Item.Package, Mode=OneWay}" />
+                                </TextBlock>
+                                <TextBlock Text="{Binding MoveWarning}" Foreground="{StaticResource Warning}" FontSize="12" TextWrapping="Wrap" />
+                                <ItemsControl ItemsSource="{Binding MoveLines}" Focusable="False">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border BorderBrush="{StaticResource Edge}" BorderThickness="0,1,0,0" Padding="0,6">
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding Name}" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Text="{Binding State}" Style="{StaticResource MutedText}" />
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Text="Files go to a holding folder. Nothing is deleted, and you can undo." Style="{StaticResource MutedText}"
+                                           TextWrapping="Wrap" Margin="0,6,0,8" />
+                                <UniformGrid Columns="2">
+                                    <Button Content="Cancel" Command="{Binding CancelMoveCommand}" Margin="0,0,4,0" />
+                                    <Button Content="{Binding ConfirmMoveLabel}" Style="{StaticResource PrimaryButton}" Command="{Binding ConfirmMoveCommand}" Margin="4,0,0,0"
+                                            IsEnabled="{Binding DataContext.Jobs.IsIdle, RelativeSource={RelativeSource AncestorType=Window}}" />
+                                </UniformGrid>
+                            </StackPanel>
+                        </Border>
                         <ItemsControl ItemsSource="{Binding SelectedDependencies}" Focusable="False">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>

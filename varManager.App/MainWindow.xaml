@@ -88,6 +88,8 @@
         <Border Grid.Row="2" Background="{StaticResource Bar}" BorderBrush="{StaticResource Edge}" BorderThickness="0,1,0,0"
                 Padding="20,8" MinHeight="60">
             <DockPanel LastChildFill="False">
+                <Button DockPanel.Dock="Right" Content="Undo move" Command="{Binding Library.UndoMoveCommand}" Margin="12,0,0,0"
+                        IsEnabled="{Binding Jobs.IsIdle}" Visibility="{Binding Library.CanUndo, Converter={StaticResource Visible}, FallbackValue=Collapsed}" />
                 <Button DockPanel.Dock="Right" Content="Cancel" Command="{Binding CancelCommand}"
                         Visibility="{Binding Jobs.IsRunning, Converter={StaticResource Visible}}" />
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">

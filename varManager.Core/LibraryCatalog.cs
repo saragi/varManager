@@ -22,6 +22,7 @@ namespace varManager
         public VarState State { get; set; }
         public double FileSize { get; set; }
         public string PreviewPath { get; set; }
+        public string FilePath { get; set; }
         public IReadOnlyList<string> Dependencies { get; set; } = new string[0];
     }
 
@@ -104,6 +105,7 @@ namespace varManager
                     State = missing ? VarState.MissingDeps : linked.Contains(record.VarName) ? VarState.On : VarState.Off,
                     FileSize = record.FileSize ?? 0,
                     PreviewPath = preview,
+                    FilePath = System.IO.Path.Combine(varsPath, record.VarPath ?? "", record.VarName + ".var"),
                     Dependencies = needs,
                 });
             }

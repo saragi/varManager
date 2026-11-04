@@ -46,7 +46,7 @@ namespace varManager.App.Tests
 
         private async Task<LibraryViewModel> Library(int columns = 4)
         {
-            var library = new LibraryViewModel(storeFile, root, () => linked, null);
+            var library = new LibraryViewModel(storeFile, new LibraryPaths(root, root, root), new JobRunner(null), () => linked, null);
             await library.Reload();
             library.Columns = columns;
             return library;
@@ -521,7 +521,7 @@ namespace varManager.App.Tests
             Save("A.B.1");
             using var gate = new ManualResetEventSlim();
             int calls = 0;
-            var library = new LibraryViewModel(storeFile, root, () =>
+            var library = new LibraryViewModel(storeFile, new LibraryPaths(root, root, root), new JobRunner(null), () =>
             {
                 if (Interlocked.Increment(ref calls) == 1)
                 {

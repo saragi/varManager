@@ -88,6 +88,7 @@ namespace varManager.Ui
         public string Caption => Item.Creator + " · " + Item.Type;
         public string StateText => LibraryViewModel.StateText(Item.State);
         public string StateKey => Item.State.ToString();
+        public bool HasMissing => Item.State == VarState.MissingDeps;
 
         public bool IsSelected
         {
@@ -174,12 +175,28 @@ namespace varManager.Ui
         public string StateKey { get; }
     }
 
+    public sealed class MoveLine
+    {
+        public MoveLine(string name, string state, bool moves)
+        {
+            Name = name;
+            State = state;
+            StateKey = moves ? "MissingDeps" : "On";
+        }
+
+        public string Name { get; }
+        public string State { get; }
+        public string StateKey { get; }
+    }
+
     /// <summary>The Library screen: one search box, filter pills, a gallery and a detail panel.</summary>
     public sealed class LibraryViewModel : Observable
     {
         private const string All = "All";
 
         private readonly ThumbnailLoader thumbnails = new ThumbnailLoader();
+        private readonly JobRunner jobs;
+        private readonly LibraryPaths paths;
         private readonly SynchronizationContext? ui;
         private readonly Func<IReadOnlyCollection<string>> linkedVars;
         private readonly string storeFile;
@@ -188,6 +205,10 @@ namespace varManager.Ui
         private List<LibraryItem> items = new List<LibraryItem>();
         private Dictionary<string, LibraryTile> tiles = new Dictionary<string, LibraryTile>(StringComparer.OrdinalIgnoreCase);
         private VarIndex index = new VarIndex(new VarEntry[0]);
+        private DependencyIndex dependencies = new DependencyIndex(new KeyValuePair<string, string>[0]);
+        private LibraryUsage usage = new LibraryUsage(new VarIndex(new VarEntry[0]), new KeyValuePair<string, string>[0]);
+        private MovePlan? movePlan;
+        private string? undoFolder;
         private ISet<string> linked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private List<LibraryItem> shown = new List<LibraryItem>();
         private string query = "";
@@ -199,12 +220,20 @@ namespace varManager.Ui
         private IReadOnlyList<object> rows = new object[0];
         private int reloads;
 
-        public LibraryViewModel(string storeFile, string varsPath, Func<IReadOnlyCollection<string>> linkedVars, SynchronizationContext? ui)
+        public LibraryViewModel(string storeFile, LibraryPaths paths, JobRunner jobs, Func<IReadOnlyCollection<string>> linkedVars, SynchronizationContext? ui)
         {
             this.storeFile = storeFile;
-            this.varsPath = varsPath;
+            this.paths = paths;
+            this.jobs = jobs;
+            varsPath = paths.VarsPath;
             this.linkedVars = linkedVars;
             this.ui = ui;
+            undoFolder = MoveOut.LatestHolding(varsPath);
+            ToggleCommand = new Command(Toggle);
+            PlanMoveCommand = new Command(PlanMove);
+            ConfirmMoveCommand = new Command(ConfirmMove);
+            CancelMoveCommand = new Command(() => MovePlan = null);
+            UndoMoveCommand = new Command(UndoMove);
             AddAuthorCommand = new ArgCommand<string>(AddAuthor);
             RemoveAuthorCommand = new ArgCommand<string>(RemoveAuthor);
             ToggleAuthorCommand = new ArgCommand<string>(ToggleAuthor);
@@ -228,6 +257,12 @@ namespace varManager.Ui
         public ICommand RemoveAuthorCommand { get; }
         public ICommand ToggleAuthorCommand { get; }
         public ICommand SelectCommand { get; }
+        public ICommand ToggleCommand { get; }
+        public ICommand PlanMoveCommand { get; }
+        public ICommand ConfirmMoveCommand { get; }
+        public ICommand CancelMoveCommand { get; }
+        public ICommand UndoMoveCommand { get; }
+        public ObservableCollection<MoveLine> MoveLines { get; } = new ObservableCollection<MoveLine>();
 
         // Replaced whole, because adding 1,500 rows one by one would raise 1,500 changes on every keystroke.
         public IReadOnlyList<object> Rows
@@ -289,9 +324,16 @@ namespace varManager.Ui
                 selected = value;
                 if (selected != null)
                     selected.IsSelected = true;
+                // A reload picks the same package again, and that mustn't lose its plan.
+                if (movePlan != null && !string.Equals(movePlan.Target, value?.Item.VarName, StringComparison.OrdinalIgnoreCase))
+                    MovePlan = null;
                 RefreshDependencies();
                 Changed();
                 Changed(nameof(HasSelection));
+                Changed(nameof(ToggleLabel));
+                Changed(nameof(CanMove));
+                Changed(nameof(BlockedText));
+                Changed(nameof(IsBlocked));
                 Changed(nameof(SelectedSize));
                 Changed(nameof(SelectedNeeds));
                 Changed(nameof(SelectedState));
@@ -310,6 +352,66 @@ namespace varManager.Ui
             }
         }
 
+        public bool IsOn => selected != null && linked.Contains(selected.Item.VarName);
+
+        /// <summary>Says how many other vars come along before anything happens.</summary>
+        public string ToggleLabel
+        {
+            get
+            {
+                if (selected == null)
+                    return "";
+                if (IsOn)
+                {
+                    int others = LinkedImplicated(selected.Item.VarName).Count - 1;
+                    return others <= 0 ? "Turn off" : others == 1 ? "Turn off, with 1 var that needs it" : $"Turn off, with {others} vars that need it";
+                }
+                int more = NotLinkedClosure(selected.Item.VarName).Count - 1;
+                return more <= 0 ? "Turn on" : more == 1 ? "Turn on, with 1 dependency" : $"Turn on, with {more} dependencies";
+            }
+        }
+
+        public bool IsBlocked => selected != null && usage.NeedersOf(selected.Item.VarName).Any();
+        public bool CanMove => selected != null && !IsBlocked && movePlan == null;
+        public bool HasMovePlan => movePlan != null;
+        public bool CanUndo => undoFolder != null;
+
+        public string BlockedText
+        {
+            get
+            {
+                int count = selected == null ? 0 : usage.NeedersOf(selected.Item.VarName).Count();
+                return count == 1 ? "Can't move out: 1 other var needs this package." : $"Can't move out: {count} other vars need this package.";
+            }
+        }
+
+        public string MoveWarning => movePlan?.TargetInUseOutsideVars == true
+            ? "A profile or a scene in Saves uses this package, and will lose it."
+            : "";
+
+        public string ConfirmMoveLabel
+        {
+            get
+            {
+                int count = movePlan?.Moves.Count ?? 0;
+                return count == 1 ? "Move 1 var" : $"Move {count} vars";
+            }
+        }
+
+        private MovePlan? MovePlan
+        {
+            get => movePlan;
+            set
+            {
+                movePlan = value;
+                RefreshMoveLines();
+                Changed(nameof(HasMovePlan));
+                Changed(nameof(CanMove));
+                Changed(nameof(MoveWarning));
+                Changed(nameof(ConfirmMoveLabel));
+            }
+        }
+
         public static string StateText(VarState state)
         {
             return state == VarState.On ? "On" : state == VarState.Off ? "Off" : "Missing deps";
@@ -325,13 +427,20 @@ namespace varManager.Ui
         public async Task Reload()
         {
             int reload = ++reloads;
-            (ISet<string> names, List<LibraryItem> loaded) = await Task.Run(() =>
+            (ISet<string> names, List<LibraryItem> loaded, VarIndex newIndex, DependencyIndex newDependencies, LibraryUsage newUsage) = await Task.Run(() =>
             {
                 ISet<string> found = new HashSet<string>(linkedVars(), StringComparer.OrdinalIgnoreCase);
-                if (!File.Exists(storeFile))
-                    return (found, new List<LibraryItem>());
-                using LibraryStore store = LibraryStore.Open(storeFile);
-                return (found, LibraryCatalog.Load(store, varsPath, found));
+                List<LibraryItem> read = new List<LibraryItem>();
+                if (File.Exists(storeFile))
+                {
+                    using LibraryStore store = LibraryStore.Open(storeFile);
+                    read = LibraryCatalog.Load(store, varsPath, found);
+                }
+                var vars = new VarIndex(read.Select(i => new VarEntry(i.VarName, i.Creator, i.Package, i.Version)));
+                List<KeyValuePair<string, string>> pairs = read
+                    .SelectMany(i => i.Dependencies.Select(d => new KeyValuePair<string, string>(i.VarName, d)))
+                    .ToList();
+                return (found, read, vars, new DependencyIndex(pairs), new LibraryUsage(vars, pairs));
             }).ConfigureAwait(true);
 
             // An older reload that finishes late has stale link state.
@@ -342,7 +451,9 @@ namespace varManager.Ui
             items = loaded;
             linked = names;
             Changed(nameof(LinkedCount));
-            index = new VarIndex(items.Select(i => new VarEntry(i.VarName, i.Creator, i.Package, i.Version)));
+            index = newIndex;
+            dependencies = newDependencies;
+            usage = newUsage;
             tiles = items.ToDictionary(i => i.VarName, i => new LibraryTile(i, thumbnails, ui), StringComparer.OrdinalIgnoreCase);
             Selected = keep != null && tiles.TryGetValue(keep, out LibraryTile? tile) ? tile : null;
             RefreshSuggestions();
@@ -368,6 +479,138 @@ namespace varManager.Ui
         {
             if (query.Length == 0 && AuthorTags.Count > 0)
                 RemoveAuthor(AuthorTags[^1]);
+        }
+
+        private List<string> NotLinkedClosure(string varName)
+        {
+            return DependencyAnalysis.WithDependencies(new[] { varName }, index, dependencies)
+                .Where(name => !linked.Contains(name))
+                .ToList();
+        }
+
+        private List<string> LinkedImplicated(string varName)
+        {
+            return DependencyAnalysis.ImplicatedVars(new[] { varName }, index, dependencies)
+                .Where(linked.Contains)
+                .ToList();
+        }
+
+        private void Toggle()
+        {
+            if (selected == null)
+                return;
+            string varName = selected.Item.VarName;
+            Dictionary<string, string> files = items.ToDictionary(i => i.VarName, i => i.FilePath, StringComparer.OrdinalIgnoreCase);
+            if (IsOn)
+            {
+                List<string> off = LinkedImplicated(varName);
+                jobs.Start("Turning off", context =>
+                {
+                    Dictionary<string, string> installed = VarLinks.Installed(paths.AddonPackages);
+                    int removed = off.Count(name => VarLinks.Remove(installed, name));
+                    VamBridge.RequestRescan(paths.VamPath);
+                    return removed == 1 ? "Turned off 1 var." : $"Turned off {removed} vars.";
+                });
+                return;
+            }
+
+            List<string> on = NotLinkedClosure(varName);
+            jobs.Start("Turning on", context =>
+            {
+                Directory.CreateDirectory(Path.Combine(paths.AddonPackages, LibraryFolders.VarsLink));
+                int failed = 0;
+                foreach (string name in on)
+                {
+                    if (VarLinks.Install(paths.AddonPackages, name, files[name], false, out _) == VarLinkResult.Failed)
+                        failed++;
+                }
+                VamBridge.RequestRescan(paths.VamPath);
+                int done = on.Count - failed;
+                string text = done == 1 ? "Turned on 1 var." : $"Turned on {done} vars.";
+                return failed == 0 ? text : $"{text} {failed} could not be linked.";
+            });
+        }
+
+        private void PlanMove()
+        {
+            if (selected == null)
+                return;
+            string target = selected.Item.VarName;
+            VarIndex vars = index;
+            LibraryUsage current = usage;
+            jobs.Start("Checking what can move", context =>
+            {
+                var problems = new List<string>();
+                ISet<string> outside = MoveOut.ReferencedOutsideVars(paths, vars, problems.Add);
+                MovePlan plan = MoveOut.Plan(target, current, outside);
+                ShowOnUi(() =>
+                {
+                    if (selected?.Item.VarName == target)
+                        MovePlan = plan;
+                });
+                return problems.Count == 0 ? "Check the list before moving." : $"Check the list before moving. {problems.Count} saves could not be read.";
+            });
+        }
+
+        private void ConfirmMove()
+        {
+            if (movePlan == null)
+                return;
+            MovePlan plan = movePlan;
+            Dictionary<string, string> files = items.ToDictionary(i => i.VarName, i => i.FilePath, StringComparer.OrdinalIgnoreCase);
+            Task? started = jobs.Start("Moving out", context =>
+            {
+                string holding = MoveOut.Apply(plan, name => files[name], paths);
+                using (LibraryStore store = LibraryStore.Open(storeFile))
+                    store.DeleteVars(plan.Moves);
+                ShowOnUi(() => SetUndo(holding));
+                VamBridge.RequestRescan(paths.VamPath);
+                return plan.Moves.Count == 1 ? "Moved 1 var to the holding folder." : $"Moved {plan.Moves.Count} vars to the holding folder.";
+            });
+
+            // A plan stays on screen if another job kept this one from starting.
+            if (started != null)
+                MovePlan = null;
+        }
+
+        private void UndoMove()
+        {
+            string? holding = undoFolder;
+            if (holding == null)
+                return;
+            jobs.Start("Undoing move", context =>
+            {
+                List<string> problems = MoveOut.Undo(holding);
+                using (LibraryStore store = LibraryStore.Open(storeFile))
+                    LibraryUpdate.Run(store, paths, context.Report, context.Token);
+                ShowOnUi(() => SetUndo(MoveOut.LatestHolding(varsPath)));
+                return problems.Count == 0 ? "Move undone." : $"Move undone, except {problems.Count} files: {problems[0]}";
+            });
+        }
+
+        private void SetUndo(string? folder)
+        {
+            undoFolder = folder;
+            Changed(nameof(CanUndo));
+        }
+
+        private void ShowOnUi(Action action)
+        {
+            if (ui == null)
+                action();
+            else
+                ui.Post(_ => action(), null);
+        }
+
+        private void RefreshMoveLines()
+        {
+            MoveLines.Clear();
+            if (movePlan == null)
+                return;
+            foreach (string name in movePlan.Moves)
+                MoveLines.Add(new MoveLine(name, name == movePlan.Target ? "Moves" : "Moves, only used here", true));
+            foreach (KeyValuePair<string, string> stay in movePlan.Stays)
+                MoveLines.Add(new MoveLine(stay.Key, stay.Value, false));
         }
 
         private void AddAuthor(string name)

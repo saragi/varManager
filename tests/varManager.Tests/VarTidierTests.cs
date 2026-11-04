@@ -81,7 +81,7 @@ namespace varManagerTests
             foreach (string folder in new[]
             {
                 LibraryFolders.Tidied, LibraryFolders.Redundant, LibraryFolders.NotComplyRule,
-                LibraryFolders.StaleVars, LibraryFolders.OldVersionVars, LibraryFolders.DeletedVars
+                LibraryFolders.StaleVars, LibraryFolders.OldVersionVars, LibraryFolders.DeletedVars, LibraryFolders.Holding
             })
                 Touch(repo, folder + @"\E.F.1.var");
 

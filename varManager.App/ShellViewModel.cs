@@ -76,6 +76,7 @@ namespace varManager.Ui
             selectedPage = Pages[0];
             LaunchCommand = new Command(Launch);
             UpdateCommand = new Command(UpdateDb);
+            GoToMissingCommand = new Command(() => SelectedPage = Pages[^1]);
             CancelCommand = new Command(jobs.Cancel);
             SaveSetupCommand = new Command(SaveSetup);
             Open();
@@ -98,6 +99,7 @@ namespace varManager.Ui
 
         public ICommand LaunchCommand { get; }
         public ICommand UpdateCommand { get; }
+        public ICommand GoToMissingCommand { get; }
         public ICommand CancelCommand { get; }
         public ICommand SaveSetupCommand { get; }
 
@@ -232,7 +234,7 @@ namespace varManager.Ui
                 await reading.Reload().ConfigureAwait(true);
                 // After a failed switch nothing is linked, and a read that started earlier mustn't say otherwise.
                 if (selectedSwitch != null)
-                    LinkedText = $"{reading.LinkedCount:N0} packages linked";
+                    LinkedText = reading.LinkedCount == 1 ? "1 package linked" : $"{reading.LinkedCount:N0} packages linked";
             }
             catch (Exception ex)
             {
@@ -302,7 +304,8 @@ namespace varManager.Ui
             selectedSwitch = VarSwitches.EnsureLink(VamPath);
             Changed(nameof(SelectedSwitch));
             string packs = VarSwitches.AddonPackages(VamPath);
-            Library = new LibraryViewModel(StoreFile, VarsPath, () => VarLinks.Installed(packs).Keys, SynchronizationContext.Current);
+            Library = new LibraryViewModel(StoreFile, new LibraryPaths(VarsPath, VamPath, dataFolder), Jobs,
+                () => VarLinks.Installed(packs).Keys, SynchronizationContext.Current);
             ImportOldDatabase();
             if (!Jobs.IsRunning)
                 ReloadLibrary();
