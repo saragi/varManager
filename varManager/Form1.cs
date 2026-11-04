@@ -732,6 +732,11 @@ namespace varManager
                 this.Close();
                 return;
             }
+            if (!MigrateRealAddonPackages(packpath, varspath))
+            {
+                this.Close();
+                return;
+            }
 
             mutex = new System.Threading.Mutex();
 
@@ -783,14 +788,14 @@ namespace varManager
             dipackpath = new DirectoryInfo(packpath);
             if (!dipackpath.Exists)
             {
-                Comm.CreateSymbolicLink(packpath, Path.Combine(packsSwitchpath, "default"), Comm.SYMBOLIC_LINK_FLAG.Directory);
+                Comm.CreateSymbolicLink(packpath, Path.Combine(packsSwitchpath, "default"), Comm.SYMBOLIC_LINK_FLAG.Directory | Comm.SYMBOLIC_LINK_FLAG.AllowUnprivilegedCreate);
             }
 
             DirectoryInfo diswitch = new DirectoryInfo(Comm.ReparsePoint(packpath));
             if (!diswitch.Exists)
             {
                 dipackpath.Delete();
-                Comm.CreateSymbolicLink(packpath, Path.Combine(packsSwitchpath, "default"), Comm.SYMBOLIC_LINK_FLAG.Directory);
+                Comm.CreateSymbolicLink(packpath, Path.Combine(packsSwitchpath, "default"), Comm.SYMBOLIC_LINK_FLAG.Directory | Comm.SYMBOLIC_LINK_FLAG.AllowUnprivilegedCreate);
             }
             diswitch = new DirectoryInfo(Comm.ReparsePoint(packpath));
             if (comboBoxPacksSwitch.Items.IndexOf(diswitch.Name) >= 0)
@@ -820,6 +825,43 @@ namespace varManager
             }
         }
         
+        /// <summary>
+        /// Moves a real AddonPackages folder into the repository, after showing the plan.
+        /// Returns false if startup must stop, so nothing below runs on an unmigrated folder.
+        /// </summary>
+        private bool MigrateRealAddonPackages(string packpath, string varspath)
+        {
+            DirectoryInfo packInfo = new DirectoryInfo(packpath);
+            if (!packInfo.Exists || packInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                return true;
+            if (Process.GetProcessesByName("vam").Length > 0)
+            {
+                MessageBox.Show("Please close VaM first. varManager needs to move files out of AddonPackages.");
+                return false;
+            }
+            string[] linkDirs = { installLinkDirName, missingVarLinkDirName, tempVarLinkDirName };
+            MigrationPlan plan = LibraryMigration.Plan(packpath, varspath, tidiedDirName, redundantDirName, linkDirs);
+            if (plan.Actions.Count == 0 && plan.LeftInPlace.Count == 0)
+                return true;
+            using (FormMigrationPreview preview = new FormMigrationPreview(plan, packpath, varspath))
+            {
+                if (preview.ShowDialog(this) != DialogResult.OK)
+                    return false;
+            }
+            string logPath = Path.Combine(varspath, "___MigrationLogs___", $"migration-{DateTime.Now:yyyyMMdd-HHmmss}.tsv");
+            try
+            {
+                LibraryMigration.Apply(plan, logPath, Path.Combine(Directory.GetCurrentDirectory(), "varsForInstall.txt"));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"The move stopped: {ex.Message}\r\n\r\nTo put files back, run:\r\nvarManager.exe --undo-migration \"{logPath}\"");
+                return false;
+            }
+            MessageBox.Show($"Files moved. Run UPD_DB next to link your enabled vars back.\r\n\r\nLog: {logPath}");
+            return true;
+        }
+
         private void FillDataTables()
         {
             this.BeginInvoke(addlog, new Object[] { $"load vars...", LogLevel.INFO });
@@ -1358,7 +1400,7 @@ namespace varManager
 
                     string destvarfile = Path.Combine(Settings.Default.varspath, varsrow.varPath, varsrow.varName + ".var");
 
-                    if (!Comm.CreateSymbolicLink(linkvar, destvarfile, Comm.SYMBOLIC_LINK_FLAG.File))
+                    if (!Comm.CreateSymbolicLink(linkvar, destvarfile, Comm.SYMBOLIC_LINK_FLAG.File | Comm.SYMBOLIC_LINK_FLAG.AllowUnprivilegedCreate))
                     {
                         MessageBox.Show("Error: Unable to create symbolic link. " +
                                 "(Error Code: " + Marshal.GetLastWin32Error() + ")");
@@ -1659,7 +1701,7 @@ namespace varManager
                         if (varsrow != null)
                         {
                             string destvarfile = Path.Combine(Settings.Default.varspath, varsrow.varPath, varsrow.varName + ".var");
-                            Comm.CreateSymbolicLink(linkvar, destvarfile, Comm.SYMBOLIC_LINK_FLAG.File);
+                            Comm.CreateSymbolicLink(linkvar, destvarfile, Comm.SYMBOLIC_LINK_FLAG.File | Comm.SYMBOLIC_LINK_FLAG.AllowUnprivilegedCreate);
                             Comm.SetSymboLinkFileTime(linkvar, File.GetCreationTime(destvarfile), File.GetLastWriteTime(destvarfile));
                         }
                     }
@@ -1749,6 +1791,8 @@ namespace varManager
             this.varManagerDataSet.savedepens.Clear();
             this.varManagerDataSet.savedepens.AcceptChanges();
             this.savedepensTableAdapter.Fill(this.varManagerDataSet.savedepens);
+            ILookup<string, varManagerDataSet.savedepensRow> savedRows =
+                this.varManagerDataSet.savedepens.ToLookup(q => q.savepath, StringComparer.Ordinal);
             List<string> savefiles = Directory.GetFiles(Path.Combine(Settings.Default.vampath, "Saves"), "*.json", SearchOption.AllDirectories).ToList();
             savefiles.AddRange(Directory.GetFiles(Path.Combine(Settings.Default.vampath, "Custom"), "*.vap", SearchOption.AllDirectories));
             foreach (string jsonfile in savefiles)
@@ -1759,9 +1803,9 @@ namespace varManager
 
                 this.BeginInvoke(addlog, new Object[] { $"Analyze { Path.GetFileName(jsonfile)} ...", LogLevel.INFO });
 
-                var rows = this.varManagerDataSet.savedepens.Where(q => q.savepath == savepath && Math.Abs((q.modidate - fi.LastWriteTime).TotalSeconds) <= 2);
+                var rows = savedRows[savepath].Where(q => Math.Abs((q.modidate - fi.LastWriteTime).TotalSeconds) <= 2).ToList();
 
-                if (rows.Count() > 0)
+                if (rows.Count > 0)
                 {
                     foreach (var row in rows)
                     {
@@ -2943,7 +2987,7 @@ namespace varManager
                 if (Comm.ReparsePoint(dipack.FullName).ToLower() != diswitch.FullName.ToLower())
                 {
                     dipack.Delete();
-                    if (!Comm.CreateSymbolicLink(dipack.FullName, diswitch.FullName, Comm.SYMBOLIC_LINK_FLAG.Directory))
+                    if (!Comm.CreateSymbolicLink(dipack.FullName, diswitch.FullName, Comm.SYMBOLIC_LINK_FLAG.Directory | Comm.SYMBOLIC_LINK_FLAG.AllowUnprivilegedCreate))
                     {
                         MessageBox.Show("Error: create AddonPackages symbolic link. " +
                                 "(Error Code: " + Marshal.GetLastWin32Error() + ")");
@@ -2958,7 +3002,7 @@ namespace varManager
             }
             else
             {
-                if (!Comm.CreateSymbolicLink(dipack.FullName, diswitch.FullName, Comm.SYMBOLIC_LINK_FLAG.Directory))
+                if (!Comm.CreateSymbolicLink(dipack.FullName, diswitch.FullName, Comm.SYMBOLIC_LINK_FLAG.Directory | Comm.SYMBOLIC_LINK_FLAG.AllowUnprivilegedCreate))
                 {
                     MessageBox.Show("Error: create AddonPackages symbolic link. " +
                             "(Error Code: " + Marshal.GetLastWin32Error() + ")");

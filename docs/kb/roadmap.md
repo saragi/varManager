@@ -12,15 +12,9 @@ Goal: make VaM faster through lean, reliable symlink profiles, without rewriting
 | 5 | Browsing: search filters, labels, `.hide` and `.fav` sync, content gallery, dependency graph |
 | 6 | Hub downloads: parallel dependencies, sizes and cancel, search by exact package name |
 
-## Migration requirements
+## Migration
 
-An existing real `AddonPackages` needs all of this before varManager takes it over:
-
-- Dry-run preview and a move log
-- Handling for `.var.disabled` files, which may hold real content
-- Handling for preview images and `.depend.txt` companion files
-- Repository on the same drive as VaM, so moves are instant and need no extra space
-- A test on a small copy first
+Built and tested on a small copy of real vars: preview, move, Update DB, and undo with file hashes unchanged. It stores `.var.disabled` content as unlinked vars, keeps companion files beside their vars, and refuses a repository on a different drive. Migrating a real library is still a separate decision.
 
 ## Decisions
 

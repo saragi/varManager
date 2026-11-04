@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <Compile Include="..\..\varManager\VarIndex.cs" Link="VarIndex.cs" />
+    <Compile Include="..\..\varManager\LibraryMigration.cs" Link="LibraryMigration.cs" />
   </ItemGroup>
 
   <ItemGroup>

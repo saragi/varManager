@@ -83,6 +83,10 @@
   <ItemGroup>
     <Compile Include="Comm.cs" />
     <Compile Include="VarIndex.cs" />
+    <Compile Include="LibraryMigration.cs" />
+    <Compile Include="FormMigrationPreview.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Content Include="Custom\Scripts\loadscene.cs">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

@@ -199,7 +199,7 @@ namespace varManager
                     {
                         string missingvar = Path.Combine(Settings.Default.vampath, "AddonPackages", missingVarLinkDirName, missingvarname + ".var");
                         string destvarfile = Path.Combine(Settings.Default.varspath, varsrow.varPath, varsrow.varName + ".var");
-                        Comm.CreateSymbolicLink(missingvar, destvarfile, Comm.SYMBOLIC_LINK_FLAG.File);
+                        Comm.CreateSymbolicLink(missingvar, destvarfile, Comm.SYMBOLIC_LINK_FLAG.File | Comm.SYMBOLIC_LINK_FLAG.AllowUnprivilegedCreate);
                         Comm.SetSymboLinkFileTime(missingvar, File.GetCreationTime(destvarfile), File.GetLastWriteTime(destvarfile));
                         //File.SetCreationTime(missingvar, File.GetCreationTime(destvarfile));
                         //File.SetLastWriteTime(missingvar, File.GetLastWriteTime(destvarfile));
