@@ -12,17 +12,17 @@ The clickable mockup is at https://claude.ai/artifact/2ugrax4vYy63wpfpRVBKWH. Th
 - Logic with no UI is in `varManager.Core`. The WinForms app links those files.
 - The WPF app does not exist yet.
 
-## Blocker
+## SDK
 
-Only the .NET SDK 3.1 is installed, and the WPF app needs the .NET 10 SDK. If `dotnet --list-sdks` shows no 10.x, stop and ask the user to install it. Don't install it yourself.
+The .NET SDK 10.0.403 is installed. If `dotnet --list-sdks` ever shows no 10.x, stop and ask the user to install it. Don't install it yourself.
 
-Once it is installed, Visual Studio's MSBuild may be able to load modern projects. If so, replace the links in `varManager.csproj` with a project reference to `varManager.Core`.
+Visual Studio's MSBuild may now be able to load modern projects. If so, replace the links in `varManager.csproj` with a project reference to `varManager.Core`.
 
 ## Steps
 
 Do them in order. Tick each one when it is committed, reviewed and pushed.
 
-- [ ] 0. Review commit `558c942` and the handover commit with the loop below, then push.
+- [x] 0. Review commit `558c942` and the handover commit with the loop below, then push.
 - [ ] 1. Confirm the SDK. Create `varManager.App` (WPF, `net10.0-windows`) referencing `varManager.Core`, with a test project that can target it.
 - [ ] 2. Add a SQLite store to Core, with a one-time import from `varManager.mdb` that only reads the Access file. Keep the schema simple. Prove it on a copy.
 - [ ] 3. Move logic out of `Form1.cs` into Core, one area per commit, keeping WinForms working: Tidy, Update DB scan, install and link, switches, scenes and previews, dependency analysis.
@@ -58,12 +58,12 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - Never run anything against `D:\X` that changes it. Read-only inspection is fine. Use fake folders, as `CLAUDE.md` describes.
 - Commit, then run the review loop: 3 subagents in parallel on correctness, regressions and tests, never the Fable model. Fix real findings, commit, repeat until a round is clean, then push. Report findings and rejections.
 - Keep the WinForms checks green: `dotnet test` in `tests\varManager.Tests`, the MSBuild command in `CLAUDE.md`, and `powershell -NoProfile -ExecutionPolicy Bypass -File .claude\skills\verify\scripts\smoke.ps1`.
-- `.claude\skills\verify\scripts\missing_e2e.ps1` tests Missing end to end on fake folders with the real Hub. It downloads a few small free packages and cancels.
+- `.claude\skills\verify\scripts\missing_e2e.ps1` tests Missing end to end on fake folders with the real Hub. It downloads a few small free packages and cancels, and exits non-zero when a check fails. Build Release first.
 - The user is on Pro with extra usage off, so keep output short and work inline. Stage exact paths.
 
 ## Traps
 
-- Files are CRLF, and many have a BOM. Bash heredocs and `sed` mangle backslashes, so write Python patch scripts with the Write tool, using an assert-once replace.
+- Files are CRLF, and many have a BOM. Bash heredocs and `sed` mangle backslashes, so write Python patch scripts with the Write tool, using an assert-once replace. `sed -i` also strips CRLF from the working file.
 - In Python, `"..\varManager"` contains a `\v` control character. Escape backslashes.
 - `var` is a reserved word in PowerShell, so don't name a function that.
 - WinForms timers tick inside modal dialogs. `CanFocus` is false while one is open.
