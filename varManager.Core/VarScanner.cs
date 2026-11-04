@@ -225,13 +225,7 @@ namespace varManager
             string folder = Path.Combine(previewRoot, type, varName);
             Directory.CreateDirectory(folder);
             string name = type + number.ToString("000") + "_" + stem.ToLower() + ".jpg";
-            string path = Path.Combine(folder, name);
-            if (!File.Exists(path))
-            {
-                using (FileStream output = File.Create(path))
-                using (Stream input = zip.GetInputStream(jpg))
-                    input.CopyTo(output);
-            }
+            ScenePreviews.Extract(zip, jpg, Path.Combine(folder, name));
             return name;
         }
 

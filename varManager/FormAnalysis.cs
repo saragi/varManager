@@ -43,26 +43,6 @@ namespace varManager
             listJsonPerson = new List<JSONClass>();
             parentAtoms = new Dictionary<string, List<string>>();
         }
-        public static string GetCharacterGender(string character)
-        {
-            string isMale = "Female";
-            character= character.ToLower();
-            // If the peson atom is not "On", then we cant determine their gender it seems as GetComponentInChildren<DAZCharacter> just returns null
-            if (character.StartsWith("male") ||
-                    character.StartsWith("lee") ||
-                    character.StartsWith("jarlee") ||
-                    character.StartsWith("julian") ||
-                    character.StartsWith("jarjulian"))
-            {
-                isMale = "Male";
-            }
-            if (character.StartsWith("futa"))
-            {
-                isMale = "Futa";
-            }
-            return (isMale);
-        }
-
         private void FormAnalysis_Load(object sender, EventArgs e)
         {
             labelSceneName.Text = varName + ":/" + entryName;
@@ -136,8 +116,7 @@ namespace varManager
         {
             triStateTreeViewAtoms.Nodes.Clear();
             TreeNode treenodeCur = triStateTreeViewAtoms.Nodes.Add(varName + ":/" + entryName);
-            string sceneFoldername = Path.Combine(Directory.GetCurrentDirectory(), "Cache",
-                        Comm.ValidFileName(varName), Comm.ValidFileName(entryName.Replace('\\', '_').Replace('/', '_')));
+            string sceneFoldername = SceneAnalysis.CacheFolder(varName, entryName);
             jsonCoreControl = new JSONClass();
             atomnodes = new List<TreeNode>();
             GetAtoms(sceneFoldername, treenodeCur);
@@ -205,7 +184,7 @@ namespace varManager
             {
                 if (storablesitem["id"].Value == "geometry")
                 {
-                    charGender = GetCharacterGender(storablesitem["character"].Value);
+                    charGender = SceneAnalysis.CharacterGender(storablesitem["character"].Value);
                     break;
                 }
             }
@@ -508,7 +487,7 @@ namespace varManager
                     if (storablesitem.HasKey("useFemaleMorphsOnMale"))
                         jsonMorphsGeometry.Add("useFemaleMorphsOnMale", storablesitem["useFemaleMorphsOnMale"].Value);
                     if (skin) jsonPresetGeometry.Add("character", storablesitem["character"].Value);
-                    CharacterGender = GetCharacterGender(storablesitem["character"].Value);
+                    CharacterGender = SceneAnalysis.CharacterGender(storablesitem["character"].Value);
                     jsonSkinGeometry.Add("character", storablesitem["character"]);
                    
                     jsonMorphsGeometry.Add("morphs",storablesitem["morphs"]);
@@ -877,8 +856,7 @@ namespace varManager
         private void buttonLoadScene_Click(object sender, EventArgs e)
         {
             /*
-            string sceneFoldername = Path.Combine(Directory.GetCurrentDirectory(), "Cache",
-                           Comm.ValidFileName(varName), Comm.ValidFileName(entryName.Replace('\\', '_').Replace('/', '_')));
+            string sceneFoldername = SceneAnalysis.CacheFolder(varName, entryName);
            
             JSONClass jsonScene = (JSONClass)JSONNode.LoadFromFile(Path.Combine(sceneFoldername, "posinfo.bin"));
             JSONArray jsonAtoms=new JSONArray();
@@ -935,18 +913,8 @@ namespace varManager
 
         public void GenLoadscenetxt()
         {
-            string sceneFoldername = Path.Combine(Directory.GetCurrentDirectory(), "Cache",
-                           Comm.ValidFileName(varName), Comm.ValidFileName(entryName.Replace('\\', '_').Replace('/', '_')));
-            string dependfFilename = Path.Combine(sceneFoldername, "depend.txt");
-            List<string> depends = new List<string>();
-            using (StreamReader sr = new StreamReader(dependfFilename))
-            {
-                string depend;
-                while ((depend = sr.ReadLine()) != null)
-                {
-                    depends.Add(depend);
-                }
-            }
+            string sceneFoldername = SceneAnalysis.CacheFolder(varName, entryName);
+            List<string> depends = SceneAnalysis.ReadDepends(sceneFoldername);
 
             JSONClass jsonls =new JSONClass();
             jsonls["resources"] = new JSONArray();
@@ -1096,8 +1064,7 @@ namespace varManager
 
         private void AddToScene(bool asSubScene=false)
         {
-            string sceneFoldername = Path.Combine(Directory.GetCurrentDirectory(), "Cache",
-                           Comm.ValidFileName(varName), Comm.ValidFileName(entryName.Replace('\\', '_').Replace('/', '_')));
+            string sceneFoldername = SceneAnalysis.CacheFolder(varName, entryName);
             
             string pathPlugindata = Path.Combine(Settings.Default.vampath, "Custom\\PluginData\\feelfar");
             Directory.Delete(pathPlugindata, true);

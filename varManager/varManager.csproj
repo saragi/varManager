@@ -356,6 +356,12 @@
     <Compile Include="..\varManager.Core\VamBridge.cs">
       <Link>Core\VamBridge.cs</Link>
     </Compile>
+    <Compile Include="..\varManager.Core\ScenePreviews.cs">
+      <Link>Core\ScenePreviews.cs</Link>
+    </Compile>
+    <Compile Include="..\varManager.Core\SceneAnalysis.cs">
+      <Link>Core\SceneAnalysis.cs</Link>
+    </Compile>
     <Compile Include="..\varManager.Core\HubDownloader.cs">
       <Link>Core\HubDownloader.cs</Link>
     </Compile>

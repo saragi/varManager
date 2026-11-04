@@ -764,22 +764,7 @@ namespace varManager
 
         private void DelePreviewPics(string varname)
         {
-            string[] typenames = { "scenes", "looks", "hairstyle", "clothing", "assets","morphs","skin","pose"};
-            foreach (string typename in typenames)
-            {
-                string typepath = Path.Combine(Settings.Default.varspath, previewpicsDirName, typename, varname);
-                if (Directory.Exists(typepath))
-                {
-                    try
-                    {
-                        Directory.Delete(typepath, true);
-                    }
-                    catch (Exception ex)
-                    {
-                        throw ex;
-                    }
-                }
-            }
+            ScenePreviews.DeleteAll(Settings.Default.varspath, varname);
         }
 
         private void UnintallVars(List<string> varnames)
@@ -1694,64 +1679,22 @@ namespace varManager
             MessageBox.Show("fix finish");
         }
 
-        private bool ReExtractedPreview(varManagerDataSet.scenesRow scenerow)
+        private bool ReExtractedPreview(varManagerDataSet.scenesRow scenerow, string picpath)
         {
-            bool success = false;
             var varsrow = this.varManagerDataSet.vars.FindByvarName(scenerow.varName);
-            if (varsrow != null)
-            {
-                string destvarfile = Path.Combine(Settings.Default.varspath, varsrow.varPath, varsrow.varName + ".var");
-                if (File.Exists(destvarfile))
-                {
-                    //using (ZipArchive varzipfile = ZipFile.OpenRead(destvarfile))
-                    using (ZipFile varzipfile = new  ZipFile(destvarfile))
-                    {
-                        string jpgfile = scenerow.scenePath.Substring(0, scenerow.scenePath.LastIndexOf('.')) + ".jpg";
-                        var jpg = varzipfile.GetEntry(jpgfile);
-                        if (jpg != null)
-                        {
-                            string picpath = Path.Combine(Settings.Default.varspath, previewpicsDirName, scenerow.atomType, scenerow.varName, scenerow.previewPic);
-
-                            string jpgdirectory = Path.GetDirectoryName(picpath);
-                            if(!Directory.Exists(jpgdirectory))
-                                Directory.CreateDirectory(jpgdirectory);
-                            if (!File.Exists(picpath))
-                            {
-                                using (FileStream streamWriter = File.Create(picpath))
-                                {
-                                    var sr = varzipfile.GetInputStream(jpg);
-
-                                    int size = 2048;
-                                    byte[] data = new byte[2048];
-                                    while (true)
-                                    {
-                                        size = sr.Read(data, 0, data.Length);
-                                        if (size > 0)
-                                        {
-                                            streamWriter.Write(data, 0, size);
-                                        }
-                                        else
-                                        {
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                            success = true;
-                        }
-                    }
-                }
-            }
-            return success;
+            if (varsrow == null)
+                return false;
+            string destvarfile = Path.Combine(Settings.Default.varspath, varsrow.varPath, varsrow.varName + ".var");
+            return ScenePreviews.Restore(destvarfile, scenerow.scenePath, picpath);
         }
         private void FixPreview()
         {
             foreach (varManagerDataSet.scenesRow scenerow in this.varManagerDataSet.scenes.Where(q=> !string.IsNullOrEmpty(q.previewPic)))
             {
-                string picpath = Path.Combine(Settings.Default.varspath, previewpicsDirName, scenerow.atomType, scenerow.varName, scenerow.previewPic);
+                string picpath = ScenePreviews.PicturePath(Settings.Default.varspath, scenerow.atomType, scenerow.varName, scenerow.previewPic);
                 if (!File.Exists(picpath))
                 {
-                    if (ReExtractedPreview(scenerow))
+                    if (ReExtractedPreview(scenerow, picpath))
                     {
                         this.BeginInvoke(addlog, new Object[] { $"missing {picpath} is fixed.", LogLevel.INFO });
                     }
@@ -2688,8 +2631,7 @@ namespace varManager
 
         private void UpdateButtonClearCache()
         {
-            string sceneCacheFolderName = Path.Combine(Directory.GetCurrentDirectory(), "Cache",
-               Comm.ValidFileName(curVarName), Comm.ValidFileName(curEntryName.Replace('\\', '_').Replace('/', '_')));
+            string sceneCacheFolderName = SceneAnalysis.CacheFolder(curVarName, curEntryName);
             if (Directory.Exists(sceneCacheFolderName))
             {
                 buttonClearCache.Visible = true;
@@ -3031,20 +2973,6 @@ namespace varManager
                 }
             }
         }
-        private (string,string) SaveNameSplit(string saveName)
-        {
-            string varname = "save", entryname = saveName;
-            if (saveName.IndexOf(":/") > 1)
-            {
-                string[] savenamesplit = saveName.Split(new string[] { ":/" }, StringSplitOptions.RemoveEmptyEntries);
-                if (savenamesplit.Length >= 2)
-                {
-                    varname = savenamesplit[0];
-                    entryname = savenamesplit[1];
-                }
-            }
-            return (varname, entryname);
-        }
         private void buttonLoad_Click(object sender, EventArgs e)
         {
             bool merge = false;
@@ -3082,27 +3010,14 @@ namespace varManager
             {
                 JSONClass resource = (JSONClass)resources[0];
                 saveName = resource["saveName"].Value;
-                (string varName, string entryName) = SaveNameSplit(saveName);
-                string sceneFolder = Path.Combine(Directory.GetCurrentDirectory(), "Cache",
-                     Comm.ValidFileName(varName), Comm.ValidFileName(entryName.Replace('\\', '_').Replace('/', '_')));
+                (string varName, string entryName) = SceneAnalysis.SplitSaveName(saveName);
+                string sceneFolder = SceneAnalysis.CacheFolder(varName, entryName);
                 string dependfFilename = Path.Combine(sceneFolder, "depend.txt");
                 if (!File.Exists(dependfFilename))
                 {
                     ReadSaveName(saveName, characterGender);
                 }
-                List<string> depends = new List<string>();
-                using (StreamReader sr = new StreamReader(dependfFilename))
-                {
-                    string depend;
-                    while ((depend = sr.ReadLine()) != null)
-                    {
-                        depends.Add(depend);
-                    }
-                }
-                string genderFilename = Path.Combine(sceneFolder, "gender.txt");
-                using (StreamReader srgender = new StreamReader(genderFilename))
-                    characterGender= srgender.ReadLine();
-                GenLoadscenetxt(jc, merge, depends, characterGender, ignoreGender, personOrder);
+                GenLoadscenetxt(jc, merge, SceneAnalysis.ReadDepends(sceneFolder), SceneAnalysis.ReadGender(sceneFolder), ignoreGender, personOrder);
             }
         }
 
@@ -3119,64 +3034,17 @@ namespace varManager
         }
         public void GenLoadscenetxt(JSONClass jsonLS,bool merge, List<string> dependVars,string characterGender="female", bool ignoreGender = false,int personOrder=1 )
         {
-            JSONClass jsonls = (JSONClass)JSONNode.Parse(jsonLS.ToString());
-            List<string> deletetempfiles = new List<string>();
-            JSONArray resources = jsonls["resources"].AsArray;
-            foreach (JSONClass resource in resources)
-            {
-                if (!resource.HasKey("merge"))
-                    resource["merge"] = merge.ToString().ToLower();
-                if (!resource.HasKey("characterGender"))
-                    resource["characterGender"] = characterGender;
-                if (!resource.HasKey("ignoreGender"))
-                    resource["ignoreGender"] = ignoreGender.ToString().ToLower();
-                if (!resource.HasKey("personOrder"))
-                    resource["personOrder"] = personOrder.ToString();
-                if (resource.HasKey("type"))
-                {
-                    if (resource["type"].Value == "scenes")
-                    {
-                        deletetempfiles = VarLinks.TempLinks(AddonPackagesPath);
-                        break;
-                    }
-                }
-            }
-
-            // if (jsonls["rescan"].AsBool)
-            //{
-            //List<string> varnames = new List<string>();
+            bool hasScene;
+            JSONClass jsonls = VamBridge.PrepareLoad(jsonLS, merge, characterGender, ignoreGender, personOrder, out hasScene);
+            List<string> deletetempfiles = hasScene ? VarLinks.TempLinks(AddonPackagesPath) : new List<string>();
             if (dependVars == null)
-            {
-                dependVars = new List<string>();
-                foreach (JSONClass resource in resources)
-                {
-                    string saveName = resource["saveName"].Value;
-                    dependVars.Add(saveName.Substring(0, saveName.IndexOf(":/")));
-                }
-            }
+                dependVars = VamBridge.ResourceVars(jsonls);
             bool rescan = false;
             var installtemplist = InstallTemp(dependVars.ToArray(), ref rescan);
             jsonls["rescan"] = rescan.ToString();
             foreach (var installtemp in installtemplist)
                 deletetempfiles.Remove(installtemp.ToLower() + ".var");
-            // }
-            string loadscenefile = Path.Combine(Settings.Default.vampath, "Custom\\PluginData\\feelfar\\loadscene.json");
-            if (File.Exists(loadscenefile)) File.Delete(loadscenefile);
-            Directory.CreateDirectory(Path.Combine(Settings.Default.vampath, "Custom\\PluginData\\feelfar"));
-            //StreamWriter sw = new StreamWriter(loadscenefile);
-            
-
-            string strLS = jsonls.ToString("\t");
-            using (FileStream fileStream = File.OpenWrite(loadscenefile))
-            {
-                fileStream.SetLength(0);
-                StreamWriter sw = new StreamWriter(fileStream);
-                sw.Write(strLS);
-                sw.Close();
-            }
-            // jsonLS.SaveToFile(loadscenefile);
-            //sw.Write(jsonLS);
-            //sw.Close();
+            VamBridge.WriteRequest(Settings.Default.vampath, jsonls);
             if (deletetempfiles.Count > 0)
             {
                 Thread thread = new Thread(DeleteTempThread);
@@ -3187,7 +3055,7 @@ namespace varManager
         public static void DeleteTempThread(object data)
         {
             List<string> tempfiles = data as List<string>;
-            string loadscenefile = Path.Combine(Settings.Default.vampath, "Custom\\PluginData\\feelfar\\loadscene.json");
+            string loadscenefile = VamBridge.RequestFile(Settings.Default.vampath);
 
             while (true)
             {
@@ -3310,9 +3178,8 @@ namespace varManager
             {
                 JSONClass resource = (JSONClass)resources[0];
                 saveName = resource["saveName"].Value;
-                (string varName, string entryName) = SaveNameSplit(saveName);
-                string sceneFolder = Path.Combine(Directory.GetCurrentDirectory(), "Cache",
-                    Comm.ValidFileName(varName), Comm.ValidFileName(entryName.Replace('\\', '_').Replace('/', '_')));
+                (string varName, string entryName) = SceneAnalysis.SplitSaveName(saveName);
+                string sceneFolder = SceneAnalysis.CacheFolder(varName, entryName);
                 string atomsFoldername = Path.Combine(sceneFolder, "atoms");
 
                 if (!Directory.Exists(atomsFoldername))
@@ -3332,222 +3199,19 @@ namespace varManager
             
 
         }
-        public static string GetCharacterGender(string character)
-        {
-            string isMale = "Female";
-            character = character.ToLower();
-            // If the peson atom is not "On", then we cant determine their gender it seems as GetComponentInChildren<DAZCharacter> just returns null
-            if (character.StartsWith("male") ||
-                    character.StartsWith("lee") ||
-                    character.StartsWith("jarlee") ||
-                    character.StartsWith("julian") ||
-                    character.StartsWith("jarjulian"))
-            {
-                isMale = "Male";
-            }
-            if (character.StartsWith("futa"))
-            {
-                isMale = "Futa";
-            }
-            return (isMale);
-        }
-
-        private static string GetAtomID(JSONNode atomitem,bool isPerson=false)
-        {
-            if (isPerson)
-            {
-                string charGender = "unknown";
-                JSONArray storablesArray = atomitem["storables"].AsArray;
-                foreach (JSONNode storablesitem in storablesArray)
-                {
-                    if (storablesitem["id"].Value == "geometry")
-                    {
-                        charGender = GetCharacterGender(storablesitem["character"].Value);
-                        break;
-                    }
-                }
-                return string.Format("({1}){0}", atomitem["id"], charGender);
-            }
-            else
-                return atomitem["id"].Value;
-        }
-
         public bool ReadSaveName(string saveName,string characterGender,bool analysis=false)
         {
             UseWaitCursor = true;
-            string jsonscene = "";
-            List<string> depends = new List<string>();
-            (string varName, string entryName) = SaveNameSplit(saveName);
+            string destvarfile = null;
+            (string varName, string entryName) = SceneAnalysis.SplitSaveName(saveName);
             if (varName!="save")
             {
-                depends.Add(varName);
                 var varsrow = varManagerDataSet.vars.FindByvarName(varName);
-                string destvarfile = Path.Combine(Settings.Default.varspath, varsrow.varPath, varsrow.varName + ".var");
-                using (ZipFile varzipfile = new ZipFile(destvarfile))
-                {
-                    var entry = varzipfile.GetEntry(entryName);
-                    var entryStream = new StreamReader(varzipfile.GetInputStream(entry));
-                    jsonscene = entryStream.ReadToEnd();
-                }
+                destvarfile = Path.Combine(Settings.Default.varspath, varsrow.varPath, varsrow.varName + ".var");
             }
-            else
-            {
-                string jsonfile = Path.Combine(Settings.Default.vampath, saveName);
-                if (File.Exists(jsonfile))
-                {
-                    using (StreamReader sr = new StreamReader(jsonfile))
-                    {
-                        jsonscene = sr.ReadToEnd();
-                    }
-                }
-            }
-
-            if (characterGender == "unknown")
-            {
-                characterGender = "male";
-
-                if (jsonscene.IndexOf("/Female/") > 0|| saveName.IndexOf("/Female/") > 0)
-                {
-                    characterGender = "female";
-                }
-            }
-
-            depends.AddRange(Getdependencies(jsonscene));
-            string sceneFolder = Path.Combine(Directory.GetCurrentDirectory(), "Cache",
-                Comm.ValidFileName(varName), Comm.ValidFileName(entryName.Replace('\\', '_').Replace('/', '_')));
-            Directory.CreateDirectory(sceneFolder);
-            string dependFilename = Path.Combine(sceneFolder, "depend.txt");
-            using (StreamWriter swdepend = new StreamWriter(dependFilename))
-                depends.ForEach(x => swdepend.WriteLine(x));
-
-            string genderFilename = Path.Combine(sceneFolder, "gender.txt");
-            using (StreamWriter swgender = new StreamWriter(genderFilename))
-                swgender.WriteLine(characterGender);
-
-            if (analysis)
-            {
-                jsonscene = jsonscene.Replace("\"SELF:/", "\"" + varName + ":/");
-                AnalysisAtoms(jsonscene, sceneFolder,true);
-            }
+            SceneAnalysis.Prepare(saveName, destvarfile, Settings.Default.vampath, characterGender, analysis);
             UseWaitCursor = false;
             return true;
-        }
-        private static string[] sceneBaseAtoms = { "CoreControl", "PlayerNavigationPanel", "VRController", "WindowCamera" };
-
-        private static void AnalysisAtoms(string jsonscene, string sceneFolder,bool isperson)
-        {
-            JSONClass jsonnode =(JSONClass) JSON.Parse(jsonscene);
-            if (!jsonnode.HasKey("atoms")) 
-            {
-                if (isperson)
-                {
-                    string atomID = GetAtomID(jsonnode, true);
-                    string atomtypefolder = Path.Combine(sceneFolder, "atoms", "Person");
-                    Directory.CreateDirectory(atomtypefolder);
-                    string atomfilename = Path.Combine(sceneFolder, "atoms", "Person", Comm.ValidFileName(atomID + ".bin"));
-                    jsonnode.SaveToFile(atomfilename);
-                    /*using (StreamWriter sw = new StreamWriter(atomfilename))
-                    {
-                        jsonnode.SaveToStream(sw.BaseStream);
-                        //sw.Write(jsonnode.ToString());
-                    }*/
-                }
-                else
-                {
-                    string atomID = GetAtomID(jsonnode, false);
-                    string atomfilename = Path.Combine(sceneFolder, Comm.ValidFileName(atomID + ".bin"));
-                    jsonnode.SaveToFile(atomfilename);
-                    /* using (StreamWriter sw = new StreamWriter(atomfilename))
-                     {
-                         jsonnode.SaveToStream(sw.BaseStream);
-                         //sw.Write(jsonnode.ToString());
-                     }*/
-                }
-                return;
-            }
-            JSONClass posinfo = new JSONClass();
-            foreach (KeyValuePair<string, JSONNode> keyvaluejson in jsonnode as JSONClass)
-            {
-                if (keyvaluejson.Key != "atoms")
-                {
-                    posinfo.Add(keyvaluejson.Key, keyvaluejson.Value);
-                }
-            }
-
-            string posinfoFilename = Path.Combine(sceneFolder, "posinfo.bin");
-            posinfo.SaveToFile(posinfoFilename);
-            /*using (StreamWriter sw = new StreamWriter(posinfoFilename))
-            {
-                sw.Write(posinfo.ToString());
-            }*/
-
-            List<string> ListAtomtype = new List<string>();
-            JSONArray atomArray = jsonnode["atoms"].AsArray;
-           
-            Dictionary<string, List<string>> parentAtoms=new Dictionary<string, List<string>>();
-            if (atomArray.Count > 0)
-            {
-                foreach (JSONClass atomitem in atomArray)
-                {
-                    string atomtype = atomitem["type"];
-                    if (sceneBaseAtoms.Contains(atomtype))
-                    {
-                        atomtype = "(base)" + atomtype;
-                    }
-                    if (atomtype != "")
-                    {
-                        if (!ListAtomtype.Contains(atomtype))
-                        {
-                            ListAtomtype.Add(atomtype);
-                            string atomtypefolder = Path.Combine(sceneFolder, "atoms", atomtype);
-                            Directory.CreateDirectory(atomtypefolder);
-                        }
-                        if (atomtype == "SubScene")
-                        {
-                            string subscenefolder = Path.Combine(sceneFolder, "atoms", atomtype);
-                            AnalysisAtoms(atomitem.ToString(), subscenefolder, false);
-                        }
-                        else
-                        {
-                            string atomID = GetAtomID(atomitem, atomtype == "Person");
-                            if (atomitem.HasKey("parentAtom"))
-                            {
-                                if (!string.IsNullOrEmpty(atomitem["parentAtom"]))
-                                {
-                                    string parentAtom = Comm.ValidFileName(atomitem["parentAtom"]);
-                                    if (parentAtoms.ContainsKey(parentAtom))
-                                    {
-                                        parentAtoms[parentAtom].Add(Comm.ValidFileName(atomID));
-                                    }
-                                    else
-                                    {
-                                        parentAtoms.Add(parentAtom, new List<string> { Comm.ValidFileName(atomID) });
-                                    }
-                                }
-                            }
-                            string atomfilename = Path.Combine(sceneFolder, "atoms", atomtype, Comm.ValidFileName(atomID + ".bin"));
-                            atomitem.SaveToFile(atomfilename);
-                            /*using (StreamWriter sw = new StreamWriter(atomfilename))
-                            {
-                                sw.Write(atomitem.ToString());
-                            }*/
-                        }
-                    }
-                }
-                if(parentAtoms.Count > 0)
-                {
-                    string parentAtomFilename = Path.Combine(sceneFolder, "parentAtom.txt");
-                    using(StreamWriter sw= new StreamWriter(parentAtomFilename))
-                    {
-                        foreach(var pa in parentAtoms)
-                        {
-                            sw.WriteLine(pa.Key + "\t" + string.Join(",", pa.Value));
-                        }
-                        
-                    }
-                }
-                
-            }
         }
 
         private void buttonResetFilter_Click(object sender, EventArgs e)
@@ -3642,8 +3306,7 @@ namespace varManager
         {
             if (MessageBox.Show("The cache can improve the speed of secondary analysis, normally you don't need to clear it, unless you modify the scene file. This operation only clears the cache of the current scene, if you need to clear all the cache, please delete the cache directory manually.", "Clear Cache", MessageBoxButtons.YesNo) == DialogResult.Yes)
             {
-                string sceneFoldername = Path.Combine(Directory.GetCurrentDirectory(), "Cache",
-                           Comm.ValidFileName(curVarName), Comm.ValidFileName(curEntryName.Replace('\\', '_').Replace('/', '_')));
+                string sceneFoldername = SceneAnalysis.CacheFolder(curVarName, curEntryName);
                 try { Directory.Delete(sceneFoldername, true); }
                 catch { }
                 UpdateButtonClearCache();

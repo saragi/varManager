@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using SimpleJSON;
@@ -26,14 +27,60 @@ namespace varManager
 
         public static void WriteRescan(string vamPath)
         {
+            JSONClass request = new JSONClass();
+            request["rescan"] = "true";
+            Write(vamPath, request.ToString());
+        }
+
+        /// <summary>Copies a load request and fills in what its resources leave out, up to the first scene.</summary>
+        public static JSONClass PrepareLoad(JSONClass request, bool merge, string characterGender, bool ignoreGender, int personOrder, out bool hasScene)
+        {
+            hasScene = false;
+            JSONClass copy = (JSONClass)JSONNode.Parse(request.ToString());
+            foreach (JSONClass resource in copy["resources"].AsArray)
+            {
+                if (!resource.HasKey("merge"))
+                    resource["merge"] = merge.ToString().ToLower();
+                if (!resource.HasKey("characterGender"))
+                    resource["characterGender"] = characterGender;
+                if (!resource.HasKey("ignoreGender"))
+                    resource["ignoreGender"] = ignoreGender.ToString().ToLower();
+                if (!resource.HasKey("personOrder"))
+                    resource["personOrder"] = personOrder.ToString();
+                if (resource.HasKey("type") && resource["type"].Value == "scenes")
+                {
+                    hasScene = true;
+                    break;
+                }
+            }
+            return copy;
+        }
+
+        /// <summary>The var each resource in a load request comes from.</summary>
+        public static List<string> ResourceVars(JSONClass request)
+        {
+            var vars = new List<string>();
+            foreach (JSONClass resource in request["resources"].AsArray)
+            {
+                string saveName = resource["saveName"].Value;
+                vars.Add(saveName.Substring(0, saveName.IndexOf(":/")));
+            }
+            return vars;
+        }
+
+        public static void WriteRequest(string vamPath, JSONClass request)
+        {
+            Write(vamPath, request.ToString("\t"));
+        }
+
+        private static void Write(string vamPath, string text)
+        {
             string file = RequestFile(vamPath);
             if (File.Exists(file))
                 File.Delete(file);
             Directory.CreateDirectory(Path.GetDirectoryName(file));
-            JSONClass request = new JSONClass();
-            request["rescan"] = "true";
             using (StreamWriter writer = new StreamWriter(file))
-                writer.Write(request.ToString());
+                writer.Write(text);
         }
     }
 }
