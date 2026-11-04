@@ -26,7 +26,7 @@ namespace varManager
     {
         public const int PerPage = 48;
 
-        public string Location { get; set; } = "Hub And Dependencies";
+        public string Location { get; set; } = "All";
         public string PayType { get; set; } = "Free";
         public string Type { get; set; } = "";
         public string Creator { get; set; } = "";
@@ -156,6 +156,16 @@ namespace varManager
     {
         private const string VarExtension = ".var";
 
+        /// <summary>Built-in downloads stay on the VaM Hub, whatever a response says. Pictures come from its CDN, so they aren't held to this.</summary>
+        public static bool IsHubUrl(string url)
+        {
+            Uri uri;
+            return Uri.TryCreate(url, UriKind.Absolute, out uri)
+                && uri.Scheme == Uri.UriSchemeHttps
+                && (string.Equals(uri.Host, "virtamate.com", StringComparison.OrdinalIgnoreCase)
+                    || uri.Host.EndsWith(".virtamate.com", StringComparison.OrdinalIgnoreCase));
+        }
+
         public static HubFilters ParseFilters(string response)
         {
             JSONNode json = JSON.Parse(response);
@@ -247,12 +257,14 @@ namespace varManager
             }
 
             // Anything missing outranks an upgrade, and an upgrade outranks owning it all.
-            resource.Ownership = HubOwnership.Owned;
+            resource.Ownership = HubOwnership.Unknown;
             foreach (string file in resource.Files)
             {
                 int version = HubParser.VersionOf(file);
                 if (version < 0)
                     continue;
+                if (resource.Ownership == HubOwnership.Unknown)
+                    resource.Ownership = HubOwnership.Owned;
                 int owned = newestOwned(MissingPlanner.PackageOf(file));
                 resource.PackageName = resource.PackageName ?? file;
                 if (owned < 0)
@@ -297,10 +309,28 @@ namespace varManager
             return wanted.Values.ToList();
         }
 
+        /// <summary>Every var a resource names, owned or not: its files, then their dependencies.</summary>
+        public static List<string> Names(string detailResponse)
+        {
+            JSONNode json = JSON.Parse(detailResponse);
+            var names = new List<string>();
+            JSONArray files = json["hubFiles"] as JSONArray;
+            if (files != null)
+                names.AddRange(files.Childs.Select(file => WithoutExtension(file["filename"].Value)));
+            JSONClass dependencies = json["dependencies"] as JSONClass;
+            if (dependencies != null)
+            {
+                foreach (JSONArray list in dependencies.Childs.OfType<JSONArray>())
+                    names.AddRange(list.Childs.Select(file => WithoutExtension(file["filename"].Value)));
+            }
+            return names.Where(name => name.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
         private static void Add(Dictionary<string, HubPackage> wanted, string filename, string url, string size, Func<string, bool> isOwned)
         {
             string name = WithoutExtension(filename);
-            if (string.IsNullOrEmpty(url) || url == "null" || name.Length == 0 || isOwned(name))
+            // The resource's own entry comes first, and a dependency naming the same var doesn't replace it.
+            if (!IsHubUrl(url) || name.Length == 0 || isOwned(name) || wanted.ContainsKey(name))
                 return;
             long bytes;
             long.TryParse(size, out bytes);
@@ -350,7 +380,8 @@ namespace varManager
         /// <returns>The file holding the picture, or null if it can't be had.</returns>
         public async Task<string> Get(string url)
         {
-            if (string.IsNullOrEmpty(url))
+            // The Hub writes a missing value as the word null.
+            if (!Uri.IsWellFormedUriString(url, UriKind.Absolute))
                 return null;
             string file = Path.Combine(folder, NameOf(url));
             if (File.Exists(file))
@@ -361,8 +392,9 @@ namespace varManager
             {
                 bytes = await fetch(url).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException || ex is IOException)
+            catch (Exception)
             {
+                // A tile with no picture is all a failed fetch ever costs.
                 return null;
             }
             if (bytes == null || bytes.Length == 0 || bytes.Length > LargestImage)

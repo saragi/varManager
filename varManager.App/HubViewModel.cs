@@ -32,7 +32,7 @@ namespace varManager.Ui
 
         public string ActionLabel => Resource.Ownership switch
         {
-            HubOwnership.Owned => "In your library",
+            HubOwnership.Owned => "Show in Library",
             HubOwnership.Upgrade => $"Get update from {Resource.OwnedVersion}",
             HubOwnership.NotOwned => "Get",
             _ => "Open on the Hub",
@@ -65,6 +65,7 @@ namespace varManager.Ui
             {
                 return;
             }
+            // ThumbnailLoader turns a picture it can't read into null, so this can't throw on bad bytes.
             if (file != null)
                 await thumbnails.Load(file, Show).ConfigureAwait(false);
         }
@@ -105,6 +106,7 @@ namespace varManager.Ui
         private readonly IHubBrowser browser;
         private readonly IHubSource hub;
         private readonly Action<string> openUrl;
+        private readonly Action<string> showInLibrary;
         private readonly SynchronizationContext? ui;
         private readonly HubImageCache images;
         private readonly ThumbnailLoader thumbnails = new ThumbnailLoader(200);
@@ -118,7 +120,7 @@ namespace varManager.Ui
         private string creatorText = "";
         private string creator = "";
         private string payType = "Free";
-        private string location = "Hub And Dependencies";
+        private string location = All;
         private string type = All;
         private string tag = All;
         private string sort = "Latest Update";
@@ -130,8 +132,10 @@ namespace varManager.Ui
         private bool loaded;
         private bool hasPage;
 
-        public HubViewModel(string storeFile, LibraryPaths paths, JobRunner jobs, IHubBrowser browser, IHubSource hub, Action<string> openUrl, SynchronizationContext? ui)
+        public HubViewModel(string storeFile, LibraryPaths paths, JobRunner jobs, IHubBrowser browser, IHubSource hub, Action<string> openUrl,
+            Action<string> showInLibrary, SynchronizationContext? ui)
         {
+            this.showInLibrary = showInLibrary;
             this.storeFile = storeFile;
             this.paths = paths;
             this.jobs = jobs;
@@ -144,7 +148,7 @@ namespace varManager.Ui
             NextCommand = new Command(() => GoTo(page + 1));
             SearchCommand = new Command(() => GoTo(1));
             GetCommand = new ArgCommand<HubTile>(Get);
-            OpenCommand = new ArgCommand<HubTile>(tile => openUrl(tile.Resource.PageUrl));
+            OpenCommand = new ArgCommand<HubTile>(Open);
             PickCreatorCommand = new ArgCommand<string>(PickCreator);
             ClearCreatorCommand = new Command(() => PickCreator(""));
         }
@@ -160,8 +164,8 @@ namespace varManager.Ui
         /// <summary>The last page asked for, for whoever needs to wait on it.</summary>
         public Task Loaded { get; private set; } = Task.CompletedTask;
 
-        public IReadOnlyList<string> PayTypes => WithAll(filters.PayTypes, false);
-        public IReadOnlyList<string> Locations => WithAll(filters.Locations, false);
+        public IReadOnlyList<string> PayTypes => WithAll(filters.PayTypes, true);
+        public IReadOnlyList<string> Locations => WithAll(filters.Locations, true);
         public IReadOnlyList<string> Types => WithAll(filters.Types, true);
         public IReadOnlyList<string> Sorts => WithAll(filters.Sorts, false);
         public IReadOnlyList<string> Tags => WithAll(filters.Tags, true);
@@ -281,10 +285,18 @@ namespace varManager.Ui
             }
         }
 
+        private void Open(HubTile tile)
+        {
+            if (tile.Resource.Ownership == HubOwnership.Owned && tile.Resource.PackageName != null)
+                showInLibrary(MissingPlanner.PackageOf(tile.Resource.PackageName));
+            else
+                openUrl(tile.Resource.PageUrl);
+        }
+
         /// <summary>Loads the filters and the first page, once.</summary>
         public Task Open()
         {
-            if (!loaded)
+            if (!hasPage)
                 Loaded = LoadFirst();
             return Loaded;
         }
@@ -292,8 +304,8 @@ namespace varManager.Ui
         /// <summary>Shows what the library owns now, after a job changed it.</summary>
         public Task Refresh()
         {
-            if (loaded)
-                Loaded = LoadPage();
+            if (hasPage)
+                Loaded = LoadPage(page);
             return Loaded;
         }
 
@@ -302,21 +314,33 @@ namespace varManager.Ui
             StatusText = "Asking the Hub.";
             try
             {
-                string info = await browser.Info().ConfigureAwait(true);
-                filters = HubBrowse.ParseFilters(info);
-                loaded = true;
-                Changed(nameof(PayTypes));
-                Changed(nameof(Locations));
-                Changed(nameof(Types));
-                Changed(nameof(Sorts));
-                Changed(nameof(Tags));
+                if (!loaded)
+                {
+                    filters = HubBrowse.ParseFilters(await browser.Info().ConfigureAwait(true));
+                    loaded = true;
+                    if (!filters.Sorts.Contains(sort))
+                        sort = filters.Sorts[0];
+                    if (!PayTypes.Contains(payType))
+                        payType = All;
+                    Changed(nameof(PayTypes));
+                    Changed(nameof(Locations));
+                    Changed(nameof(Types));
+                    Changed(nameof(Sorts));
+                    Changed(nameof(Tags));
+                    // A box drops its selection while its list is empty, so each is told again.
+                    Changed(nameof(PayType));
+                    Changed(nameof(Location));
+                    Changed(nameof(Type));
+                    Changed(nameof(Tag));
+                    Changed(nameof(Sort));
+                }
             }
             catch (Exception ex)
             {
                 StatusText = "The Hub couldn't be reached: " + ex.Message;
                 return;
             }
-            await LoadPage().ConfigureAwait(true);
+            await LoadPage(page).ConfigureAwait(true);
         }
 
         private void Filter(ref string field, string? value)
@@ -329,8 +353,7 @@ namespace varManager.Ui
 
         private void GoTo(int number)
         {
-            page = Math.Max(1, number);
-            Loaded = LoadPage();
+            Loaded = LoadPage(Math.Max(1, number));
         }
 
         private void PickCreator(string name)
@@ -344,7 +367,8 @@ namespace varManager.Ui
             GoTo(1);
         }
 
-        private async Task LoadPage()
+        // The page number only moves once that page has arrived, so a failed load can be tried again.
+        private async Task LoadPage(int wanted)
         {
             int request = ++requests;
             StatusText = "Asking the Hub.";
@@ -357,7 +381,7 @@ namespace varManager.Ui
                 Creator = creator,
                 Search = search.Trim(),
                 Sort = sort,
-                Page = page,
+                Page = wanted,
             };
             try
             {
@@ -421,11 +445,18 @@ namespace varManager.Ui
             {
                 string detail = browser.Detail(resource.Id).GetAwaiter().GetResult();
                 Dictionary<string, int> owned = NewestOwned();
-                List<HubPackage> packages = HubBrowse.Downloads(detail, name =>
-                    owned.TryGetValue(MissingPlanner.PackageOf(name), out int version) && version >= HubParser.VersionOf(name));
-                if (packages.Count == 0)
+                Func<string, bool> isOwned = name =>
+                    owned.TryGetValue(MissingPlanner.PackageOf(name), out int version) && version >= HubParser.VersionOf(name);
+                List<HubPackage> packages = HubBrowse.Downloads(detail, isOwned);
+                Dictionary<string, string> linked = VarLinks.ReadInstalled(paths.AddonPackages);
+                List<string> alsoLink = HubBrowse.Names(detail).Where(isOwned)
+                    .Select(name => MissingPlanner.PackageOf(name) + "." + owned[MissingPlanner.PackageOf(name)])
+                    .Where(name => !linked.ContainsKey(name))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                if (packages.Count + alsoLink.Count == 0)
                     return "You already have everything it needs.";
-                return MissingCheck.GetPackages(packages, storeFile, paths, hub, MissingCheck.FreeSpace, context.Report, context.Token);
+                return MissingCheck.GetPackages(packages, alsoLink, storeFile, paths, hub, MissingCheck.FreeSpace, context.Report, context.Token);
             });
         }
 

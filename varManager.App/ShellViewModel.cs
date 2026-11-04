@@ -152,6 +152,8 @@ namespace varManager.Ui
             get => selectedPage;
             set
             {
+                // Missing always opens on its list, so a later visit isn't left on the Hub.
+                browsingHub = false;
                 Set(ref selectedPage, value);
                 Changed(nameof(IsLibraryPage));
                 Changed(nameof(IsScenesPage));
@@ -554,7 +556,7 @@ namespace varManager.Ui
             Profiles = new ProfilesViewModel(StoreFile, paths, Jobs, Picks, () => selectedSwitch, SwitchTo, () => SelectedPage = Pages[0]);
             Health = new HealthViewModel(StoreFile, paths, Jobs, () => SelectedPage = Pages[^1]);
             Missing = new MissingViewModel(StoreFile, paths, Jobs, hub, text => System.Windows.Clipboard.SetText(text), ShowMissingCount);
-            Hub = new HubViewModel(StoreFile, paths, Jobs, browser, hub, OpenUrl, SynchronizationContext.Current);
+            Hub = new HubViewModel(StoreFile, paths, Jobs, browser, hub, OpenUrl, ShowInLibrary, SynchronizationContext.Current);
             // Scans the folders this was opened with, not ones typed into setup and not saved.
             watch = new RepositoryWatch(VarsPath, () => Jobs.IsRunning, () => UpdateDb(paths), SynchronizationContext.Current, watchWait);
             ImportOldDatabase();
@@ -597,6 +599,13 @@ namespace varManager.Ui
             {
                 Jobs.Say("Could not start VaM: " + ex.Message);
             }
+        }
+
+        private void ShowInLibrary(string package)
+        {
+            SelectedPage = Pages[0];
+            if (Library != null)
+                Library.Query = package;
         }
 
         private static void OpenUrl(string url)

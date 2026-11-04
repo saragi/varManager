@@ -17,9 +17,10 @@ namespace varManager
 
     public sealed class RealHub : IHubSource
     {
-        public Task<List<HubPackage>> Find(IEnumerable<string> references)
+        public async Task<List<HubPackage>> Find(IEnumerable<string> references)
         {
-            return HubClient.FindAll(references);
+            List<HubPackage> found = await HubClient.FindAll(references).ConfigureAwait(false);
+            return found.Where(package => HubBrowse.IsHubUrl(package.Url)).ToList();
         }
 
         public Task<string> PackageList()
@@ -218,12 +219,20 @@ namespace varManager
         }
 
         /// <summary>Gets packages the user picked, scans them and links them to this profile.</summary>
-        public static string GetPackages(IReadOnlyList<HubPackage> packages, string storeFile, LibraryPaths paths, IHubSource hub,
+        /// <param name="alsoLink">Owned vars the pick needs and this profile doesn't link.</param>
+        public static string GetPackages(IReadOnlyList<HubPackage> packages, IReadOnlyList<string> alsoLink, string storeFile, LibraryPaths paths, IHubSource hub,
             Func<string, long> freeSpace, Action<int, int> progress, CancellationToken token)
         {
             string noRoom = NoRoom(packages, paths.VarsPath, freeSpace);
             if (noRoom != null)
                 return noRoom;
+            if (packages.Count == 0)
+            {
+                LinkAndUpdate(alsoLink.ToList(), storeFile, paths, progress, token);
+                return alsoLink.Count == 1 ? "Turned on 1 var." : $"Turned on {alsoLink.Count} vars.";
+            }
+            if (alsoLink.Count > 0)
+                File.AppendAllLines(paths.MigratedList, alsoLink);
             DownloadResult result = Store(packages, packages.Select(package => package.Name).ToList(), storeFile, paths, hub, progress, token);
             string text = $"Stored {result.Stored.Count}, failed {result.Failed.Count}.";
             return result.Failed.Count == 0 ? text : text + " First problem: " + result.Failed.Values.First();

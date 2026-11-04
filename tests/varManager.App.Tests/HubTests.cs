@@ -28,12 +28,15 @@ namespace varManager.App.Tests
         private readonly FakeBrowser browser = new FakeBrowser();
         private readonly FakeDownloads downloads = new FakeDownloads();
         private readonly List<string> opened = new List<string>();
+        private readonly List<string> shown = new List<string>();
 
         private sealed class FakeBrowser : IHubBrowser
         {
             public string Page { get; set; } = HubTests.Resources(1, 1);
             public string DetailResponse { get; set; } = "{}";
             public bool Down { get; set; }
+            public bool ResourcesDown { get; set; }
+            public Exception? DetailError { get; set; }
             public List<HubQuery> Queries { get; } = new List<HubQuery>();
             public TaskCompletionSource<bool>? Gate { get; set; }
 
@@ -45,6 +48,8 @@ namespace varManager.App.Tests
             public async Task<string> Resources(HubQuery query)
             {
                 Queries.Add(query);
+                if (ResourcesDown)
+                    throw new IOException("no network");
                 TaskCompletionSource<bool>? gate = Gate;
                 Gate = null;
                 string page = Page;
@@ -55,7 +60,7 @@ namespace varManager.App.Tests
 
             public Task<string> Detail(string resourceId)
             {
-                return Task.FromResult(DetailResponse);
+                return DetailError == null ? Task.FromResult(DetailResponse) : Task.FromException<string>(DetailError);
             }
 
             public Task<byte[]> Image(string url)
@@ -67,6 +72,7 @@ namespace varManager.App.Tests
         private sealed class FakeDownloads : IHubSource
         {
             public List<string> Names { get; } = new List<string>();
+            public bool Fail { get; set; }
 
             public Task<List<HubPackage>> Find(IEnumerable<string> references)
             {
@@ -84,8 +90,15 @@ namespace varManager.App.Tests
                 foreach (HubPackage package in packages)
                 {
                     Names.Add(package.Name);
-                    WriteVar(Path.Combine(folder, package.Name + ".var"));
-                    result.Stored.Add(package.Name);
+                    if (Fail)
+                    {
+                        result.Failed[package.Name] = "broken";
+                    }
+                    else
+                    {
+                        WriteVar(Path.Combine(folder, package.Name + ".var"));
+                        result.Stored.Add(package.Name);
+                    }
                     finished(package);
                 }
                 return Task.FromResult(result);
@@ -164,7 +177,7 @@ namespace varManager.App.Tests
 
         private HubViewModel Hub()
         {
-            return new HubViewModel(storeFile, paths, jobs, browser, downloads, opened.Add, null) { Columns = 10 };
+            return new HubViewModel(storeFile, paths, jobs, browser, downloads, opened.Add, shown.Add, null) { Columns = 10 };
         }
 
         private static List<HubTile> Tiles(HubViewModel hub)
@@ -178,6 +191,30 @@ namespace varManager.App.Tests
             while (jobs.IsRunning && DateTime.UtcNow < deadline)
                 Thread.Sleep(10);
             Assert.False(jobs.IsRunning);
+        }
+
+        [Theory]
+        [InlineData("https://hub.virtamate.com/resources/1/download?file=2", true)]
+        [InlineData("https://s3cdn.virtamate.com/a.var", true)]
+        [InlineData("https://HUB.VIRTAMATE.COM/a", true)]
+        [InlineData("http://hub.virtamate.com/a", false)]
+        [InlineData("https://virtamate.com.evil.example/a", false)]
+        [InlineData("https://evilvirtamate.com/a", false)]
+        [InlineData("https://mega.example/a.var", false)]
+        [InlineData("null", false)]
+        [InlineData("", false)]
+        public void Only_hub_addresses_count_for_downloads(string url, bool allowed)
+        {
+            Assert.Equal(allowed, HubBrowse.IsHubUrl(url));
+        }
+
+        [Fact]
+        public void A_download_from_anywhere_else_is_left_out()
+        {
+            string detail = "{\"hubFiles\":[{\"filename\":\"A.B.1.var\",\"urlHosted\":\"https://mega.example/a\"}],"
+                + "\"dependencies\":{\"x\":[{\"filename\":\"C.D.1\",\"downloadUrl\":\"https://hub.virtamate.com/d\"}]}}";
+
+            Assert.Equal("C.D.1", Assert.Single(HubBrowse.Downloads(detail, _ => false)).Name);
         }
 
         [Fact]
@@ -230,6 +267,14 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public void A_resource_whose_files_have_no_version_is_unknown()
+        {
+            HubPage page = HubBrowse.ParsePage(Resources(1, 1, Resource("1", "T", File1("Weird"))), _ => 5);
+
+            Assert.Equal(HubOwnership.Unknown, page.Resources[0].Ownership);
+        }
+
+        [Fact]
         public void An_answer_with_no_pagination_is_a_problem()
         {
             Assert.Throws<InvalidDataException>(() => HubBrowse.ParsePage("{}", _ => -1));
@@ -238,13 +283,14 @@ namespace varManager.App.Tests
         [Fact]
         public void Downloads_take_files_and_dependencies_the_library_lacks()
         {
-            string detail = "{\"hubFiles\":[{\"filename\":\"A.B.1.var\",\"urlHosted\":\"https://hub/a\",\"file_size\":\"10\"}],"
-                + "\"dependencies\":{\"A.B.1\":[{\"filename\":\"Need.It.1\",\"downloadUrl\":\"https://hub/n\"},{\"filename\":\"Have.It.1\",\"downloadUrl\":\"https://hub/h\"},{\"filename\":\"Nowhere.It.1\",\"downloadUrl\":\"null\"}]}}";
+            string detail = "{\"hubFiles\":[{\"filename\":\"A.B.1.var\",\"urlHosted\":\"https://hub.virtamate.com/a\",\"file_size\":\"10\"}],"
+                + "\"dependencies\":{\"A.B.1\":[{\"filename\":\"Need.It.1\",\"downloadUrl\":\"https://hub.virtamate.com/n\"},{\"filename\":\"Have.It.1\",\"downloadUrl\":\"https://hub.virtamate.com/h\"},{\"filename\":\"Nowhere.It.1\",\"downloadUrl\":\"null\"},{\"filename\":\"A.B.1\",\"downloadUrl\":\"https://hub.virtamate.com/other\"}]}}";
 
             List<HubPackage> packages = HubBrowse.Downloads(detail, name => name == "Have.It.1");
 
             Assert.Equal(new[] { "A.B.1", "Need.It.1" }, packages.Select(package => package.Name));
             Assert.Equal(10, packages[0].Size);
+            Assert.Equal("https://hub.virtamate.com/a", packages[0].Url);
         }
 
         [Fact]
@@ -283,6 +329,50 @@ namespace varManager.App.Tests
             Assert.Null(await failing.Get("https://hub/a.jpg"));
             Assert.Null(await empty.Get("https://hub/a.jpg"));
             Assert.Null(await empty.Get(""));
+            Assert.Null(await empty.Get("null"));
+        }
+
+        [Fact]
+        public async Task The_image_cache_refuses_a_huge_picture()
+        {
+            var cache = new HubImageCache(Path.Combine(data, "images"), url => Task.FromResult(new byte[(20 << 20) + 1]));
+
+            Assert.Null(await cache.Get("https://hub/a.jpg"));
+            Assert.False(Directory.Exists(Path.Combine(data, "images")));
+        }
+
+        [Fact]
+        public async Task A_tile_asks_for_its_picture_once()
+        {
+            int fetches = 0;
+            var cache = new HubImageCache(Path.Combine(data, "images"), url =>
+            {
+                Interlocked.Increment(ref fetches);
+                return Task.FromResult(new byte[] { 1, 2, 3 });
+            });
+            var tile = new HubTile(new HubResource { ImageUrl = "https://hub/a.jpg" }, cache, new ThumbnailLoader(), null);
+
+            Assert.Null(tile.Thumbnail);
+            Assert.Null(tile.Thumbnail);
+            await Task.Delay(200);
+
+            Assert.Equal(1, Volatile.Read(ref fetches));
+            Assert.Null(tile.Thumbnail);
+        }
+
+        [Theory]
+        [InlineData(HubOwnership.NotOwned, "Get", true)]
+        [InlineData(HubOwnership.Upgrade, "Get update from 1", true)]
+        [InlineData(HubOwnership.Owned, "Show in Library", false)]
+        [InlineData(HubOwnership.External, "Open on the Hub", false)]
+        [InlineData(HubOwnership.Unknown, "Open on the Hub", false)]
+        public void A_tile_offers_what_fits_its_package(HubOwnership ownership, string label, bool canGet)
+        {
+            var tile = new HubTile(new HubResource { Ownership = ownership, OwnedVersion = "1" }, new HubImageCache(data, _ => Task.FromResult(new byte[0])), new ThumbnailLoader(), null);
+
+            Assert.Equal(label, tile.ActionLabel);
+            Assert.Equal(canGet, tile.CanGet);
+            Assert.Equal(!canGet, tile.CanOpen);
         }
 
         [Fact]
@@ -327,6 +417,113 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task A_first_page_that_fails_is_asked_for_again()
+        {
+            browser.Page = Resources(1, 1, Resource("1", "Beach", File1("A.B.1")));
+            browser.ResourcesDown = true;
+            HubViewModel hub = Hub();
+            await hub.Open().WaitAsync(Timeout);
+            Assert.Contains("couldn't be reached", hub.StatusText);
+
+            browser.ResourcesDown = false;
+            await hub.Open().WaitAsync(Timeout);
+
+            Assert.Single(Tiles(hub));
+        }
+
+        [Fact]
+        public async Task A_failed_page_keeps_the_page_number_and_the_rows()
+        {
+            browser.Page = Resources(2, 3, Resource("1", "Beach", File1("A.B.1")));
+            HubViewModel hub = Hub();
+            await hub.Open().WaitAsync(Timeout);
+            hub.NextCommand.Execute(null);
+            await hub.Loaded.WaitAsync(Timeout);
+            Assert.Equal("Page 2 of 3", hub.PageText);
+
+            browser.ResourcesDown = true;
+            hub.NextCommand.Execute(null);
+            await hub.Loaded.WaitAsync(Timeout);
+            Assert.Contains("couldn't be reached", hub.StatusText);
+            Assert.Single(Tiles(hub));
+
+            browser.ResourcesDown = false;
+            hub.NextCommand.Execute(null);
+            await hub.Loaded.WaitAsync(Timeout);
+            Assert.Equal(3, browser.Queries[^1].Page);
+        }
+
+        [Fact]
+        public async Task Paging_stops_at_the_ends_and_trusts_only_real_pages()
+        {
+            browser.Page = Resources(9, 3, Resource("1", "Beach", File1("A.B.1")));
+            HubViewModel hub = Hub();
+            await hub.Open().WaitAsync(Timeout);
+            Assert.Equal("Page 3 of 3", hub.PageText);
+            Assert.False(hub.CanGoOn);
+            Assert.True(hub.CanGoBack);
+
+            browser.Page = Resources(1, 3, Resource("1", "Beach", File1("A.B.1")));
+            hub.PreviousCommand.Execute(null);
+            await hub.Loaded.WaitAsync(Timeout);
+            Assert.False(hub.CanGoBack);
+
+            hub.PreviousCommand.Execute(null);
+            await hub.Loaded.WaitAsync(Timeout);
+            Assert.Equal(1, browser.Queries[^1].Page);
+
+            browser.Page = Resources(1, 0);
+            hub.SearchCommand.Execute(null);
+            await hub.Loaded.WaitAsync(Timeout);
+            Assert.Equal("", hub.PageText);
+            Assert.False(hub.CanGoOn);
+        }
+
+        [Fact]
+        public async Task Rows_follow_the_width_without_asking_the_hub_again()
+        {
+            browser.Page = Resources(1, 1, Enumerable.Range(1, 7).Select(i => Resource(i.ToString(), "T" + i, File1("A.B." + i))).ToArray());
+            HubViewModel hub = Hub();
+            await hub.Open().WaitAsync(Timeout);
+            int asked = browser.Queries.Count;
+
+            hub.Columns = 3;
+            Assert.Equal(new[] { 3, 3, 1 }, hub.Rows.Select(row => row.Tiles.Count));
+
+            hub.Columns = 2;
+            Assert.Equal(4, hub.Rows.Count);
+            Assert.Equal(asked, browser.Queries.Count);
+        }
+
+        [Fact]
+        public async Task The_box_defaults_fall_back_when_the_hub_lists_something_else()
+        {
+            HubViewModel hub = Hub();
+
+            await hub.Open().WaitAsync(Timeout);
+
+            Assert.Contains(hub.PayType, hub.PayTypes);
+            Assert.Contains(hub.Location, hub.Locations);
+            Assert.Contains(hub.Sort, hub.Sorts);
+            Assert.Equal("All", hub.Locations[0]);
+            Assert.Equal("All", hub.PayTypes[0]);
+        }
+
+        [Fact]
+        public async Task Ownership_uses_the_newest_version_and_ignores_case()
+        {
+            Own("A.B.1", "A.B.3", "c.d.2");
+            browser.Page = Resources(1, 1, Resource("1", "Older", File1("A.B.2")), Resource("2", "Case", File1("C.D.2")), Resource("3", "Newer", File1("A.B.4")));
+            HubViewModel hub = Hub();
+
+            await hub.Open().WaitAsync(Timeout);
+
+            Assert.Equal(HubOwnership.Owned, Tiles(hub)[0].Resource.Ownership);
+            Assert.Equal(HubOwnership.Owned, Tiles(hub)[1].Resource.Ownership);
+            Assert.Equal("Get update from 3", Tiles(hub)[2].ActionLabel);
+        }
+
+        [Fact]
         public async Task Not_owned_hides_what_the_library_has()
         {
             Own("A.B.1");
@@ -334,12 +531,15 @@ namespace varManager.App.Tests
             HubViewModel hub = Hub();
             await hub.Open().WaitAsync(Timeout);
             Assert.Equal(2, Tiles(hub).Count);
-            Assert.Equal("In your library", Tiles(hub)[0].ActionLabel);
+            Assert.Equal("Show in Library", Tiles(hub)[0].ActionLabel);
 
             hub.NotOwned = true;
 
             Assert.Equal("New", Assert.Single(Tiles(hub)).Title);
             Assert.Contains("1 on this page hidden as owned", hub.StatusText);
+
+            hub.NotOwned = false;
+            Assert.Equal(2, Tiles(hub).Count);
         }
 
         [Fact]
@@ -415,7 +615,7 @@ namespace varManager.App.Tests
         {
             Own("Have.It.1");
             browser.Page = Resources(1, 1, Resource("9", "Beach", File1("A.B.1")));
-            browser.DetailResponse = "{\"hubFiles\":[{\"filename\":\"A.B.1.var\",\"urlHosted\":\"https://hub/a\"}],\"dependencies\":{\"x\":[{\"filename\":\"Have.It.1\",\"downloadUrl\":\"https://hub/h\"}]}}";
+            browser.DetailResponse = "{\"hubFiles\":[{\"filename\":\"A.B.1.var\",\"urlHosted\":\"https://hub.virtamate.com/a\"}],\"dependencies\":{\"x\":[{\"filename\":\"Have.It.1\",\"downloadUrl\":\"https://hub.virtamate.com/h\"}]}}";
             HubViewModel hub = Hub();
             await hub.Open().WaitAsync(Timeout);
 
@@ -424,10 +624,68 @@ namespace varManager.App.Tests
 
             Assert.Equal(new[] { "A.B.1" }, downloads.Names);
             Assert.True(VarLinks.ReadInstalled(paths.AddonPackages).ContainsKey("A.B.1"));
+            Assert.True(VarLinks.ReadInstalled(paths.AddonPackages).ContainsKey("Have.It.1"));
             Assert.Equal("Stored 1, failed 0.", jobs.Note);
 
             await hub.Refresh().WaitAsync(Timeout);
-            Assert.Equal("In your library", Tiles(hub)[0].ActionLabel);
+            Assert.Equal("Show in Library", Tiles(hub)[0].ActionLabel);
+        }
+
+        [Fact]
+        public async Task Get_with_everything_owned_turns_on_what_this_profile_lacks()
+        {
+            Own("A.B.2");
+            browser.Page = Resources(1, 1, Resource("9", "Beach", File1("C.D.1")));
+            browser.DetailResponse = "{\"hubFiles\":[{\"filename\":\"A.B.1.var\",\"urlHosted\":\"https://hub.virtamate.com/a\"}]}";
+            HubViewModel hub = Hub();
+            await hub.Open().WaitAsync(Timeout);
+
+            hub.GetCommand.Execute(Tiles(hub)[0]);
+            WaitForJob();
+
+            Assert.Empty(downloads.Names);
+            Assert.True(VarLinks.ReadInstalled(paths.AddonPackages).ContainsKey("A.B.2"));
+            Assert.Equal("Turned on 1 var.", jobs.Note);
+        }
+
+        [Fact]
+        public async Task Get_says_when_the_hub_fails()
+        {
+            browser.Page = Resources(1, 1, Resource("9", "Beach", File1("A.B.1")));
+            browser.DetailError = new IOException("no network");
+            HubViewModel hub = Hub();
+            await hub.Open().WaitAsync(Timeout);
+
+            hub.GetCommand.Execute(Tiles(hub)[0]);
+            WaitForJob();
+
+            Assert.Contains("failed: no network", jobs.Note);
+        }
+
+        [Fact]
+        public async Task Get_reports_a_failed_download()
+        {
+            browser.Page = Resources(1, 1, Resource("9", "Beach", File1("A.B.1")));
+            browser.DetailResponse = "{\"hubFiles\":[{\"filename\":\"A.B.1.var\",\"urlHosted\":\"https://hub.virtamate.com/a\"}]}";
+            downloads.Fail = true;
+            HubViewModel hub = Hub();
+            await hub.Open().WaitAsync(Timeout);
+
+            hub.GetCommand.Execute(Tiles(hub)[0]);
+            WaitForJob();
+
+            Assert.Equal("Stored 0, failed 1. First problem: broken", jobs.Note);
+        }
+
+        [Fact]
+        public void A_get_that_wont_fit_stops_and_says_why()
+        {
+            var packages = new[] { new HubPackage("A.B.1", "https://hub.virtamate.com/a", 500L << 20) };
+
+            string text = MissingCheck.GetPackages(packages, new string[0], storeFile, paths, downloads, _ => 1L << 30, (done, total) => { }, default);
+
+            Assert.Contains("but only", text);
+            Assert.Empty(downloads.Names);
         }
 
         [Fact]
@@ -435,7 +693,9 @@ namespace varManager.App.Tests
         {
             Own("A.B.2");
             browser.Page = Resources(1, 1, Resource("9", "Beach", File1("C.D.1")));
-            browser.DetailResponse = "{\"hubFiles\":[{\"filename\":\"A.B.1.var\",\"urlHosted\":\"https://hub/a\"}]}";
+            string link = Path.Combine(links, "A.B.2.var");
+            Assert.True(VarLinks.Create(link, Path.Combine(vars, LibraryFolders.Tidied, "A", "A.B.2.var")));
+            browser.DetailResponse = "{\"hubFiles\":[{\"filename\":\"A.B.1.var\",\"urlHosted\":\"https://hub.virtamate.com/a\"}]}";
             HubViewModel hub = Hub();
             await hub.Open().WaitAsync(Timeout);
 
@@ -461,6 +721,20 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task An_owned_package_shows_in_the_library()
+        {
+            Own("A.B.1");
+            browser.Page = Resources(1, 1, Resource("1", "Mine", File1("A.B.1")));
+            HubViewModel hub = Hub();
+            await hub.Open().WaitAsync(Timeout);
+
+            hub.OpenCommand.Execute(Tiles(hub)[0]);
+
+            Assert.Equal(new[] { "A.B" }, shown);
+            Assert.Empty(opened);
+        }
+
+        [Fact]
         public async Task The_shell_opens_the_hub_from_missing_and_comes_back()
         {
             string settingsFile = Path.Combine(data, "settings.json");
@@ -479,6 +753,47 @@ namespace varManager.App.Tests
 
             shell.LeaveHubCommand.Execute(null);
             Assert.True(shell.IsMissingList);
+        }
+
+        [Fact]
+        public async Task Leaving_missing_while_browsing_comes_back_to_the_list()
+        {
+            string settingsFile = Path.Combine(data, "settings.json");
+            new AppSettings { VamPath = vam, VarsPath = vars }.Save(settingsFile);
+            using var shell = new ShellViewModel(settingsFile, jobs, () => false, _ => { }, () => 0, downloads, TimeSpan.FromHours(1), browser);
+            await shell.LibraryLoaded.WaitAsync(Timeout);
+            shell.SelectedPage = shell.Pages[^1];
+            shell.BrowseHubCommand.Execute(null);
+
+            shell.SelectedPage = shell.Pages[0];
+            shell.SelectedPage = shell.Pages[^1];
+
+            Assert.True(shell.IsMissingList);
+            Assert.False(shell.IsHubPage);
+            await shell.Hub!.Loaded.WaitAsync(Timeout);
+        }
+
+        [Fact]
+        public async Task A_get_on_the_hub_page_refreshes_it_by_itself()
+        {
+            string settingsFile = Path.Combine(data, "settings.json");
+            new AppSettings { VamPath = vam, VarsPath = vars }.Save(settingsFile);
+            browser.Page = Resources(1, 1, Resource("9", "Beach", File1("A.B.1")));
+            browser.DetailResponse = "{\"hubFiles\":[{\"filename\":\"A.B.1.var\",\"urlHosted\":\"https://hub.virtamate.com/a\"}]}";
+            using var shell = new ShellViewModel(settingsFile, jobs, () => false, _ => { }, () => 0, downloads, TimeSpan.FromHours(1), browser);
+            await shell.LibraryLoaded.WaitAsync(Timeout);
+            shell.SelectedPage = shell.Pages[^1];
+            shell.BrowseHubCommand.Execute(null);
+            await shell.Hub!.Loaded.WaitAsync(Timeout);
+            shell.Hub.Columns = 10;
+
+            shell.Hub.GetCommand.Execute(Tiles(shell.Hub)[0]);
+            WaitForJob();
+
+            DateTime deadline = DateTime.UtcNow + Timeout;
+            while (Tiles(shell.Hub)[0].ActionLabel != "Show in Library" && DateTime.UtcNow < deadline)
+                await Task.Delay(10);
+            Assert.Equal("Show in Library", Tiles(shell.Hub)[0].ActionLabel);
         }
     }
 }
