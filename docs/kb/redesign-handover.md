@@ -22,6 +22,8 @@ Step 7 is done and pushed. Next: step 8, Health. Drive the real window for every
 
 Open for step 11: on 4 November the window showed white on this PC with hardware rendering, in the pushed build as well as the new one, and correct with `RenderOptions.ProcessRenderMode = SoftwareOnly`. Earlier screenshots were fine, and the cause isn't known. Retest. If it stays, the user would see a white window, so raise it at step 12.
 
+When the loop reaches step 12 with every earlier step ticked, reviewed clean and pushed: tell the user it's ready, then shut the PC down, as the user asked on 4 November. Not before, and not if anything failed or isn't pushed.
+
 ## SDK
 
 The .NET SDK 10.0.403 is installed. If `dotnet --list-sdks` ever shows no 10.x, stop and ask the user to install it. Don't install it yourself.
@@ -125,4 +127,6 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - A finished job reloads before the code after `await job` runs. Tests wait on `ProfilesViewModel.Work`, not a delay.
 - Two openers of a new store used to both create the tables. `CreateSchema` now takes the write lock and looks again.
 - The app can time startup and RAM, through an empty request the plugin takes. It can't time a scene load, because the plugin doesn't say when one ends. The empty request is untried on a real VaM.
+- Anything that reads links outside a job uses `VarLinks.ReadInstalled`, which creates nothing. `Installed` creates `___VarsLink___`, and in the moment `Point` has deleted the link that makes `AddonPackages` a real folder, which fails the switch and blocks every later one. A job-end reload could do this after building a profile. Only running 4 test processes at once showed the cause.
+- A test that fails rarely is a bug until shown otherwise. Run it under load to get the real message: 4 `dotnet test` processes at once.
 - The compiler drops an unused project reference, so `GetReferencedAssemblies` won't list Core until the app calls it.

@@ -61,6 +61,7 @@ namespace varManager.Ui
         private LibraryViewModel? library;
         private ScenesViewModel? scenes;
         private ProfilesViewModel? profiles;
+        private HealthViewModel? health;
         private readonly TempLinkRemoval tempLinks = new TempLinkRemoval();
         private readonly Func<long> vamMemory;
         private CancellationTokenSource? launchTimer;
@@ -123,14 +124,18 @@ namespace varManager.Ui
                 Changed(nameof(IsLibraryPage));
                 Changed(nameof(IsScenesPage));
                 Changed(nameof(IsProfilesPage));
+                Changed(nameof(IsHealthPage));
                 Changed(nameof(IsOtherPage));
+                if (IsHealthPage)
+                    _ = ReadHealth();
             }
         }
 
         public bool IsLibraryPage => selectedPage == Pages[0];
         public bool IsScenesPage => selectedPage == Pages[1];
         public bool IsProfilesPage => selectedPage == Pages[2];
-        public bool IsOtherPage => !IsLibraryPage && !IsScenesPage && !IsProfilesPage;
+        public bool IsHealthPage => selectedPage == Pages[3];
+        public bool IsOtherPage => !IsLibraryPage && !IsScenesPage && !IsProfilesPage && !IsHealthPage;
 
         public LibraryViewModel? Library
         {
@@ -148,6 +153,12 @@ namespace varManager.Ui
         {
             get => profiles;
             private set => Set(ref profiles, value);
+        }
+
+        public HealthViewModel? Health
+        {
+            get => health;
+            private set => Set(ref health, value);
         }
 
         /// <summary>The latest library read, which also brings the linked count up to date.</summary>
@@ -263,6 +274,8 @@ namespace varManager.Ui
         {
             Task scenesRead = ReadScenes();
             Task profilesRead = ReadProfiles();
+            // Health reads every save, so it runs only while someone is looking at it.
+            Task healthRead = IsHealthPage ? ReadHealth() : Task.CompletedTask;
             try
             {
                 await reading.Reload().ConfigureAwait(true);
@@ -277,6 +290,21 @@ namespace varManager.Ui
             }
             await scenesRead.ConfigureAwait(true);
             await profilesRead.ConfigureAwait(true);
+            await healthRead.ConfigureAwait(true);
+        }
+
+        private async Task ReadHealth()
+        {
+            if (Health == null)
+                return;
+            try
+            {
+                await Health.Reload().ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                Jobs.Say("Could not check the library: " + ex.Message);
+            }
         }
 
         private async Task ReadProfiles()
@@ -412,10 +440,11 @@ namespace varManager.Ui
             var paths = new LibraryPaths(VarsPath, VamPath, dataFolder);
             Library?.Detach();
             Profiles?.Detach();
-            Library = new LibraryViewModel(StoreFile, paths, Jobs, () => VarLinks.Installed(packs).Keys, ForgetTempLinks, SynchronizationContext.Current, Picks);
-            Scenes = new ScenesViewModel(StoreFile, paths, Jobs, () => VarLinks.Installed(packs).Keys,
+            Library = new LibraryViewModel(StoreFile, paths, Jobs, () => VarLinks.ReadInstalled(packs).Keys, ForgetTempLinks, SynchronizationContext.Current, Picks);
+            Scenes = new ScenesViewModel(StoreFile, paths, Jobs, () => VarLinks.ReadInstalled(packs).Keys,
                 () => SelectedPage = Pages[^1], ForgetTempLinks, SynchronizationContext.Current);
             Profiles = new ProfilesViewModel(StoreFile, paths, Jobs, Picks, () => selectedSwitch, SwitchTo, () => SelectedPage = Pages[0]);
+            Health = new HealthViewModel(StoreFile, paths, Jobs, () => SelectedPage = Pages[^1]);
             ImportOldDatabase();
             if (!Jobs.IsRunning)
                 ReloadLibrary();

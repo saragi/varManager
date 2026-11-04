@@ -74,18 +74,36 @@ namespace varManager
         /// <summary>Linked vars by name, ignoring case as the file system does: everything in the link folder, plus links directly in AddonPackages.</summary>
         public static Dictionary<string, string> Installed(string addonPackagesPath)
         {
-            var installed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             // Creating the folder below would leave a real AddonPackages where a link belongs, and block every switch.
-            if (!Directory.Exists(addonPackagesPath))
-                return installed;
+            if (Directory.Exists(addonPackagesPath))
+                Directory.CreateDirectory(Path.Combine(addonPackagesPath, LibraryFolders.VarsLink));
+            return ReadInstalled(addonPackagesPath);
+        }
 
-            string linkFolder = Directory.CreateDirectory(Path.Combine(addonPackagesPath, LibraryFolders.VarsLink)).FullName;
-            IEnumerable<string> files = Directory.GetFiles(linkFolder, "*.var", SearchOption.AllDirectories)
-                .Concat(Directory.GetFiles(addonPackagesPath, "*.var", SearchOption.TopDirectoryOnly));
-            foreach (string file in files)
+        /// <summary>
+        /// The same as Installed, but creates nothing. Anything that reads while a switch can happen must use
+        /// this: a folder created in the moment AddonPackages is repointed makes it a real folder.
+        /// </summary>
+        public static Dictionary<string, string> ReadInstalled(string addonPackagesPath)
+        {
+            var installed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            string linkFolder = Path.GetFullPath(Path.Combine(addonPackagesPath, LibraryFolders.VarsLink));
+            try
             {
-                if (IsLink(file))
-                    installed[Path.GetFileNameWithoutExtension(file)] = file;
+                IEnumerable<string> files = Directory.Exists(linkFolder)
+                    ? Directory.GetFiles(linkFolder, "*.var", SearchOption.AllDirectories)
+                    : new string[0];
+                if (Directory.Exists(addonPackagesPath))
+                    files = files.Concat(Directory.GetFiles(addonPackagesPath, "*.var", SearchOption.TopDirectoryOnly));
+                foreach (string file in files)
+                {
+                    if (IsLink(file))
+                        installed[Path.GetFileNameWithoutExtension(file)] = file;
+                }
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                // AddonPackages is being repointed, and a reload follows every switch.
             }
             return installed;
         }

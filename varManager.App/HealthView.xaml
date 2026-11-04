@@ -1,0 +1,91 @@
+<UserControl x:Class="varManager.Ui.HealthView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="Visible" />
+
+        <Style x:Key="PanelBox" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Panel}" />
+            <Setter Property="BorderBrush" Value="{StaticResource Edge}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="16" />
+            <Setter Property="Margin" Value="0,0,20,14" />
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="20,16,0,8">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                <TextBlock Text="Health" FontSize="22" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding StatusText}" Style="{StaticResource MutedText}" Margin="12,0,0,0" VerticalAlignment="Center" />
+            </StackPanel>
+
+            <ItemsControl AutomationProperties.Name="Health cards" ItemsSource="{Binding Cards}" Focusable="False">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Style="{StaticResource PanelBox}" Width="240" Margin="0,0,14,14">
+                            <StackPanel>
+                                <TextBlock Text="{Binding Number}" FontSize="26" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding Text}" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                                <Button Content="{Binding ActionLabel}" Command="{Binding Action}" Margin="0,10,0,0"
+                                        AutomationProperties.Name="{Binding Text, StringFormat=Review {0}}"
+                                        IsEnabled="{Binding DataContext.Jobs.IsIdle, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        Visibility="{Binding HasAction, Converter={StaticResource Visible}}" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <Border Style="{StaticResource PanelBox}" Visibility="{Binding HasPending, Converter={StaticResource Visible}}">
+                <StackPanel>
+                    <TextBlock Text="{Binding Pending.Title}" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6" />
+                    <TextBlock Text="{Binding Pending.Note}" TextWrapping="Wrap" Margin="0,0,0,10" />
+                    <ScrollViewer MaxHeight="240" VerticalScrollBarVisibility="Auto" Margin="0,0,0,10">
+                        <ItemsControl AutomationProperties.Name="Review list" ItemsSource="{Binding Pending.Lines}" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" Style="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="{Binding Pending.ConfirmLabel}" Style="{StaticResource PrimaryButton}" Command="{Binding ConfirmCommand}" Margin="0,0,8,0"
+                                IsEnabled="{Binding DataContext.Jobs.IsIdle, RelativeSource={RelativeSource AncestorType=Window}}" />
+                        <Button Content="Leave it" Command="{Binding CancelCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource PanelBox}" Visibility="{Binding HasMissing, Converter={StaticResource Visible}}">
+                <StackPanel>
+                    <TextBlock Text="Missing dependencies" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <ItemsControl AutomationProperties.Name="Missing dependencies" ItemsSource="{Binding Missing}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel Margin="0,0,0,8">
+                                    <Button DockPanel.Dock="Right" Content="Find on Hub"
+                                            Command="{Binding DataContext.FindOnHubCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Reference}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Style="{StaticResource MutedText}" TextTrimming="CharacterEllipsis">
+                                            <Run Text="Needed by" /> <Run Text="{Binding NeededBy, Mode=OneWay}" /><Run Text=", such as" /> <Run Text="{Binding Example, Mode=OneWay}" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Text="{Binding MissingMore}" Style="{StaticResource MutedText}" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

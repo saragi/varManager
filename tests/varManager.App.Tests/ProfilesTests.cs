@@ -161,6 +161,33 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task Reading_links_during_a_switch_never_leaves_a_real_addon_packages_folder()
+        {
+            Directory.CreateDirectory(Links("other"));
+            string packs = Path.Combine(vam, "AddonPackages");
+            using var stop = new CancellationTokenSource();
+            Task reading = Task.Run(() =>
+            {
+                while (!stop.IsCancellationRequested)
+                    VarLinks.ReadInstalled(packs);
+            });
+
+            try
+            {
+                for (int i = 0; i < 4000; i++)
+                {
+                    Assert.NotEqual(SwitchChange.Failed, VarSwitches.Point(vam, i % 2 == 0 ? "other" : "default", out _));
+                    Assert.True(new DirectoryInfo(packs).Attributes.HasFlag(FileAttributes.ReparsePoint), "round " + i);
+                }
+            }
+            finally
+            {
+                stop.Cancel();
+            }
+            await reading.WaitAsync(Timeout);
+        }
+
+        [Fact]
         public async Task Two_openers_of_a_new_store_both_get_a_working_store()
         {
             for (int round = 0; round < 30; round++)

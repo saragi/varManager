@@ -243,7 +243,7 @@ namespace varManager
         }
 
         /// <summary>File.Exists reports a broken link as present, so open it to reach the target.</summary>
-        private static bool LinkResolves(string link)
+        public static bool LinkResolves(string link)
         {
             try
             {

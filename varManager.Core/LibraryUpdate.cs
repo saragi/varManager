@@ -33,6 +33,10 @@ namespace varManager
         public int Changed { get; set; }
         public int Removed { get; set; }
         public int NotLinked { get; set; }
+
+        /// <summary>Vars that look gone, in numbers too large to forget without asking.</summary>
+        public int HeldBack { get; set; }
+
         public List<string> Problems { get; } = new List<string>();
 
         public string Summary
@@ -42,6 +46,8 @@ namespace varManager
                 if (!FoundVars)
                     return "No vars found. Check the vars folder.";
                 string text = $"Update DB finished: {Added} new, {Changed} changed, {Removed} removed.";
+                if (HeldBack > 0)
+                    text += $" {HeldBack} more look gone, so they were kept. See Health.";
                 if (NotLinked > 0)
                     text += $" {NotLinked} not linked yet.";
                 if (Problems.Count > 0)
@@ -54,6 +60,9 @@ namespace varManager
     /// <summary>Brings the store up to date with the repository: tidy, scan what's new, drop what's gone, link what's waiting.</summary>
     public static class LibraryUpdate
     {
+        // A wrong vars folder looks like a mass removal, and rebuilding the records took 106 minutes on the real library.
+        private const int LargeRemoval = 50;
+
         public static UpdateReport Run(LibraryStore store, LibraryPaths paths, Action<int, int> progress, CancellationToken token)
         {
             var report = new UpdateReport();
@@ -148,15 +157,36 @@ namespace varManager
         private static void RemoveGone(LibraryStore store, LibraryPaths paths, string[] files, UpdateReport report)
         {
             var present = new HashSet<string>(files.Select(Path.GetFileNameWithoutExtension), StringComparer.OrdinalIgnoreCase);
-            List<string> gone = store.LoadVars().Select(v => v.VarName).Where(name => !present.Contains(name)).ToList();
+            IReadOnlyList<VarRecord> records = store.LoadVars();
+            List<string> gone = records.Select(v => v.VarName).Where(name => !present.Contains(name)).ToList();
             if (gone.Count == 0)
                 return;
+            if (gone.Count >= LargeRemoval && gone.Count * 5 >= records.Count)
+            {
+                report.HeldBack = gone.Count;
+                return;
+            }
+            Forget(store, paths, gone, report);
+            report.Removed = gone.Count;
+        }
 
+        private static void Forget(LibraryStore store, LibraryPaths paths, List<string> gone, UpdateReport report)
+        {
             store.DeleteVars(gone);
             foreach (string varName in gone)
                 ScenePreviews.DeleteAll(paths.VarsPath, varName);
-            report.Removed = gone.Count;
             RestorePreviews(store, paths, report);
+        }
+
+        /// <summary>Forgets records the user reviewed, skipping any whose file came back.</summary>
+        /// <returns>How many went.</returns>
+        public static int RemoveMissing(LibraryStore store, LibraryPaths paths, IEnumerable<string> reviewed)
+        {
+            Dictionary<string, string> files = VarFiles(store, paths);
+            List<string> gone = reviewed.Where(name => files.ContainsKey(name) && !File.Exists(files[name])).ToList();
+            if (gone.Count > 0)
+                Forget(store, paths, gone, new UpdateReport());
+            return gone.Count;
         }
 
         /// <summary>Extracts any preview that's missing again. Two vars can share a preview folder entry, so removing one may cost the other.</summary>

@@ -175,6 +175,27 @@ namespace varManagerTests
         }
 
         [Fact]
+        public void Reading_what_is_installed_creates_nothing()
+        {
+            VarLinks.Create(Path.Combine(addons, "A.B.1.var"), Var("A.B.1"));
+            Directory.Delete(links);
+
+            Assert.True(VarLinks.ReadInstalled(addons).ContainsKey("A.B.1"));
+
+            Assert.False(Directory.Exists(links));
+        }
+
+        [Fact]
+        public void Reading_a_missing_folder_gives_nothing()
+        {
+            string missing = Path.Combine(root, "nowhere");
+
+            Assert.Empty(VarLinks.ReadInstalled(missing));
+
+            Assert.False(Directory.Exists(missing));
+        }
+
+        [Fact]
         public void Installed_creates_the_link_folder()
         {
             Directory.Delete(links);

@@ -493,6 +493,8 @@ namespace varManager.Ui
             usage = newUsage;
             tiles = items.ToDictionary(i => i.VarName, i => new LibraryTile(i, thumbnails, ui) { IsPicked = picks.Contains(i.VarName) }, StringComparer.OrdinalIgnoreCase);
             Selected = keep != null && tiles.TryGetValue(keep, out LibraryTile? tile) ? tile : null;
+            // Health can move vars out or delete a holding folder, so what can be undone may have changed.
+            SetUndo(MoveOut.LatestHolding(varsPath));
             RefreshSuggestions();
             Apply();
         }

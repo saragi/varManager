@@ -64,6 +64,8 @@
                            Visibility="{Binding DataContext.IsScenesPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
             <ui:ProfilesView Grid.Column="1" DataContext="{Binding Profiles}"
                              Visibility="{Binding DataContext.IsProfilesPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
+            <ui:HealthView Grid.Column="1" DataContext="{Binding Health}"
+                           Visibility="{Binding DataContext.IsHealthPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
             <StackPanel Grid.Column="1" Margin="20" Visibility="{Binding IsOtherPage, Converter={StaticResource Visible}}">
                 <TextBlock Text="{Binding SelectedPage.Name}" FontSize="22" FontWeight="SemiBold" />
             </StackPanel>
