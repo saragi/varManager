@@ -12,6 +12,8 @@ The clickable mockup is at https://claude.ai/artifact/2ugrax4vYy63wpfpRVBKWH. Th
 - Logic with no UI is in `varManager.Core`. The WinForms app links those files.
 - `varManager.App` exists as an empty WPF window. It opens and closes cleanly, and doesn't use Core yet.
 - `tests\varManager.App.Tests` runs the Core tests on .NET 10 too. All pass there.
+- `LibraryStore` (SQLite) and `AccessDatabase.ImportOnce` exist, but nothing calls them yet. Step 4 must call the import at startup, once the app knows its paths. Add reads to `LibraryStore` as screens need them. It has only `LoadVars` and `Count` so far.
+- Import proof on a copy of the real `varManager.mdb`: all 147,943 rows in 5 tables matched, it took 1.3 s, and `LoadVars` read 5,791 vars in 27 ms. The copy was deleted afterwards.
 
 ## SDK
 
@@ -25,7 +27,7 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 
 - [x] 0. Review commit `558c942` and the handover commit with the loop below, then push.
 - [x] 1. Confirm the SDK. Create `varManager.App` (WPF, `net10.0-windows`) referencing `varManager.Core`, with a test project that can target it.
-- [ ] 2. Add a SQLite store to Core, with a one-time import from `varManager.mdb` that only reads the Access file. Keep the schema simple. Prove it on a copy.
+- [x] 2. Add a SQLite store to Core, with a one-time import from `varManager.mdb` that only reads the Access file. Keep the schema simple. Prove it on a copy.
 - [ ] 3. Move logic out of `Form1.cs` into Core, one area per commit, keeping WinForms working: Tidy, Update DB scan, install and link, switches, scenes and previews, dependency analysis.
 - [ ] 4. Build the WPF shell from the mockup: dark look, side nav, profile switcher, Update DB, Launch VaM, bottom job bar instead of popups.
 - [ ] 5. Library: virtualized gallery that loads only on-screen thumbnails, search with author suggestions and tags, type and status filters, detail panel, Move out with undo.
@@ -71,4 +73,7 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - `backgroundWorkerInstall.RunWorkerAsync` throws when busy, and only `StartBackgroundJob` checks.
 - `Directory.GetFiles` is fine for `*.var` with `.part` files, but `File.Exists` is true for broken links.
 - UI Automation sees WinForms buttons as panes, so click with `BM_CLICK`.
+- Access defaults number columns to 0, so an omitted `filesize` is 0, not NULL.
+- `Microsoft.Data.Sqlite` below 10.0.14 pulls in a `SQLitePCLRaw.lib.e_sqlite3` with a known high severity vulnerability (NU1903). Don't downgrade it.
+- `git push` sometimes fails with a GitHub 500. Retry it, and confirm with `git status -sb` before reporting a push.
 - The compiler drops an unused project reference, so `GetReferencedAssemblies` won't list Core until the app calls it.
