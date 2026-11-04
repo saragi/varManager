@@ -8,6 +8,7 @@ A new user starts varManager with a real `AddonPackages` folder. The app shows w
 - `cancel`: Cancel closes the app and changes no files.
 - `migrate`: `Move files` stores the vars, writes a log, and makes `AddonPackages` a symlink.
 - `update-db`: `UPD_DB` tidies vars, fills the database, and links enabled vars.
+- `lean-profile`: `Lean Profile` builds a links-only switch from the selected row, and `Profile Check` reports on it.
 
 ## How to get to it (user POV)
 
@@ -25,8 +26,11 @@ Preconditions: doctor passes and VaM is not running. The script creates all seed
 - Changed var: replace the tidied var with a file of a different size and run `UPD_DB` again, retrying on the `still running` box. The `dependencies` table gains the new references and loses the old one.
 - Stored state: after the app closes, the `vars` table has `Smoke.Alpha.1` with `scenes = 1`, and `Smoke.Beta.1`. Beta has no link, `readme.txt` is still reachable through `AddonPackages`, and `varManager.log` has no `ERROR` or `FATAL`. `Smoke.Beta.1` depends on `Smoke.Alpha.1`.
 
+- Lean profile: relaunch, click the first row header, click `Lean Profile`, then `Create profile`. `___Profiles___\lean.txt` exists, the `lean` switch holds only links, `AddonPackages` points at it, and the var hash is unchanged. `Profile Check` opens and reports a result.
+
 ## Gotchas
 
 - The startup job can hold the background worker when `UPD_DB` is clicked. The script answers the `still running` box and retries.
+- The script finds the var list by the control under a point in the main window, because UI Automation exposes no IDs here. A layout change can break that lookup.
 - The seed scene holds only package references. It exercises the dependency deep scan, but not real scene parsing or previews.
 - The tree listing shows the switch folder in lower case (`___addonpacksswitch ___`), because `Form1_Load` lowers the path. That is existing behaviour.

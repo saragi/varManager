@@ -12,6 +12,10 @@ Goal: make VaM faster through lean, reliable symlink profiles, without rewriting
 | 5 | Browsing: search filters, labels, `.hide` and `.fav` sync, content gallery, dependency graph |
 | 6 | Hub downloads: parallel dependencies, sizes and cancel, search by exact package name |
 
+## Release status
+
+Releases 0 to 2 are built. Migrating a real library and using a profile in VaM are still to do.
+
 ## Migration
 
 Built and tested on a small copy of real vars: preview, move, Update DB, and undo with file hashes unchanged. It stores `.var.disabled` content as unlinked vars, keeps companion files beside their vars, and refuses a repository on a different drive. Migrating a real library is still a separate decision.

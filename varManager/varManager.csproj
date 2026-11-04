@@ -84,6 +84,10 @@
     <Compile Include="Comm.cs" />
     <Compile Include="VarIndex.cs" />
     <Compile Include="DependencyScanner.cs" />
+    <Compile Include="LeanProfiles.cs" />
+    <Compile Include="FormLeanProfile.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="FormTextViewer.cs">
       <SubType>Form</SubType>
     </Compile>

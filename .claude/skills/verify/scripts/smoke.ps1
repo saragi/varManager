@@ -414,6 +414,69 @@ try {
     Check (@($dependencies.Select("varName = 'Smoke.Beta.1' AND dependency = 'Smoke.Alpha.1'")).Count -eq 1) 'deep scan finds a reference to another var'
     $logFile = Join-Path $App 'varManager.log'
     Check (-not (Select-String -LiteralPath $logFile -Pattern 'ERROR|FATAL' -Quiet)) 'app log has no errors'
+
+    # Lean profile: runs last because it repoints AddonPackages away from the default switch.
+    Start-App
+    $main = Wait-Window '^VarManager' 'main window' 30
+    Start-Sleep -Seconds 3
+    # Select the first row by clicking its row header, as a user would.
+    # UI Automation exposes no IDs here, so walk down to the control under a point in the list.
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace Smoke {
+    public static class Mouse {
+        [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
+        [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+        [DllImport("user32.dll")] static extern IntPtr ChildWindowFromPointEx(IntPtr h, POINT p, uint flags);
+        [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr h, ref POINT p);
+        [DllImport("user32.dll")] static extern bool ScreenToClient(IntPtr h, ref POINT p);
+        public static IntPtr ControlAt(IntPtr window, int x, int y) {
+            POINT screen = new POINT { X = x, Y = y };
+            ClientToScreen(window, ref screen);
+            IntPtr current = window;
+            while (true) {
+                POINT client = screen;
+                ScreenToClient(current, ref client);
+                IntPtr child = ChildWindowFromPointEx(current, client, 1);
+                if (child == IntPtr.Zero || child == current) return current;
+                current = child;
+            }
+        }
+    }
+}
+'@
+    $gridHandle = [Smoke.Mouse]::ControlAt($main, 420, 300)
+    Check ($gridHandle -ne $main) 'var list found'
+    $point = [IntPtr]((36 -shl 16) -bor 12)
+    [void][Smoke.Mouse]::PostMessage($gridHandle, 0x0201, [IntPtr]1, $point)
+    [void][Smoke.Mouse]::PostMessage($gridHandle, 0x0202, [IntPtr]::Zero, $point)
+    Start-Sleep -Seconds 1
+    [Win]::Click((Find-Child $main '^Lean Profile$'))
+    $leanForm = Wait-Window '^Lean profile$' 'lean profile window' 15
+    Save-Shot $leanForm 'lean-profile'
+    $leanText = ([Win]::Children($leanForm) | ForEach-Object { [Win]::Text($_) }) -join "`n"
+    Check ($leanText -match 'Vars in this profile: \d') 'lean profile window shows a preview'
+    [Win]::Click((Find-Child $leanForm '^Create profile$'))
+    $leanLinks = Join-Path $VaM '___AddonPacksSwitch ___\lean\___VarsLink___'
+    $deadline = (Get-Date).AddSeconds(20)
+    while ((Get-Date) -lt $deadline -and -not (Test-Path -LiteralPath (Join-Path $Vars '___Profiles___\lean.txt'))) { Start-Sleep -Milliseconds 300 }
+    Start-Sleep -Seconds 3
+    Check (Test-Path -LiteralPath (Join-Path $Vars '___Profiles___\lean.txt')) 'lean profile saved'
+    $leanVars = @(Get-ChildItem -LiteralPath $leanLinks -Filter '*.var' -ErrorAction SilentlyContinue)
+    Check ($leanVars.Count -ge 1) 'lean profile has links'
+    Check (@($leanVars | Where-Object { $_.LinkType -ne 'SymbolicLink' }).Count -eq 0) 'lean profile holds only links'
+    Check (([string](Get-Item -LiteralPath $Pack).Target) -match 'lean$') 'AddonPackages points at the lean profile'
+    Check ((Get-FileHash -LiteralPath $tidied).Hash -eq $alphaHash) 'creating a profile leaves var files unchanged'
+    [Win]::Click((Find-Child $main '^Profile Check$'))
+    $checkForm = Wait-Window '^Profile check$' 'profile check window' 15
+    Save-Shot $checkForm 'profile-check'
+    $checkText = ([Win]::Children($checkForm) | ForEach-Object { [Win]::Text($_) }) -join "`n"
+    Check ($checkText -match 'healthy|Problems found') 'profile check reports a result'
+    [Win]::Click((Find-Child $checkForm '^Close$'))
+    Start-Sleep -Seconds 1
+    [Win]::Close($main)
+    Wait-Exit
 }
 catch {
     $failure = $_.Exception.Message

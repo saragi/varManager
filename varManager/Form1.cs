@@ -35,6 +35,7 @@ namespace varManager
         private static string staleVarsDirName = "___StaleVars___";
         private static string oldVersionVarsDirName = "___OldVersionVars___";
         private static string deleVarsDirName = "___DeletedVars___";
+        private static string profilesDirName = "___Profiles___";
 
         private static string addonPacksSwitch = "___AddonPacksSwitch ___";
 
@@ -50,6 +51,173 @@ namespace varManager
             // UpdDB runs 16 static regexes per zip entry; the default cache of 15 misses on every call.
             Regex.CacheSize = 64;
             HookIndexInvalidation();
+            AddProfileButtons();
+        }
+
+        private void AddProfileButtons()
+        {
+            Control parent = buttonSetting.Parent;
+            AddSideButton(parent, "Lean Profile", 9, 670, 66, 36, buttonLeanProfile_Click);
+            AddSideButton(parent, "Profile Check", 78, 670, 66, 36, buttonProfileCheck_Click);
+            AddSideButton(parent, "Launch VaM", 33, 709, 89, 36, buttonLaunchVaM_Click);
+        }
+
+        private static void AddSideButton(Control parent, string text, int x, int y, int width, int height, EventHandler click)
+        {
+            Button button = new Button { Text = text, Location = new Point(x, y), Size = new Size(width, height) };
+            button.Click += click;
+            parent.Controls.Add(button);
+        }
+
+        private static string ProfilePath(string name)
+        {
+            return Path.Combine(Settings.Default.varspath, profilesDirName, name + ".txt");
+        }
+
+        private static string SwitchLinkPath(string name)
+        {
+            return Path.Combine(Settings.Default.vampath, addonPacksSwitch, name, installLinkDirName);
+        }
+
+        /// <summary>Packages VaM needs in every profile: session plugins, the default scene and base.txt.</summary>
+        private static List<string> BaseReferences()
+        {
+            HashSet<string> references = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string[] sources =
+            {
+                Path.Combine(Settings.Default.vampath, "Custom", "PluginPresets", "Plugins_UserDefaults.vap"),
+                Path.Combine(Settings.Default.vampath, "Saves", "scene", "MeshedVR", "default.json"),
+            };
+            foreach (string source in sources.Where(File.Exists))
+                references.UnionWith(DependencyScanner.Extract(source, File.ReadAllText(source)));
+            string baseList = Path.Combine(Settings.Default.varspath, profilesDirName, "base.txt");
+            if (File.Exists(baseList))
+                references.UnionWith(File.ReadAllLines(baseList).Select(line => line.Trim()).Where(line => line.Length > 0));
+            return references.OrderBy(reference => reference, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        private ProfilePlan PlanProfile(LeanProfile profile)
+        {
+            return LeanProfiles.Plan(profile, VarLookup, varName => DependencyLookup.DependenciesOf(varName), varName =>
+            {
+                varManagerDataSet.varsRow row = varManagerDataSet.vars.FindByvarName(varName);
+                return row == null || row.IsfilesizeNull() ? 0 : (long)row.filesize;
+            });
+        }
+
+        private static bool CreateVarLink(string link, string target)
+        {
+            if (!Comm.CreateSymbolicLink(link, target, Comm.SYMBOLIC_LINK_FLAG.File | Comm.SYMBOLIC_LINK_FLAG.AllowUnprivilegedCreate))
+                return false;
+            Comm.SetSymboLinkFileTime(link, File.GetCreationTime(target), File.GetLastWriteTime(target));
+            return true;
+        }
+
+        private void ApplyProfileLinks(string name, ProfilePlan plan)
+        {
+            LeanProfiles.ApplyLinks(plan.Closure.Vars, SwitchLinkPath(name), getVarFilePath, CreateVarLink);
+            if (comboBoxPacksSwitch.Items.IndexOf(name) < 0)
+                comboBoxPacksSwitch.Items.Add(name);
+            if ((string)comboBoxPacksSwitch.SelectedItem == name)
+            {
+                UpdateVarsInstalled();
+                RescanPackages();
+            }
+            else
+            {
+                comboBoxPacksSwitch.SelectedItem = name;
+            }
+        }
+
+        private bool ProfileToolsAvailable()
+        {
+            if (!backgroundWorkerInstall.IsBusy)
+                return true;
+            MessageBox.Show("Another operation is still running. Please wait for it to finish.");
+            return false;
+        }
+
+        private void buttonLeanProfile_Click(object sender, EventArgs e)
+        {
+            if (!ProfileToolsAvailable())
+                return;
+            LeanProfile profile = new LeanProfile();
+            foreach (DataGridViewRow row in varsViewDataGridView.SelectedRows)
+                profile.Direct.Add(row.Cells["varNameDataGridViewTextBoxColumn"].Value.ToString());
+            if (profile.Direct.Count == 0)
+            {
+                MessageBox.Show("Select the vars you want in the list first.");
+                return;
+            }
+            profile.Base.AddRange(BaseReferences());
+            ProfilePlan plan = PlanProfile(profile);
+            using (FormLeanProfile form = new FormLeanProfile(name => LeanProfiles.Describe(plan,
+                LeanProfiles.Diff(plan.Closure.Vars, LeanProfiles.Links(SwitchLinkPath(name)).Select(Path.GetFileNameWithoutExtension)))))
+            {
+                if (form.ShowDialog(this) != DialogResult.OK)
+                    return;
+                try
+                {
+                    LeanProfiles.Save(profile, ProfilePath(form.ProfileName));
+                    ApplyProfileLinks(form.ProfileName, plan);
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    MessageBox.Show("The profile was not finished: " + ex.Message);
+                }
+            }
+        }
+
+        private void buttonProfileCheck_Click(object sender, EventArgs e)
+        {
+            if (!ProfileToolsAvailable())
+                return;
+            string name = (string)comboBoxPacksSwitch.SelectedItem;
+            string path = string.IsNullOrEmpty(name) ? null : ProfilePath(name);
+            if (path == null || !File.Exists(path))
+            {
+                MessageBox.Show("The current switch isn't a lean profile.");
+                return;
+            }
+            ProfilePlan plan = PlanProfile(LeanProfiles.Load(path));
+            ProfileHealth health = LeanProfiles.Check(plan, SwitchLinkPath(name));
+            string previous = LeanProfiles.PreviousPath(path);
+            DialogResult result;
+            using (FormProfileCheck form = new FormProfileCheck(LeanProfiles.Describe(health), health.CanRepair, File.Exists(previous)))
+            {
+                result = form.ShowDialog(this);
+            }
+            try
+            {
+                if (result == DialogResult.Yes)
+                {
+                    ApplyProfileLinks(name, plan);
+                }
+                else if (result == DialogResult.Retry)
+                {
+                    LeanProfile restored = LeanProfiles.Load(previous);
+                    LeanProfiles.Save(restored, path);
+                    ApplyProfileLinks(name, PlanProfile(restored));
+                }
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                MessageBox.Show("The profile was not finished: " + ex.Message);
+            }
+        }
+
+        private void buttonLaunchVaM_Click(object sender, EventArgs e)
+        {
+            if (Process.GetProcessesByName("vam").Length > 0)
+            {
+                MessageBox.Show("VaM is already running.");
+                return;
+            }
+            Process.Start(new ProcessStartInfo(Path.Combine(Settings.Default.vampath, "VaM.exe"), "-vrmode None")
+            {
+                WorkingDirectory = Settings.Default.vampath,
+                UseShellExecute = false
+            });
         }
 
         private volatile VarIndex varIndexCache;
