@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
+using System.Data.OleDb;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -427,17 +428,37 @@ namespace varManager
         private static List<string> ScanVarDependencies(ZipFile varzipfile, string varName)
         {
             HashSet<string> references = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, HashSet<string>> file in ReadFileReferences(varzipfile))
+                references.UnionWith(file.Value);
+            references.Remove(varName);
+            return references.ToList();
+        }
+
+        private static List<KeyValuePair<string, HashSet<string>>> ReadFileReferences(ZipFile varzipfile)
+        {
+            List<KeyValuePair<string, HashSet<string>>> files = new List<KeyValuePair<string, HashSet<string>>>();
             foreach (ZipEntry entry in varzipfile)
             {
                 if (!entry.IsFile || !DependencyScanner.IsScannable(entry.Name) || entry.Size > maxScannedEntryBytes)
                     continue;
                 using (StreamReader reader = new StreamReader(varzipfile.GetInputStream(entry)))
                 {
-                    references.UnionWith(DependencyScanner.Extract(entry.Name, reader.ReadToEnd()));
+                    files.Add(new KeyValuePair<string, HashSet<string>>(entry.Name, DependencyScanner.Extract(entry.Name, reader.ReadToEnd())));
                 }
             }
-            references.Remove(varName);
-            return references.ToList();
+            return files;
+        }
+
+        /// <summary>Lists which files inside a var reference which packages.</summary>
+        public string DescribeVarDependencies(string varName)
+        {
+            string varfile = getVarFilePath(varName);
+            if (!File.Exists(varfile))
+                return "Var file not found: " + varfile;
+            using (ZipFile varzipfile = new ZipFile(varfile))
+            {
+                return DependencyScanner.Describe(ReadFileReferences(varzipfile), VarLookup, varName);
+            }
         }
 
         private bool Varislatest(string varname)
@@ -1222,6 +1243,14 @@ namespace varManager
                 }
                 else
                 {
+                    // File times shift with daylight saving, so only size marks a changed var.
+                    if (!varsrow.IsfilesizeNull() && varsrow.filesize != new FileInfo(destvarfilename).Length)
+                    {
+                        this.BeginInvoke(addlog, new Object[] { $"{basename} has changed, updating its record", LogLevel.INFO });
+                        if (CleanVar(basename))
+                            UpdDB(destvarfilename);
+                        return;
+                    }
                     if (varsrow.varPath != curpath)
                     {
                         varsrow.varPath = curpath;
@@ -1278,40 +1307,53 @@ namespace varManager
             //MessageBox.Show("Update DB finish!Please reopen this tool!");
             return true;
         }
-        private bool CleanVars(List<string> deletevarList)
+        /// <summary>
+        /// Deletes records by var name. Rows added this session hold temporary IDs, so the
+        /// table adapters can't delete them by key.
+        /// </summary>
+        private void DeleteVarRecords(ICollection<string> varNames)
         {
-            HashSet<string> deletevars = new HashSet<string>(deletevarList);
+            string[] tables = { "dependencies", "scenes", "vars" };
+            using (OleDbConnection connection = new OleDbConnection(Settings.Default.varManagerConnectionString))
+            {
+                connection.Open();
+                using (OleDbTransaction transaction = connection.BeginTransaction())
+                {
+                    foreach (string table in tables)
+                    {
+                        using (OleDbCommand command = new OleDbCommand($"DELETE FROM [{table}] WHERE varName = ?", connection, transaction))
+                        {
+                            OleDbParameter name = command.Parameters.Add("varName", OleDbType.VarWChar, 255);
+                            foreach (string varName in varNames)
+                            {
+                                name.Value = varName;
+                                command.ExecuteNonQuery();
+                            }
+                        }
+                    }
+                    transaction.Commit();
+                }
+            }
+
+            HashSet<string> names = new HashSet<string>(varNames, StringComparer.OrdinalIgnoreCase);
+            foreach (string table in tables)
+            {
+                DataTable dataTable = varManagerDataSet.Tables[table];
+                foreach (DataRow row in dataTable.Rows.Cast<DataRow>().Where(r => IsLive(r) && names.Contains((string)r["varName"])).ToList())
+                {
+                    row.Delete();
+                    row.AcceptChanges();
+                }
+            }
+        }
+
+        private bool CleanVars(List<string> deletevars)
+        {
             try
             {
-                this.BeginInvoke(addlog, new Object[] { $"Cleanup dependencies table...", LogLevel.INFO });
-                var dependencierows = varManagerDataSet.dependencies.Where(q => deletevars.Contains(q.varName)).ToList();
-                for (int i = dependencierows.Count() - 1; i >= 0; i--)
-                {
-                    dependencierows[i].Delete();
-                }
-                dependenciesTableAdapter.Update(varManagerDataSet.dependencies);
-                varManagerDataSet.dependencies.AcceptChanges();
-                this.BeginInvoke(addlog, new Object[] { $"Cleanup dependencies table completed.", LogLevel.INFO });
-
-                this.BeginInvoke(addlog, new Object[] { $"Cleanup scenes table...", LogLevel.INFO });
-                var scenes = varManagerDataSet.scenes.Where(q => deletevars.Contains(q.varName)).ToList();
-                for (int i = scenes.Count() - 1; i >= 0; i--)
-                {
-                    scenes[i].Delete();
-                }
-                scenesTableAdapter.Update(varManagerDataSet.scenes);
-                varManagerDataSet.scenes.AcceptChanges();
-                this.BeginInvoke(addlog, new Object[] { $"Cleanup scenes table completed.", LogLevel.INFO });
-
-                this.BeginInvoke(addlog, new Object[] { $"Cleanup vars table...", LogLevel.INFO });
-                var varrows = varManagerDataSet.vars.Where(q => deletevars.Contains(q.varName)).ToList();
-                for (int i = varrows.Count() - 1; i >= 0; i--)
-                {
-                    varrows[i].Delete();
-                }
-                varsTableAdapter.Update(varManagerDataSet.vars);
-                varManagerDataSet.vars.AcceptChanges();
-                this.BeginInvoke(addlog, new Object[] { $"Cleanup vars table completed.", LogLevel.INFO });
+                this.BeginInvoke(addlog, new Object[] { $"Cleanup records...", LogLevel.INFO });
+                DeleteVarRecords(deletevars);
+                this.BeginInvoke(addlog, new Object[] { $"Cleanup records completed.", LogLevel.INFO });
 
                 this.BeginInvoke(addlog, new Object[] { $"Cleanup PreviewPics...", LogLevel.INFO });
                 foreach (string deletevar in deletevars)
@@ -1331,32 +1373,13 @@ namespace varManager
         {
             try
             {
-                var dependencierows = varManagerDataSet.dependencies.Where(q => q.varName == deletevar).ToList();
-                for (int i = dependencierows.Count() - 1; i >= 0; i--)
-                {
-                    dependencierows[i].Delete();
-                }
-                dependenciesTableAdapter.Update(varManagerDataSet.dependencies);
-                varManagerDataSet.dependencies.AcceptChanges();
-
-                var scenes = varManagerDataSet.scenes.Where(q => q.varName == deletevar).ToList();
-                for (int i = scenes.Count() - 1; i >= 0; i--)
-                {
-                    scenes[i].Delete();
-                }
-                scenesTableAdapter.Update(varManagerDataSet.scenes);
-                varManagerDataSet.scenes.AcceptChanges();
-
-                varManagerDataSet.vars.FindByvarName(deletevar).Delete();
-                varsTableAdapter.Update(varManagerDataSet.vars);
-                varManagerDataSet.vars.AcceptChanges();
-
+                DeleteVarRecords(new[] { deletevar });
                 DelePreviewPics(deletevar);
-
             }
             catch (Exception ex)
             {
                 this.BeginInvoke(addlog, new Object[] { deletevar + ",delete record or preview error, " + ex.Message, LogLevel.ERROR });
+                return false;
             }
             return true;
         }
@@ -2508,14 +2531,12 @@ namespace varManager
             formVarDetail.strVarName = varName;
 
             formVarDetail.dependencies = new Dictionary<string, string>();
-            foreach(var dependrow in this.varManagerDataSet.dependencies.Where(q=>q.varName == varName))
+            formVarDetail.dependencyStatus = new Dictionary<string, DependencyStatus>();
+            foreach (string dependency in DependencyLookup.DependenciesOf(varName))
             {
-                string existName = VarExistName(dependrow.dependency);
-                if (existName.EndsWith("$"))
-                {
-                    existName = existName.Substring(0, existName.Length - 1);
-                }
-                formVarDetail.dependencies[dependrow.dependency] = existName;
+                DependencyResolution resolution = VarLookup.ResolveReference(dependency);
+                formVarDetail.dependencies[dependency] = resolution.VarName ?? VarIndex.Missing;
+                formVarDetail.dependencyStatus[dependency] = resolution.Status;
             }
             formVarDetail.DependentVarList = DependentVars(varName);
             formVarDetail.DependentJsonList = DependentSaved(varName);

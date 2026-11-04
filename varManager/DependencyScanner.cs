@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace varManager
@@ -57,6 +58,30 @@ namespace varManager
         {
             foreach (Match match in pattern.Matches(text))
                 references.Add(match.Groups[1].Value.Trim());
+        }
+
+        /// <summary>Lists each file's references and what they resolve to, leaving out the var itself.</summary>
+        public static string Describe(IEnumerable<KeyValuePair<string, HashSet<string>>> files, VarIndex index, string varName)
+        {
+            StringBuilder text = new StringBuilder();
+            foreach (KeyValuePair<string, HashSet<string>> file in files.OrderBy(f => f.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                List<string> references = file.Value
+                    .Where(reference => !string.Equals(reference, varName, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(reference => reference, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                if (references.Count == 0)
+                    continue;
+                text.AppendLine(file.Key);
+                foreach (string reference in references)
+                {
+                    DependencyResolution resolution = index.ResolveReference(reference);
+                    text.AppendLine(resolution.Status == DependencyStatus.Missing
+                        ? $"    {reference}: Missing"
+                        : $"    {reference}: {resolution.Status}, uses {resolution.VarName}");
+                }
+            }
+            return text.Length > 0 ? text.ToString() : "No package references found.";
         }
 
         /// <summary>

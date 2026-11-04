@@ -18,6 +18,7 @@ namespace varManager
         public Form1 form1;
         public string strAction;
         public Dictionary<string,string> dependencies;
+        public Dictionary<string, DependencyStatus> dependencyStatus;
         public List<string> DependentVarList;
         public List<string> DependentJsonList;
         public FormVarDetail()
@@ -28,6 +29,17 @@ namespace varManager
         private void FormVarDetail_Load(object sender, EventArgs e)
         {
             textBoxVarName.Text = strVarName;
+
+            dataGridViewDependency.Columns.Add(new DataGridViewTextBoxColumn { Name = "ColumnStatus", HeaderText = "Status", ReadOnly = true, Width = 70 });
+            Button buttonDetails = new Button { Text = "Dependency details", Location = new Point(622, 5), Size = new Size(84, 52) };
+            buttonDetails.Click += (s, args) =>
+            {
+                using (FormTextViewer viewer = new FormTextViewer("Dependency details: " + strVarName, form1.DescribeVarDependencies(strVarName)))
+                {
+                    viewer.ShowDialog(this);
+                }
+            };
+            Controls.Add(buttonDetails);
 
             foreach (var dep in dependencies)
             {
@@ -40,15 +52,15 @@ namespace varManager
             {
 
                 string dependName = (string)deprow.Cells["ColumnDependName"].Value;
-                string dependVar = dependencies[dependName];
-                if (dependVar == "missing")
+                DependencyStatus status = dependencyStatus[dependName];
+                deprow.Cells["ColumnStatus"].Value = status.ToString();
+                if (status == DependencyStatus.Missing)
                 {
                     deprow.DefaultCellStyle.BackColor = Color.Red;
                 }
-                else if (!dependName.ToLower().EndsWith("latest"))
+                else if (status == DependencyStatus.Fallback)
                 {
-                    if (dependName.ToLower() != dependVar.ToLower())
-                        deprow.DefaultCellStyle.BackColor = Color.Yellow;
+                    deprow.DefaultCellStyle.BackColor = Color.Yellow;
                 }
 
             }

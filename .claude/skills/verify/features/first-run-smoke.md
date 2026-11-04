@@ -22,6 +22,7 @@ Preconditions: doctor passes and VaM is not running. The script creates all seed
 - Cancel: click `Cancel`. The process exits, the VaM folder listing is identical, `AddonPackages` is a real folder, and the vars folder is empty.
 - Migrate: relaunch and click `Move files`. The result box starts `Files moved`, `AddonPackages` is a reparse point, one `.tsv` is in `___MigrationLogs___`, and `varsForInstall.txt` lists `Smoke.Alpha.1`.
 - Update DB: click `UPD_DB`, then `&Yes`. `___VarTidied___\Smoke\Smoke.Alpha.1.var` has the original hash, and `___VarsLink___\Smoke.Alpha.1.var` is a symlink to it.
+- Changed var: replace the tidied var with a different file and run `UPD_DB` again. The `dependencies` table picks up the new reference.
 - Stored state: after the app closes, the `vars` table has `Smoke.Alpha.1` with `scenes = 1`, and `Smoke.Beta.1`. Beta has no link, `readme.txt` is still reachable through `AddonPackages`, and `varManager.log` has no `ERROR` or `FATAL`. The `dependencies` table has the scene-only reference `Deep Creator.Hidden_Pack.min2`, and no var depends on itself.
 
 ## Gotchas

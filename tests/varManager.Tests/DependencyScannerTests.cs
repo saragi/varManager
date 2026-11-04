@@ -71,6 +71,27 @@ namespace varManagerTests
         }
 
         [Fact]
+        public void Describe_lists_each_file_with_how_references_resolve()
+        {
+            var files = new[]
+            {
+                new KeyValuePair<string, HashSet<string>>("Saves/b.json", new HashSet<string> { "P.Q.latest", "X.Y.1", "A.A.1" }),
+                new KeyValuePair<string, HashSet<string>>("Saves/a.json", new HashSet<string> { "A.A.1" }),
+            };
+            string text = DependencyScanner.Describe(files, Index("A.A.1", "P.Q.2"), "A.A.1");
+            Assert.Contains("P.Q.latest: Latest, uses P.Q.2", text);
+            Assert.Contains("X.Y.1: Missing", text);
+            Assert.DoesNotContain("Saves/a.json", text);
+        }
+
+        [Fact]
+        public void Describe_says_when_there_is_nothing()
+        {
+            Assert.Equal("No package references found.",
+                DependencyScanner.Describe(new KeyValuePair<string, HashSet<string>>[0], Index("A.A.1"), "A.A.1"));
+        }
+
+        [Fact]
         public void Closure_walks_nested_references_once_despite_cycles()
         {
             Dictionary<string, string[]> refs = new Dictionary<string, string[]>

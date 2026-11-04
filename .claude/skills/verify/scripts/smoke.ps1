@@ -157,13 +157,13 @@ function Check([bool]$Ok, [string]$Name) {
     Step "$(if ($Ok) { 'PASS' } else { 'FAIL' }) $Name"
     if (-not $Ok) { throw "Check failed: $Name" }
 }
-function New-FakeVar([string]$Path, [string]$Creator, [string]$Package) {
+function New-FakeVar([string]$Path, [string]$Creator, [string]$Package, [string]$ExtraReference = 'Smoke.Alpha.1') {
     Add-Type -AssemblyName System.IO.Compression
     $file = [IO.File]::Open($Path, 'CreateNew')
     $zip = New-Object IO.Compression.ZipArchive($file, [IO.Compression.ZipArchiveMode]::Create)
     $entries = @{
         'meta.json' = "{`"licenseType`":`"CC BY`",`"creatorName`":`"$Creator`",`"packageName`":`"$Package`",`"description`":`"verify seed`",`"dependencies`":{}}"
-        'Saves/scene/smoke.json' = '{"hair":"Deep Creator.Hidden_Pack.min2:/Custom/x.vap","own":"Smoke.Alpha.1:/Custom/y.vap","local":"SELF:/Custom/z.vap"}'
+        'Saves/scene/smoke.json' = '{"hair":"Deep Creator.Hidden_Pack.min2:/Custom/x.vap","own":"' + $ExtraReference + ':/Custom/y.vap","local":"SELF:/Custom/z.vap"}'
     }
     foreach ($name in $entries.Keys) {
         $writer = New-Object IO.StreamWriter($zip.CreateEntry($name).Open())
@@ -358,6 +358,23 @@ try {
     Check $done 'Update DB finished: link created and varsForInstall.txt consumed'
     Start-Sleep -Seconds 2
     Save-Shot $main 'main-after-updatedb'
+    Check ((Get-FileHash -LiteralPath $tidied).Hash -eq $alphaHash) 'var contents unchanged by first Update DB'
+
+    # A var replaced by a different file must be read again, not skipped by name.
+    [IO.File]::Delete($tidied)
+    New-FakeVar $tidied 'Smoke' 'Alpha' 'Replaced.Package_With_A_Longer_Name.latest'
+    $alphaHash = (Get-FileHash -LiteralPath $tidied).Hash
+    [Win]::Click((Find-Child $main '^UPD_DB$'))
+    $confirm = Wait-Window '^UpdateDB$' 'Update DB confirmation' 10
+    [Win]::Click((Find-Child $confirm '^&?Yes$'))
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $rescanned = $false
+    while ((Get-Date) -lt $deadline -and -not $rescanned) {
+        Start-Sleep -Milliseconds 700
+        $rescanned = @((Get-DependencyRows).Select("varName = 'Smoke.Alpha.1' AND dependency = 'Replaced.Package_With_A_Longer_Name.latest'")).Count -eq 1
+    }
+    Check $rescanned 'Update DB rescans a var whose file changed'
+    Start-Sleep -Seconds 2
 
     [Win]::Close($main)
     Wait-Exit
