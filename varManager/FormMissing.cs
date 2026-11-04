@@ -94,7 +94,7 @@ namespace varManager
             };
             cancel.Click += (s, e) =>
             {
-                followingChain = false;
+                StopChain();
                 downloading?.Cancel();
             };
             owner.LibraryChanged += LibraryChanged;
@@ -208,7 +208,10 @@ namespace varManager
             catch (Exception ex)
             {
                 if (!IsDisposed)
+                {
+                    StopChain();
                     status.Text = "Check failed: " + ex.Message;
+                }
             }
         }
 
@@ -294,11 +297,19 @@ namespace varManager
                 await Download(next, LinkedNeeds());
                 return;
             }
-            StopChain();
-            // Stored vars the downloads need. Other turned-off vars stay off, because they may be off on purpose.
-            List<string> needed = report.TurnedOff.Where(off => off.Value.Overlaps(attempted)).Select(off => off.Key).ToList();
+            // Stored vars the downloads need, and what those need in turn. Other turned-off vars
+            // stay off, because they may be off on purpose.
+            List<string> needed = report.TurnedOff.Where(off => !attempted.Contains(off.Key) && off.Value.Overlaps(attempted))
+                .Select(off => off.Key).ToList();
             if (needed.Count > 0)
+            {
+                attempted.UnionWith(needed);
                 Scan(needed);
+            }
+            else
+            {
+                StopChain();
+            }
         }
 
         private async Task Download(List<HubPackage> packages, List<string> toLink)
@@ -358,7 +369,7 @@ namespace varManager
             }
             else
             {
-                StopChain();
+                // A chain still has stored vars to turn on, even when this round stored nothing.
                 Recheck();
             }
         }

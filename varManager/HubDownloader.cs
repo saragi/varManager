@@ -178,6 +178,8 @@ namespace varManager
                                     received += read;
                                 }
                             }
+                            // Dropping a stalled response can end the read as if the file were complete.
+                            idle.Token.ThrowIfCancellationRequested();
                             long? expected = response.Content.Headers.ContentLength;
                             if (expected.HasValue && received != expected.Value)
                                 throw new IOException("The download stopped early.");

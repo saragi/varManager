@@ -151,6 +151,13 @@ namespace varManager
         {
             File.AppendAllLines(migratedVarsFile, pendingLinks);
             pendingLinks.Clear();
+            StartAutomaticUpdate();
+        }
+
+        /// <summary>Nobody asked for this job, so nobody knows not to switch profile while it links.</summary>
+        private void StartAutomaticUpdate()
+        {
+            comboBoxPacksSwitch.Enabled = false;
             backgroundWorkerInstall.RunWorkerAsync("UpdDB");
         }
 
@@ -188,7 +195,7 @@ namespace varManager
                 return;
             repositoryTimer.Stop();
             if (GetVarspathVars().Count > 0)
-                backgroundWorkerInstall.RunWorkerAsync("UpdDB");
+                StartAutomaticUpdate();
         }
 
         /// <summary>A var still being copied can't be opened exclusively.</summary>
@@ -203,6 +210,10 @@ namespace varManager
                 catch (IOException)
                 {
                     return false;
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    // Update DB logs a var it can't read, so this one needn't hold the others back.
                 }
             }
             return true;
@@ -1986,7 +1997,9 @@ namespace varManager
             {
                 UpdateAddLoglist("Operation failed: " + e.Error.Message, LogLevel.ERROR);
             }
-            if (repositoryWatcher == null)
+            comboBoxPacksSwitch.Enabled = true;
+            // After a failed load the tables are empty, and a scan would redo every var.
+            if (repositoryWatcher == null && e.Error == null)
                 WatchRepository();
             if (updateAfterJob)
             {
@@ -1996,7 +2009,7 @@ namespace varManager
                     StartPendingUpdate();
                     return;
                 }
-                catch (IOException ex)
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
                 {
                     UpdateAddLoglist("Could not start Update DB: " + ex.Message, LogLevel.ERROR);
                 }

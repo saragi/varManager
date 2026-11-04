@@ -411,5 +411,48 @@ namespace varManagerTests
             Assert.InRange(hub.Peak, 1, 3);
             Assert.Equal(9, Directory.GetFiles(root).Length);
         }
+
+        private sealed class EndsOnDisposeStream : Stream
+        {
+            private readonly TaskCompletionSource<int> disposed = new TaskCompletionSource<int>();
+            private bool sentStart;
+
+            public override bool CanRead => true;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => throw new NotSupportedException();
+            public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+            public override void Flush() { }
+            public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+            public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken token)
+            {
+                if (sentStart)
+                    return disposed.Task;
+                sentStart = true;
+                buffer[offset] = (byte)'P';
+                buffer[offset + 1] = (byte)'K';
+                return Task.FromResult(2);
+            }
+
+            protected override void Dispose(bool disposing)
+            {
+                disposed.TrySetResult(0);
+                base.Dispose(disposing);
+            }
+        }
+
+        [Fact]
+        public async Task A_stall_that_ends_like_a_finished_file_stores_nothing()
+        {
+            FakeHub hub = new FakeHub { Reply = request => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new EndsOnDisposeStream()) } };
+            using (HubDownloader downloader = new HubDownloader(hub, TimeSpan.FromMilliseconds(200)))
+                await Assert.ThrowsAsync<IOException>(() => downloader.Download(new HubPackage("A.Hair.1", "https://hub.test/1", 1), root, CancellationToken.None));
+
+            Assert.Empty(Directory.GetFiles(root));
+        }
     }
 }
