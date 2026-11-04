@@ -1662,9 +1662,16 @@ namespace varManager
         {
             if (!File.Exists(migratedVarsFile))
                 return;
-            foreach (string varname in File.ReadAllLines(migratedVarsFile))
-                VarInstall(varname);
-            File.Delete(migratedVarsFile);
+            List<string> notLinked = File.ReadAllLines(migratedVarsFile)
+                .Where(varname => varname.Length > 0 && VarInstall(varname) == 0).ToList();
+            if (notLinked.Count == 0)
+            {
+                File.Delete(migratedVarsFile);
+                return;
+            }
+            // Kept so the next Update DB can retry them.
+            File.WriteAllLines(migratedVarsFile, notLinked);
+            this.BeginInvoke(addlog, new Object[] { $"{notLinked.Count} migrated vars were not linked. Update DB will retry them.", LogLevel.WARNING });
         }
 
         private void RunBackgroundJob(string job)

@@ -35,7 +35,7 @@ The script does these steps in order:
 2. Copies `bin\Release` to `%TEMP%\varManager-verify\run\<stamp>\app`, leaving out any `varManager.log`, `varsForInstall.txt` and `varsMigrated.txt`.
 3. Sets `varspath` and `vampath` in the copied `varManager.exe.config` to fake folders in the sandbox.
 4. Creates a fake `VaM.exe`, then seeds a real `AddonPackages` folder with `Smoke.Alpha.1.var`, `Smoke.Beta.1.var.disabled` and `readme.txt`.
-5. Launches with `__COMPAT_LAYER=RunAsInvoker`, so no elevation is needed. The working directory is the app copy, because `varsForInstall.txt` and `varManager.log` are resolved against it.
+5. Launches with `__COMPAT_LAYER=RunAsInvoker`, so no elevation is needed. The working directory is the app copy, because `varsMigrated.txt`, `varsForInstall.txt` and `varManager.log` are resolved against it.
 6. Reads the preview, clicks `Cancel`, and proves nothing moved.
 7. Relaunches, clicks `Move files` on the seed data, then runs `UPD_DB`.
 8. Closes the app, checks the files, link and database, and removes the sandbox.
