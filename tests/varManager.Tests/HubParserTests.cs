@@ -115,5 +115,32 @@ namespace varManagerTests
         {
             Assert.Empty(HubParser.LatestVersions("{\"5\":\"1\"}"));
         }
+
+        [Fact]
+        public void DownloadLinks_keeps_reading_after_a_skipped_entry()
+        {
+            var links = HubParser.DownloadLinks("{\"packages\":{"
+                + "\"a\":{\"filename\":\"A.One.1.var\"},"
+                + "\"b\":{\"filename\":\"A.Two.1.var\",\"downloadUrl\":\"https://hub/2\"}}}");
+
+            Assert.Equal("A.Two.1", Assert.Single(links).Key);
+        }
+
+        [Fact]
+        public void LatestVersions_keeps_reading_after_a_skipped_entry()
+        {
+            var latest = HubParser.LatestVersions("{\"plain\":\"1\",\"A.Hair.2.var\":\"2\"}");
+
+            Assert.Equal(2, latest["A.Hair"]);
+        }
+
+        [Theory]
+        [InlineData("{\"packages\":{\"a\":{\"filename\":\"A.On")]
+        [InlineData("}")]
+        public void Both_readers_reject_broken_json(string response)
+        {
+            Assert.Throws<InvalidDataException>(() => HubParser.DownloadLinks(response));
+            Assert.Throws<InvalidDataException>(() => HubParser.LatestVersions(response));
+        }
     }
 }

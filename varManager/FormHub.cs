@@ -29,11 +29,9 @@ namespace varManager
         private readonly System.Windows.Forms.Timer searchTimer = new System.Windows.Forms.Timer { Interval = 400 };
         private string lastSearch = "";
         private int latestRequest;
-        private InvokeAddLoglist addlog;
         public FormHub()
         {
             InitializeComponent();
-            addlog = new InvokeAddLoglist(UpdateAddLoglist);
             searchTimer.Tick += SearchTimer_Tick;
         }
         private void buttonScanHub_Click(object sender, EventArgs e)
@@ -113,7 +111,14 @@ namespace varManager
                 BeginInvoke((Action)(() =>
                 {
                     labelTotal.Text = "Hub error";
-                    UpdateAddLoglist("Hub request failed: " + message, LogLevel.ERROR);
+                    try
+                    {
+                        UpdateAddLoglist("Hub request failed: " + message, LogLevel.ERROR);
+                    }
+                    catch (IOException)
+                    {
+                        // A busy log file must not turn a Hub error into a crash.
+                    }
                 }));
             }
             catch (InvalidOperationException)
