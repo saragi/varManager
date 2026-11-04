@@ -271,6 +271,61 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task A_folder_link_in_a_holding_folder_keeps_what_it_points_at()
+        {
+            MakeVar("A.B.1");
+            Update();
+            string outside = Path.Combine(root, "outside");
+            string empty = Path.Combine(root, "empty");
+            Directory.CreateDirectory(outside);
+            Directory.CreateDirectory(empty);
+            string otherLog = Path.Combine(outside, "moved.txt");
+            File.WriteAllText(otherLog, "log");
+            Held(LibraryFolders.Holding + "\\20260101", "A.B.1.var");
+            string batch = Path.Combine(vars, LibraryFolders.Holding, "20260101");
+            var link = Comm.SYMBOLIC_LINK_FLAG.Directory | Comm.SYMBOLIC_LINK_FLAG.AllowUnprivilegedCreate;
+            Assert.True(Comm.CreateSymbolicLink(Path.Combine(batch, "linked"), outside, link));
+            Assert.True(Comm.CreateSymbolicLink(Path.Combine(batch, "linkedEmpty"), empty, link));
+            HealthViewModel health = await Open();
+
+            Press(health, "Moved out of the library");
+            await Confirm(health);
+
+            Assert.True(File.Exists(otherLog));
+            Assert.True(Directory.Exists(empty));
+        }
+
+        [Fact]
+        public void A_held_folder_that_is_a_link_offers_nothing_to_delete()
+        {
+            MakeVar("A.B.1");
+            Update();
+            string outside = Path.Combine(root, "outside");
+            Directory.CreateDirectory(outside);
+            File.WriteAllText(Path.Combine(outside, "keep.var"), "x");
+            string redundant = Path.Combine(vars, LibraryFolders.Redundant);
+            if (Directory.Exists(redundant))
+                Directory.Delete(redundant);
+            Assert.True(Comm.CreateSymbolicLink(redundant, outside, Comm.SYMBOLIC_LINK_FLAG.Directory | Comm.SYMBOLIC_LINK_FLAG.AllowUnprivilegedCreate));
+
+            Assert.Empty(Report().Held);
+        }
+
+        [Fact]
+        public void Checking_creates_no_default_switch()
+        {
+            MakeVar("A.B.1");
+            Update();
+            string packs = Path.Combine(vam, "AddonPackages");
+            new DirectoryInfo(packs).Delete();
+            Directory.Delete(Path.Combine(vam, LibraryFolders.AddonPacksSwitch), true);
+
+            Report();
+
+            Assert.False(Directory.Exists(Path.Combine(vam, LibraryFolders.AddonPacksSwitch)));
+        }
+
+        [Fact]
         public async Task A_review_goes_when_the_page_checks_again()
         {
             MakeVar("A.B.1");
@@ -532,6 +587,63 @@ namespace varManager.App.Tests
 
             Assert.False(new FileInfo(link).Exists);
             Assert.False(File.Exists(link + ".disabled"));
+        }
+
+        [Fact]
+        public async Task Repair_keeps_the_marker_of_a_repaired_link_and_a_marker_holding_a_var()
+        {
+            MakeVar("A.B.1");
+            MakeVar("Lost.Pack.1");
+            Update();
+            string target = Path.Combine(root, "A.B.1.var");
+            File.WriteAllText(target, "x");
+            string kept = Path.Combine(links, "A.B.1.var");
+            Assert.True(VarLinks.Create(kept, target));
+            File.Delete(target);
+            File.WriteAllText(kept + ".disabled", "");
+            string lost = Path.Combine(links, "Lost.Pack.1.var");
+            Assert.True(VarLinks.Create(lost, Tidied("Lost.Pack.1")));
+            File.WriteAllText(lost + ".disabled", "a whole var");
+            File.Delete(Tidied("Lost.Pack.1"));
+            HealthViewModel health = await Open();
+
+            Press(health, "Broken links in this profile");
+            await Confirm(health);
+
+            Assert.True(LeanProfiles.LinkResolves(kept));
+            Assert.True(File.Exists(kept + ".disabled"));
+            Assert.Equal("a whole var", File.ReadAllText(lost + ".disabled"));
+        }
+
+        [Fact]
+        public async Task Repair_finds_a_var_moved_inside_the_tidied_folder()
+        {
+            MakeVar("A.B.1");
+            Update();
+            string link = Path.Combine(links, "A.B.1.var");
+            Assert.True(VarLinks.Create(link, Tidied("A.B.1")));
+            string moved = Path.Combine(vars, LibraryFolders.Tidied, "Elsewhere", "A.B.1.var");
+            Directory.CreateDirectory(Path.GetDirectoryName(moved)!);
+            File.Move(Tidied("A.B.1"), moved);
+            HealthViewModel health = await Open();
+
+            Press(health, "Broken links in this profile");
+            await Confirm(health);
+
+            Assert.True(LeanProfiles.LinkResolves(link));
+        }
+
+        [Fact]
+        public void An_unreachable_vars_folder_says_nothing_is_gone()
+        {
+            MakeVar("A.B.1");
+            Update();
+            Directory.Delete(Path.Combine(vars, LibraryFolders.Tidied), true);
+
+            Assert.Empty(Report().GoneRecords);
+            using LibraryStore store = LibraryStore.Open(storeFile);
+            Assert.Equal(0, LibraryUpdate.RemoveMissing(store, paths, new[] { "A.B.1" }));
+            Assert.Equal(1, store.Count("vars"));
         }
 
         [Theory]

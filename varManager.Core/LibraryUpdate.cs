@@ -69,14 +69,17 @@ namespace varManager
             return (gone >= 5 && gone * 2 >= total) || (gone >= 50 && gone * 5 >= total);
         }
 
-        /// <summary>Names of the vars in the tidied folder, wherever they sit in it.</summary>
-        public static HashSet<string> TidiedVars(LibraryPaths paths)
+        /// <summary>The vars in the tidied folder by name, wherever they sit in it.</summary>
+        public static Dictionary<string, string> TidiedVars(LibraryPaths paths)
         {
             string tidied = Path.Combine(paths.VarsPath, LibraryFolders.Tidied);
-            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             if (Directory.Exists(tidied))
-                names.UnionWith(Directory.GetFiles(tidied, "*.var", SearchOption.AllDirectories).Select(Path.GetFileNameWithoutExtension));
-            return names;
+            {
+                foreach (string file in Directory.GetFiles(tidied, "*.var", SearchOption.AllDirectories))
+                    files[Path.GetFileNameWithoutExtension(file)] = file;
+            }
+            return files;
         }
 
         public static UpdateReport Run(LibraryStore store, LibraryPaths paths, Action<int, int> progress, CancellationToken token)
@@ -199,8 +202,11 @@ namespace varManager
         public static int RemoveMissing(LibraryStore store, LibraryPaths paths, IEnumerable<string> reviewed)
         {
             var known = new HashSet<string>(store.LoadVars().Select(v => v.VarName), StringComparer.OrdinalIgnoreCase);
-            HashSet<string> present = TidiedVars(paths);
-            List<string> gone = reviewed.Where(name => known.Contains(name) && !present.Contains(name)).ToList();
+            Dictionary<string, string> present = TidiedVars(paths);
+            // No vars at all means the folder can't be reached, which says nothing about any one var.
+            if (present.Count == 0)
+                return 0;
+            List<string> gone = reviewed.Where(name => known.Contains(name) && !present.ContainsKey(name)).ToList();
             if (gone.Count > 0)
                 Forget(store, paths, gone, new UpdateReport());
             return gone.Count;
