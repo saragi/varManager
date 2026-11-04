@@ -503,6 +503,8 @@ namespace varManager.Ui
                 try
                 {
                     AccessDatabase.ImportOnce(mdb, StoreFile);
+                    // A second Open may have marked this while it ran, finding the job busy.
+                    importFailed = false;
                 }
                 catch (Exception)
                 {
@@ -523,8 +525,7 @@ namespace varManager.Ui
 
         private void UpdateDb(LibraryPaths paths)
         {
-            // A store on disk means there's nothing left for the import to protect.
-            if (importFailed && !File.Exists(StoreFile))
+            if (importFailed)
             {
                 Jobs.Say("The old database wasn't imported, so Update DB is off. Restart to try the import again.");
                 return;

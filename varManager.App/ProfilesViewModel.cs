@@ -439,6 +439,8 @@ namespace varManager.Ui
         /// <summary>Turns on the vars a text file names, with their dependencies.</summary>
         public void TurnOnFromList(string file)
         {
+            if (NoStore())
+                return;
             jobs.Start("Turning on from a list", context =>
             {
                 using LibraryStore store = LibraryStore.Open(storeFile);
@@ -479,8 +481,19 @@ namespace varManager.Ui
             switchTo(built);
         }
 
+        // Opening a store creates it, and an empty one stops the Access import from ever running.
+        private bool NoStore()
+        {
+            if (File.Exists(storeFile))
+                return false;
+            jobs.Say("Run Update DB first.");
+            return true;
+        }
+
         private async Task Check(string profile)
         {
+            if (NoStore())
+                return;
             ProfileCheck? result = null;
             Task? job = jobs.Start("Checking " + profile, context =>
             {

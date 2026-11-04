@@ -891,6 +891,26 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task Profile_actions_before_any_update_create_no_store()
+        {
+            ShellViewModel shell = await Shell();
+            Directory.CreateDirectory(Links("foo"));
+            var profile = new LeanProfile();
+            profile.Direct.Add("A.B.1");
+            LeanProfiles.Save(profile, LeanProfiles.ProfilePath(vars, "foo"));
+            await shell.Profiles!.Reload();
+            string file = Path.Combine(data, "list.txt");
+            File.WriteAllLines(file, new[] { "A.B.1" });
+
+            shell.Profiles.TurnOnFromList(file);
+            Assert.Equal("Run Update DB first.", jobs.Note);
+            shell.Profiles.CheckCommand.Execute(Card(shell, "foo"));
+            await shell.Profiles.Work.WaitAsync(Timeout);
+
+            Assert.False(File.Exists(storeFile));
+        }
+
+        [Fact]
         public async Task Settings_open_after_setup_and_can_be_left_unchanged()
         {
             MakeVar("A.B.1");

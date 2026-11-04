@@ -114,13 +114,10 @@ namespace varManager.App.Tests
             Assert.Contains("wasn't imported", jobs.Note);
             Assert.False(File.Exists(Path.Combine(root, "library.db")));
 
-            // The import that was already running may finish, and then Update DB is fine.
+            // A store that appeared some other way doesn't mean the import ran.
             LibraryStore.Open(Path.Combine(root, "library.db")).Dispose();
             shell.UpdateCommand.Execute(null);
-            deadline = DateTime.UtcNow + Timeout;
-            while (jobs.IsRunning && DateTime.UtcNow < deadline)
-                Thread.Sleep(10);
-            Assert.DoesNotContain("wasn't imported", jobs.Note);
+            Assert.Contains("wasn't imported", jobs.Note);
         }
 
         [Fact]
