@@ -175,6 +175,10 @@ function New-FakeVar([string]$Path, [string]$Creator, [string]$Package, [string]
     $zip.Dispose()
     $file.Dispose()
 }
+# The overlong entry from New-FakeVar is logged as an error on purpose.
+function Get-LogErrors([string]$LogFile) {
+    Select-String -LiteralPath $LogFile -Pattern 'ERROR|FATAL' | Where-Object { $_.Line -notmatch 'x{260}\.json' }
+}
 function Get-TreeListing([string]$Root) {
     # cmd dir does not follow directory symlinks, so a link cannot pull outside files into the listing.
     cmd /c dir /s /b /a "`"$Root`"" | Sort-Object
@@ -423,7 +427,8 @@ try {
     $dependencies | Select-Object varName, dependency | Format-Table -AutoSize | Out-File -LiteralPath (Join-Path $Evidence 'dependencies-table.txt') -Encoding utf8
     Check (@($dependencies.Select("varName = 'Smoke.Beta.1' AND dependency = 'Smoke.Extra.1'")).Count -eq 1) 'deep scan finds a reference to another var'
     $logFile = Join-Path $App 'varManager.log'
-    Check (-not (Select-String -LiteralPath $logFile -Pattern 'ERROR|FATAL' -Quiet)) 'app log has no errors'
+    Check (-not (Get-LogErrors $logFile)) 'app log has no errors'
+    Check ([bool](Select-String -LiteralPath $logFile -Pattern 'x{260}\.json')) 'the overlong entry is reported'
 
     # Lean profile: runs last because it repoints AddonPackages away from the default switch.
     Start-App
@@ -587,7 +592,7 @@ namespace Smoke {
     Start-Sleep -Seconds 1
     [Win]::Close($main)
     Wait-Exit
-    Check (-not (Select-String -LiteralPath $logFile -Pattern 'ERROR|FATAL' -Quiet)) 'app log has no errors after profile work'
+    Check (-not (Get-LogErrors $logFile)) 'app log has no errors after profile work'
 
     # Full rollback returns the library to a real folder.
     $moveLog = (Get-ChildItem -LiteralPath (Join-Path $Vars '___MigrationLogs___') -Filter '*.tsv' | Select-Object -First 1).FullName
