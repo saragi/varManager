@@ -203,6 +203,7 @@ namespace varManager.Ui
         // Without this, a failed import would leave Update DB to create an empty store, and the import would never run again.
         private void ImportOldDatabase()
         {
+            importFailed = false;
             string mdb = Path.Combine(dataFolder, "varManager.mdb");
             if (!File.Exists(mdb) || File.Exists(StoreFile))
                 return;

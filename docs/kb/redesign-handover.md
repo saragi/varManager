@@ -91,4 +91,7 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - A `ComboBox` ignores a property change raised while its binding is still setting the value. Disable the box, or post the change. `ShellViewModel.RevertSwitchBox` does the second.
 - The new app won't migrate. It refuses a real AddonPackages folder and sends the user to the old app. Step 10 must decide if that stays.
 - To see the new app, copy `varManager.App\bin\Debug\net10.0-windows` to a temp folder with a settings.json pointing at fake folders, then take a screenshot with `PrintWindow`. Tests can't catch XAML problems such as bad contrast.
+- A script that mutates source to prove a test must not have its output piped through `Select-Object -First`: that stops it before its restore step. Check the file afterwards.
+- A mutation that survives means the test is wrong, not that the code is fine. A broken zip header made a whole var invalid, which took a different path from the one the test was meant to reach.
+- `RemoveGone` trusts the vars folder. A wrong path with a few vars in it would drop the other records. They rebuild with Update DB, but that took 106 minutes on the real library. Health in step 8 should warn before a large removal.
 - The compiler drops an unused project reference, so `GetReferencedAssemblies` won't list Core until the app calls it.

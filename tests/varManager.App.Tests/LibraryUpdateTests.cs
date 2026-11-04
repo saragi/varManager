@@ -290,6 +290,43 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public void A_var_waiting_to_link_stays_listed_if_the_link_fails()
+        {
+            MakeVar(vars, "A.B.1");
+            Directory.CreateDirectory(Path.Combine(links, "A.B.1.var"));
+            File.WriteAllLines(paths.InstallList, new[] { "A.B.1" });
+
+            UpdateReport report = Run();
+
+            Assert.Equal(new[] { "A.B.1" }, File.ReadAllLines(paths.InstallList));
+            Assert.Equal(1, report.NotLinked);
+        }
+
+        [Fact]
+        public void A_waiting_var_the_library_lacks_is_reported_and_dropped()
+        {
+            MakeVar(vars, "A.B.1");
+            File.WriteAllLines(paths.InstallList, new[] { "Ghost.Pack.1" });
+
+            UpdateReport report = Run();
+
+            Assert.Contains(report.Problems, p => p.Contains("Ghost.Pack.1"));
+            Assert.False(File.Exists(paths.InstallList));
+        }
+
+        [Fact]
+        public void A_missing_link_folder_is_made_before_linking()
+        {
+            Directory.Delete(links);
+            MakeVar(vars, "A.B.1");
+            File.WriteAllLines(paths.MigratedList, new[] { "A.B.1" });
+
+            Run();
+
+            Assert.True(VarLinks.IsLink(Path.Combine(links, "A.B.1.var")));
+        }
+
+        [Fact]
         public void The_migrated_list_links_exactly_those_vars_and_is_used_up()
         {
             MakeVar(vars, "A.B.1", "Dep.Pack.1:/Custom/a.vap");
@@ -337,6 +374,21 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public void Install_status_drops_a_link_that_went_away()
+        {
+            MakeVar(vars, "A.B.1");
+            File.WriteAllLines(paths.MigratedList, new[] { "A.B.1" });
+            Run();
+            Assert.True(Assert.Single(store.LoadVars()).Installed);
+            File.Delete(Path.Combine(links, "A.B.1.var"));
+
+            Run();
+
+            Assert.False(Assert.Single(store.LoadVars()).Installed);
+            Assert.Equal(0, store.Count("installStatus"));
+        }
+
+        [Fact]
         public void Progress_counts_every_var()
         {
             MakeVar(vars, "A.B.1");
@@ -362,6 +414,24 @@ namespace varManager.App.Tests
             Assert.Throws<OperationCanceledException>(() => Run(cancel.Token));
 
             Assert.Contains("A.B.1", Names());
+        }
+
+        [Fact]
+        public void Cancelling_part_way_keeps_finished_vars_and_the_waiting_lists()
+        {
+            MakeVar(vars, "A.B.1");
+            MakeVar(vars, "C.D.1");
+            File.WriteAllLines(paths.MigratedList, new[] { "A.B.1" });
+            using var cancel = new CancellationTokenSource();
+
+            Assert.Throws<OperationCanceledException>(() =>
+                LibraryUpdate.Run(store, paths, (done, total) => cancel.Cancel(), cancel.Token));
+
+            Assert.Single(store.LoadVars());
+            Assert.True(File.Exists(paths.MigratedList));
+            Assert.True(File.Exists(paths.InstallList));
+            Assert.Equal(1, Run().Added);
+            Assert.False(File.Exists(paths.MigratedList));
         }
 
         [Fact]

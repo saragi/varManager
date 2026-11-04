@@ -183,6 +183,7 @@ namespace varManager
 
         private static void LinkWaiting(LibraryStore store, LibraryPaths paths, UpdateReport report)
         {
+            Directory.CreateDirectory(Path.Combine(paths.AddonPackages, LibraryFolders.VarsLink));
             Dictionary<string, string> files = VarFiles(store, paths);
             if (File.Exists(paths.MigratedList))
             {
@@ -199,14 +200,20 @@ namespace varManager
             if (File.Exists(paths.InstallList))
             {
                 string[] waiting = File.ReadAllLines(paths.InstallList);
-                File.Delete(paths.InstallList);
-                if (waiting.Length > 0)
-                {
-                    List<VarRecord> records = store.LoadVars().ToList();
-                    var vars = new VarIndex(records.Select(v => new VarEntry(v.VarName, v.CreatorName, v.PackageName, v.Version ?? 0)));
-                    foreach (string varName in DependencyAnalysis.WithDependencies(waiting, vars, new DependencyIndex(store.LoadDependencies())))
-                        Link(paths, files, varName);
-                }
+                var vars = new VarIndex(store.LoadVars().Select(v => new VarEntry(v.VarName, v.CreatorName, v.PackageName, v.Version ?? 0)));
+                foreach (ResolvedReference gone in DependencyAnalysis.Resolve(waiting, vars).Where(r => r.VarName == null))
+                    report.Problems.Add(gone.Reference + " was waiting to be linked, but the library doesn't have it");
+
+                List<string> notLinked = DependencyAnalysis.WithDependencies(waiting, vars, new DependencyIndex(store.LoadDependencies()))
+                    .Where(varName => Link(paths, files, varName) == VarLinkResult.Failed)
+                    .ToList();
+                report.NotLinked += notLinked.Count;
+
+                // Only now, so a crash or a failed link can't lose a var the user had enabled.
+                if (notLinked.Count == 0)
+                    File.Delete(paths.InstallList);
+                else
+                    File.WriteAllLines(paths.InstallList, notLinked);
             }
         }
 
