@@ -597,5 +597,57 @@ namespace varManagerTests
 
             Assert.Equal(new[] { "A.Scene.2" }, plan.Closure.Vars);
         }
+
+        [Fact]
+        public void Excluding_keeps_the_only_version_that_meets_a_minimum()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Hair.3" }, new[] { "A.Hair.1", "A.Hair.3", "B.Scene.1" },
+                new Dictionary<string, string[]> { ["B.Scene.1"] = new[] { "A.Hair.min2" } });
+
+            Assert.Equal(new[] { "A.Hair.3 needed by B.Scene.1" }, plan.StillNeeded);
+            Assert.Empty(plan.Closure.Substitutions);
+        }
+
+        [Fact]
+        public void Excluding_moves_a_minimum_to_a_version_that_meets_it()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Hair.3" }, new[] { "A.Hair.2", "A.Hair.3", "B.Scene.1" },
+                new Dictionary<string, string[]> { ["B.Scene.1"] = new[] { "A.Hair.min2" } });
+
+            Assert.Equal(new[] { "A.Hair.3" }, plan.LeftOut);
+        }
+
+        [Fact]
+        public void Excluding_keeps_a_newer_version_standing_in_for_a_missing_one()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Hair.3" }, new[] { "A.Hair.1", "A.Hair.3", "B.Scene.1" },
+                new Dictionary<string, string[]> { ["B.Scene.1"] = new[] { "A.Hair.2" } });
+
+            Assert.Equal(new[] { "A.Hair.3 needed by B.Scene.1" }, plan.StillNeeded);
+        }
+
+        [Fact]
+        public void Excluding_keeps_other_versions_of_a_dependency_that_names_its_package()
+        {
+            ProfilePlan plan = Excluding(new[] { "X.Scene.1" }, new[] { "X.Scene.1", "B.Dep.1", "B.Dep.2" },
+                new Dictionary<string, string[]>
+                {
+                    ["X.Scene.1"] = new[] { "B.Dep.1" },
+                    ["B.Dep.1"] = new[] { "B.Dep.latest" }
+                });
+
+            Assert.Equal(new[] { "B.Dep.2" }, plan.Closure.Vars);
+            Assert.Equal(new[] { "B.Dep.1" }, plan.AlsoLeftOut);
+        }
+
+        [Fact]
+        public void Excluding_moves_a_base_latest_reference_to_a_version_that_stays()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Session.2" }, new[] { "A.Session.1", "A.Session.2" },
+                new Dictionary<string, string[]>(), baseVars: new[] { "A.Session.latest" });
+
+            Assert.Equal(new[] { "A.Session.1" }, plan.Closure.Vars);
+            Assert.Equal(new[] { "A.Session.2" }, plan.LeftOut);
+        }
     }
 }

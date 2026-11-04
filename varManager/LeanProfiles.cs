@@ -84,14 +84,14 @@ namespace varManager
             VarIndex visible = new VarIndex(linked.SelectMany(ToEntry));
             HashSet<string> excluded = new HashSet<string>(profile.Exclude.Where(linked.Contains), StringComparer.OrdinalIgnoreCase);
             VarIndex remaining = new VarIndex(linked.Except(excluded, StringComparer.OrdinalIgnoreCase).SelectMany(ToEntry));
-            // A reference that accepts any version moves to a version that stays. An exact one keeps its var.
+            // A reference moves off an exclusion only to a version that really satisfies it.
             Func<string, DependencyResolution> resolve = reference =>
             {
                 DependencyResolution found = visible.ResolveReference(reference);
-                if (found.Status == DependencyStatus.Missing || found.Status == DependencyStatus.Exact || !excluded.Contains(found.VarName))
+                if (found.Status != DependencyStatus.Latest || !excluded.Contains(found.VarName))
                     return found;
                 DependencyResolution other = remaining.ResolveReference(reference);
-                return other.Status == DependencyStatus.Missing ? found : other;
+                return other.Status == DependencyStatus.Latest ? other : found;
             };
             Func<IEnumerable<string>, IEnumerable<string>> resolved = references => references
                 .Select(resolve)
@@ -99,9 +99,11 @@ namespace varManager
                 .Select(resolution => resolution.VarName);
             Func<string, IEnumerable<string>> uses = name => resolved(referencesOf(name));
 
-            // Leaving out one version says nothing about the package's other versions.
+            // Leaving out one version says nothing about its package's other versions, and a
+            // var naming its own package doesn't make the other versions its dependencies.
             HashSet<string> excludedPackages = new HashSet<string>(excluded.Select(PackageOf), StringComparer.OrdinalIgnoreCase);
-            Func<string, IEnumerable<string>> usesOtherPackages = name => uses(name).Where(next => !excludedPackages.Contains(PackageOf(next)));
+            Func<string, IEnumerable<string>> usesOtherPackages = name => uses(name).Where(next => !excludedPackages.Contains(PackageOf(next))
+                && !string.Equals(PackageOf(next), PackageOf(name), StringComparison.OrdinalIgnoreCase));
             List<string> related = Walk(excluded, usesOtherPackages).Keys.Where(name => !excluded.Contains(name)).ToList();
             IEnumerable<string> roots = linked.Except(excluded, StringComparer.OrdinalIgnoreCase)
                 .Except(related, StringComparer.OrdinalIgnoreCase)
