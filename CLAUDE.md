@@ -19,7 +19,7 @@ dotnet test
 dotnet test --filter "FullyQualifiedName~Latest_picks_highest"
 ```
 
-- Tests compile `varManager/VarIndex.cs` through a linked file, so they cover pure logic only. `tests/varManager.Tests` is not in `varManager.sln`.
+- Logic with no UI lives in `varManager.Core`. Tests reference that project, so they cover that logic only. The WinForms app compiles the same files through links, because Visual Studio's MSBuild here has no .NET SDK to load a modern project. A new file there needs a link in `varManager.csproj`. `tests/varManager.Tests` is not in `varManager.sln`.
 - Build `LoadScene.csproj` with `/restore /p:RestorePackagesConfig=true /p:SolutionDir=<repo>\ /p:VaMPath=<VaM folder>`. It references VaM's DLLs through `VaMPath`.
 - `MMDLoader` is SDK-style and targets `net6.0-windows`.
 - There is no linter and no CI.

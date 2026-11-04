@@ -6,14 +6,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\varManager\VarIndex.cs" Link="VarIndex.cs" />
-    <Compile Include="..\..\varManager\LibraryMigration.cs" Link="LibraryMigration.cs" />
-    <Compile Include="..\..\varManager\DependencyScanner.cs" Link="DependencyScanner.cs" />
-    <Compile Include="..\..\varManager\LeanProfiles.cs" Link="LeanProfiles.cs" />
-    <Compile Include="..\..\varManager\HubParser.cs" Link="HubParser.cs" />
-    <Compile Include="..\..\varManager\HubDownloader.cs" Link="HubDownloader.cs" />
-    <Compile Include="..\..\varManager\MissingPlanner.cs" Link="MissingPlanner.cs" />
-    <Compile Include="..\..\varManager\SimpleJSON\*.cs" Link="SimpleJSON\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>
@@ -25,5 +17,8 @@
 
   <ItemGroup>
     <Reference Include="System.Net.Http" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\varManager.Core\varManager.Core.csproj" />
   </ItemGroup>
 </Project>
