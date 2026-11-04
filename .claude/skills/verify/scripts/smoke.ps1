@@ -157,7 +157,7 @@ function Check([bool]$Ok, [string]$Name) {
     Step "$(if ($Ok) { 'PASS' } else { 'FAIL' }) $Name"
     if (-not $Ok) { throw "Check failed: $Name" }
 }
-function New-FakeVar([string]$Path, [string]$Creator, [string]$Package, [string]$ExtraReference = 'Smoke.Alpha.1', [string]$HairReference = 'Deep Creator.Hidden_Pack.min2') {
+function New-FakeVar([string]$Path, [string]$Creator, [string]$Package, [string]$ExtraReference = 'Smoke.Alpha.1', [string]$HairReference = 'Deep Creator.Hidden_Pack.min2', [switch]$LongEntry) {
     Add-Type -AssemblyName System.IO.Compression
     $file = [IO.File]::Open($Path, 'CreateNew')
     $zip = New-Object IO.Compression.ZipArchive($file, [IO.Compression.ZipArchiveMode]::Create)
@@ -165,6 +165,8 @@ function New-FakeVar([string]$Path, [string]$Creator, [string]$Package, [string]
         'meta.json' = "{`"licenseType`":`"CC BY`",`"creatorName`":`"$Creator`",`"packageName`":`"$Package`",`"description`":`"verify seed`",`"dependencies`":{}}"
         'Saves/scene/smoke.json' = '{"hair":"' + $HairReference + ':/Custom/x.vap","own":"' + $ExtraReference + ':/Custom/y.vap","local":"SELF:/Custom/z.vap"}'
     }
+    # The database holds 255 characters, so this entry can't get a row, but the var must still be recorded.
+    if ($LongEntry) { $entries['Saves/scene/' + ('x' * 260) + '.json'] = '{}' }
     foreach ($name in $entries.Keys) {
         $writer = New-Object IO.StreamWriter($zip.CreateEntry($name).Open())
         $writer.Write($entries[$name])
@@ -370,7 +372,7 @@ try {
     # A var replaced by a different file must be read again, not skipped by name.
     $oldLength = (Get-Item -LiteralPath $tidied).Length
     [IO.File]::Delete($tidied)
-    New-FakeVar $tidied 'Smoke' 'Alpha' 'Replaced.Package_With_A_Longer_Name.latest' 'Replaced.Hair_Package.latest'
+    New-FakeVar $tidied 'Smoke' 'Alpha' 'Replaced.Package_With_A_Longer_Name.latest' 'Replaced.Hair_Package.latest' -LongEntry
     Check ((Get-Item -LiteralPath $tidied).Length -ne $oldLength) 'replacement var has a different size'
     $alphaHash = (Get-FileHash -LiteralPath $tidied).Hash
     # A var that can't be linked must stay listed, so a later Update DB can retry it.
@@ -415,7 +417,7 @@ try {
     Check (Test-Path -LiteralPath (Join-Path $Pack 'readme.txt')) 'other file stays with AddonPackages'
     $rows = Get-VarRows
     $rows | Select-Object varName, varPath, creatorName, scenes | Format-Table -AutoSize | Out-File -LiteralPath (Join-Path $Evidence 'vars-table.txt') -Encoding utf8
-    Check (@($rows.Select("varName = 'Smoke.Alpha.1' AND creatorName = 'Smoke' AND scenes = 1")).Count -eq 1) 'database row for Smoke.Alpha.1 with 1 scene'
+    Check (@($rows.Select("varName = 'Smoke.Alpha.1' AND creatorName = 'Smoke' AND scenes = 2")).Count -eq 1) 'a var with an overlong entry is still recorded, with both scenes counted'
     Check (@($rows.Select("varName = 'Smoke.Beta.1'")).Count -eq 1) 'database row for the disabled var'
     $dependencies = Get-DependencyRows
     $dependencies | Select-Object varName, dependency | Format-Table -AutoSize | Out-File -LiteralPath (Join-Path $Evidence 'dependencies-table.txt') -Encoding utf8

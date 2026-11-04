@@ -45,6 +45,27 @@ namespace varManagerTests
             return path;
         }
 
+        // Overwrites the middle of an entry's compressed data.
+        private static void Damage(string path, string entryName)
+        {
+            long offset, length;
+            using (ZipFile zip = new ZipFile(path))
+            {
+                ZipEntry entry = zip.GetEntry(entryName);
+                offset = entry.Offset;
+                length = entry.CompressedSize;
+            }
+            using (FileStream file = File.Open(path, FileMode.Open, FileAccess.ReadWrite))
+            {
+                file.Seek(offset, SeekOrigin.Begin);
+                byte[] header = new BinaryReader(file).ReadBytes(30);
+                long data = offset + 30 + BitConverter.ToUInt16(header, 26) + BitConverter.ToUInt16(header, 28);
+                file.Seek(data + length / 2, SeekOrigin.Begin);
+                byte[] junk = Enumerable.Repeat((byte)0xFF, 64).ToArray();
+                file.Write(junk, 0, junk.Length);
+            }
+        }
+
         private VarScan Read(string path)
         {
             return VarScanner.Read(path, previews, warnings.Add, problems.Add);
@@ -160,6 +181,68 @@ namespace varManagerTests
             Assert.Equal("", scan.Items[0].Preview);
             Assert.Equal("scenes002_two.jpg", scan.Items[1].Preview);
             Assert.Equal("picture", File.ReadAllText(Path.Combine(previews, "scenes", "A.B.1", "scenes002_two.jpg")));
+        }
+
+        [Fact]
+        public void Preview_numbers_run_per_type_as_entries_are_read()
+        {
+            VarScan scan = Read(Var("A.B.1.var", "meta.json", Meta,
+                "Saves/scene/a.json", "{}", "Saves/scene/a.jpg", "1",
+                "Saves/Person/Appearance/b.vac", "{}", "Saves/Person/Appearance/b.jpg", "2",
+                "Saves/scene/c.json", "{}", "Saves/scene/c.jpg", "3"));
+
+            Assert.Equal(new[] { "scenes001_a.jpg", "looks001_b.jpg", "scenes002_c.jpg" }, scan.Items.Select(i => i.Preview));
+        }
+
+        [Fact]
+        public void An_entry_with_a_bad_preview_name_is_skipped_and_the_var_still_scans()
+        {
+            VarScan scan = Read(Var("A.B.1.var", "meta.json", Meta,
+                "Saves/scene/a<b.json", "{}", "Saves/scene/a<b.jpg", "picture",
+                "Saves/scene/c.json", "{}"));
+
+            Assert.Equal(VarScanOutcome.Scanned, scan.Outcome);
+            Assert.Equal(2, scan.Scenes);
+            Assert.Equal("Saves/scene/c.json", Assert.Single(scan.Items).EntryName);
+            Assert.StartsWith("Saves/scene/a<b.json ", Assert.Single(problems));
+        }
+
+        [Fact]
+        public void A_damaged_file_is_skipped_and_other_references_are_kept()
+        {
+            string filler = string.Concat(Enumerable.Range(0, 4000).Select(i => "\"k" + i + "\":" + (i * 7919) + ","));
+            string path = Var("A.B.1.var", "meta.json", Meta,
+                "Saves/scene/bad.json", "{" + filler + "\"x\":\"Bad.Pack.1:/Custom/a.vap\"}",
+                "Saves/scene/good.json", "{\"x\":\"Good.Pack.1:/Custom/a.vap\"}");
+            Damage(path, "Saves/scene/bad.json");
+
+            VarScan scan = Read(path);
+
+            Assert.Equal(new[] { "Good.Pack.1" }, scan.Dependencies);
+            Assert.Contains("skipped Saves/scene/bad.json", Assert.Single(warnings));
+        }
+
+        [Fact]
+        public void A_very_large_file_is_not_read_for_references()
+        {
+            string path = Path.Combine(root, "A.B.1.var");
+            using (ZipOutputStream zip = new ZipOutputStream(File.Create(path)))
+            {
+                zip.PutNextEntry(new ZipEntry("meta.json"));
+                zip.Write(Encoding.UTF8.GetBytes(Meta), 0, Meta.Length);
+                zip.CloseEntry();
+                zip.PutNextEntry(new ZipEntry("Saves/scene/huge.json"));
+                byte[] reference = Encoding.UTF8.GetBytes("{\"x\":\"Huge.Pack.1:/Custom/a.vap\"}");
+                zip.Write(reference, 0, reference.Length);
+                byte[] padding = new byte[1024 * 1024];
+                for (int i = 0; i < padding.Length; i++)
+                    padding[i] = (byte)' ';
+                for (int i = 0; i < 97; i++)
+                    zip.Write(padding, 0, padding.Length);
+                zip.CloseEntry();
+            }
+
+            Assert.Empty(Read(path).Dependencies);
         }
 
         [Fact]

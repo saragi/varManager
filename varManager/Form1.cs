@@ -1269,7 +1269,17 @@ namespace varManager
         private void SaveVarScan(string basename, string curpath, VarScan scan)
         {
             foreach (VarItem item in scan.Items)
-                varManagerDataSet.scenes.AddscenesRow(basename, item.Type, item.IsPreset, item.EntryName, item.Preview);
+            {
+                try
+                {
+                    varManagerDataSet.scenes.AddscenesRow(basename, item.Type, item.IsPreset, item.EntryName, item.Preview);
+                }
+                catch (ArgumentException ex)
+                {
+                    // Columns hold 255 characters, and one long path must not cost the var its record.
+                    this.BeginInvoke(addlog, new Object[] { item.EntryName + " " + ex.Message, LogLevel.ERROR });
+                }
+            }
             scenesTableAdapter.Update(varManagerDataSet.scenes);
             varManagerDataSet.scenes.AcceptChanges();
 

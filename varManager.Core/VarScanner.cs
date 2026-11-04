@@ -217,9 +217,14 @@ namespace varManager
             if (jpg == null)
                 return "";
 
+            string stem = Path.GetFileNameWithoutExtension(jpg.Name);
+            // .NET 10 would otherwise fail later with an IOException, which would cost the whole var.
+            if (stem.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+                throw new ArgumentException("Illegal characters in path.");
+
             string folder = Path.Combine(previewRoot, type, varName);
             Directory.CreateDirectory(folder);
-            string name = type + number.ToString("000") + "_" + Path.GetFileNameWithoutExtension(jpg.Name).ToLower() + ".jpg";
+            string name = type + number.ToString("000") + "_" + stem.ToLower() + ".jpg";
             string path = Path.Combine(folder, name);
             if (!File.Exists(path))
             {
