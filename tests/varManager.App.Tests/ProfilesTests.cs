@@ -998,7 +998,7 @@ namespace varManager.App.Tests
             WaitUntil(() => ProfileTimings.Load(vars).ContainsKey("default"));
             await Task.Delay(1500);
             Assert.False(ProfileTimings.Load(vars).ContainsKey("lean"));
-            await Settle(launching);
+            WaitUntil(() => launching.Profiles!.Cards.Single(card => card.Name == "default").Ram != "Not measured");
         }
 
         [Fact]
