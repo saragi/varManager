@@ -18,7 +18,7 @@ The clickable mockup is at https://claude.ai/artifact/2ugrax4vYy63wpfpRVBKWH. Th
 
 ## Resume here
 
-Step 9 is partly done: the Missing page, Get all, updates, Turn on all, Copy list and repository watching are built. What remains is the Hub browser from `FormHub`, with the "Not owned" filter, an image cache and author search in place of the Creator dropdown. Drive the real window for every screen: `Named`, `Press` and `WaitFor` over UI Automation, on a temp copy of `varManager.App\bin\Debug\net10.0-windows` with a settings.json pointing at fake folders.
+Step 9 is built and committed locally, not pushed. Next: review it, push, tick it, then step 10, Parity. Drive the real window for every screen: `Named`, `Press` and `WaitFor` over UI Automation, on a temp copy of `varManager.App\bin\Debug\net10.0-windows` with a settings.json pointing at fake folders.
 
 Open for step 11: on 4 November the window showed white on this PC with hardware rendering, in the pushed build as well as the new one, and correct with `RenderOptions.ProcessRenderMode = SoftwareOnly`. Earlier screenshots were fine, and the cause isn't known. Retest. If it stays, the user would see a white window, so raise it at step 12.
 

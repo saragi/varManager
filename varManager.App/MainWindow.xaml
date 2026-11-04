@@ -68,7 +68,9 @@
             <ui:HealthView Grid.Column="1" DataContext="{Binding Health}"
                            Visibility="{Binding DataContext.IsHealthPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
             <ui:MissingView Grid.Column="1" DataContext="{Binding Missing}"
-                            Visibility="{Binding DataContext.IsMissingPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
+                            Visibility="{Binding DataContext.IsMissingList, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
+            <ui:HubView Grid.Column="1" DataContext="{Binding Hub}"
+                        Visibility="{Binding DataContext.IsHubPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
         </Grid>
 
         <Border Grid.Row="1" Visibility="{Binding NeedsSetup, Converter={StaticResource Visible}}"

@@ -175,6 +175,8 @@ namespace varManager.Ui
                 // Nothing else would ever take "Checking" off the page.
                 if (check != checks)
                     return;
+                view = new MissingState();
+                Show();
                 Title = "Could not check";
                 StatusText = ex.Message;
             }

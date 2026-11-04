@@ -128,9 +128,10 @@ namespace varManager
                 view.Updates = (await hub.Find(MissingPlanner.UpdateRequests(library.UpdateCandidates(profileOnly), versions)).ConfigureAwait(false))
                     .Where(package => !library.Owns(package.Name)).ToList();
             }
-            // HttpClient reports a timeout as a cancellation, so only the job's own token counts as one.
-            catch (Exception ex) when (!token.IsCancellationRequested)
+            catch (Exception ex)
             {
+                // HttpClient reports a timeout as a cancellation, so only the job's own token counts as one.
+                token.ThrowIfCancellationRequested();
                 view.HubProblem = "The Hub couldn't be reached: " + ex.Message;
                 return view;
             }
@@ -214,6 +215,18 @@ namespace varManager
                 toLink = new MissingLibrary(store, paths).UpdatesToLink(view.Updates);
             DownloadResult result = Store(view.Updates, toLink, storeFile, paths, hub, progress, token);
             return $"Stored {result.Stored.Count}, failed {result.Failed.Count}.";
+        }
+
+        /// <summary>Gets packages the user picked, scans them and links them to this profile.</summary>
+        public static string GetPackages(IReadOnlyList<HubPackage> packages, string storeFile, LibraryPaths paths, IHubSource hub,
+            Func<string, long> freeSpace, Action<int, int> progress, CancellationToken token)
+        {
+            string noRoom = NoRoom(packages, paths.VarsPath, freeSpace);
+            if (noRoom != null)
+                return noRoom;
+            DownloadResult result = Store(packages, packages.Select(package => package.Name).ToList(), storeFile, paths, hub, progress, token);
+            string text = $"Stored {result.Stored.Count}, failed {result.Failed.Count}.";
+            return result.Failed.Count == 0 ? text : text + " First problem: " + result.Failed.Values.First();
         }
 
         /// <summary>Turns on stored vars that linked vars need.</summary>

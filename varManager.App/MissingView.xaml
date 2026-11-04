@@ -34,7 +34,8 @@
         <StackPanel Margin="20,16,0,8">
             <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
                 <TextBlock Text="Missing" FontSize="22" FontWeight="SemiBold" />
-                <TextBlock Text="Checked when you open this page and after every library change" Style="{StaticResource MutedText}" Margin="12,0,0,0" VerticalAlignment="Center" />
+                <TextBlock Text="Checked when you open this page and after every library change" Style="{StaticResource MutedText}" Margin="12,0,12,0" VerticalAlignment="Center" />
+                <Button Content="Browse the Hub" Command="{Binding DataContext.BrowseHubCommand, RelativeSource={RelativeSource AncestorType=Window}}" />
             </StackPanel>
 
             <ItemsControl ItemsSource="{Binding ScopePills}" Focusable="False">

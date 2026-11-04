@@ -290,6 +290,38 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task A_failed_check_leaves_no_old_results_on_screen()
+        {
+            MakeVar("A.B.1", "Hub.Pack.1:/Custom/a.vap");
+            Update();
+            hub.Packages["Hub.Pack.1"] = "";
+            MissingViewModel missing = await Open();
+            Assert.True(missing.CanGetAll);
+
+            File.Delete(storeFile);
+            File.WriteAllText(storeFile, "not a database, and long enough to be read as one");
+            await missing.Check().WaitAsync(Timeout);
+
+            Assert.Equal("Could not check", missing.Title);
+            Assert.False(missing.CanGetAll);
+        }
+
+        [Fact]
+        public void A_hub_error_after_cancelling_still_reads_as_stopped()
+        {
+            MakeVar("A.B.1", "Hub.Pack.1:/Custom/a.vap");
+            Update();
+            hub.FindError = new IOException("no network");
+            using var cancel = new CancellationTokenSource();
+            using LibraryStore store = LibraryStore.Open(storeFile);
+            var library = new MissingLibrary(store, paths);
+            cancel.Cancel();
+
+            Assert.ThrowsAny<OperationCanceledException>(() =>
+                MissingCheck.Run(library, false, hub, new HashSet<string>(), cancel.Token).GetAwaiter().GetResult());
+        }
+
+        [Fact]
         public async Task A_slow_earlier_check_does_not_overwrite_a_later_one()
         {
             MakeVar("Linked.Pack.1", "Gone.One.1:/Custom/a.vap");
@@ -458,6 +490,8 @@ namespace varManager.App.Tests
         {
             MakeVar("A.B.1", "Stored.Pack.1:/Custom/a.vap");
             MakeVar("Stored.Pack.1");
+            MakeVar("Other.Linked.1", "Other.Pack.1:/Custom/a.vap");
+            MakeVar("Other.Pack.1");
             Update();
             Link("A.B.1");
             MissingViewModel missing = await Open();
@@ -468,6 +502,7 @@ namespace varManager.App.Tests
             WaitForJob();
 
             Assert.True(IsLinked("Stored.Pack.1"));
+            Assert.False(IsLinked("Other.Pack.1"));
         }
 
         [Fact]
@@ -709,7 +744,7 @@ namespace varManager.App.Tests
         }
 
         [Fact]
-        public void A_closed_watch_does_nothing()
+        public void A_closed_watch_scans_nothing()
         {
             int scans = 0;
             var watch = new RepositoryWatch(vars, () => false, () => Interlocked.Increment(ref scans), null, TimeSpan.FromMilliseconds(20));
@@ -784,6 +819,7 @@ namespace varManager.App.Tests
             Directory.Delete(folder);
             Thread.Sleep(300);
 
+            // What matters is that nothing escaped on the timer's thread, which would end the test run.
             Assert.Equal(0, scans);
         }
     }

@@ -75,6 +75,9 @@ namespace varManager.Ui
         private ProfilesViewModel? profiles;
         private HealthViewModel? health;
         private MissingViewModel? missing;
+        private HubViewModel? hubPage;
+        private bool browsingHub;
+        private readonly IHubBrowser browser;
         private RepositoryWatch? watch;
         private readonly IHubSource hub;
         private readonly TimeSpan watchWait;
@@ -88,8 +91,9 @@ namespace varManager.Ui
         }
 
         public ShellViewModel(string settingsFile, JobRunner jobs, Func<bool> vamRunning, Action<string> startVam, Func<long>? vamMemory = null,
-            IHubSource? hub = null, TimeSpan? watchWait = null)
+            IHubSource? hub = null, TimeSpan? watchWait = null, IHubBrowser? browser = null)
         {
+            this.browser = browser ?? new RealHubBrowser();
             this.vamMemory = vamMemory ?? StartupProbe.VamMemory;
             this.hub = hub ?? new RealHub();
             this.watchWait = watchWait ?? TimeSpan.FromSeconds(5);
@@ -105,6 +109,8 @@ namespace varManager.Ui
             UpdateCommand = new Command(UpdateDb);
             GoToMissingCommand = new Command(() => SelectedPage = Pages[^1]);
             BuildProfileCommand = new Command(() => SelectedPage = Pages[2]);
+            BrowseHubCommand = new Command(() => BrowseHub(true));
+            LeaveHubCommand = new Command(() => BrowseHub(false));
             CancelCommand = new Command(jobs.Cancel);
             SaveSetupCommand = new Command(SaveSetup);
             Open();
@@ -136,6 +142,8 @@ namespace varManager.Ui
         public ICommand UpdateCommand { get; }
         public ICommand GoToMissingCommand { get; }
         public ICommand BuildProfileCommand { get; }
+        public ICommand BrowseHubCommand { get; }
+        public ICommand LeaveHubCommand { get; }
         public ICommand CancelCommand { get; }
         public ICommand SaveSetupCommand { get; }
 
@@ -150,10 +158,14 @@ namespace varManager.Ui
                 Changed(nameof(IsProfilesPage));
                 Changed(nameof(IsHealthPage));
                 Changed(nameof(IsMissingPage));
+                Changed(nameof(IsMissingList));
+                Changed(nameof(IsHubPage));
                 if (IsHealthPage)
                     _ = ReadHealth();
-                if (IsMissingPage)
+                if (IsMissingList)
                     _ = CheckMissing();
+                if (IsHubPage)
+                    _ = Hub?.Open();
             }
         }
 
@@ -162,6 +174,8 @@ namespace varManager.Ui
         public bool IsProfilesPage => selectedPage == Pages[2];
         public bool IsHealthPage => selectedPage == Pages[3];
         public bool IsMissingPage => selectedPage == Pages[4];
+        public bool IsMissingList => IsMissingPage && !browsingHub;
+        public bool IsHubPage => IsMissingPage && browsingHub;
 
         public LibraryViewModel? Library
         {
@@ -191,6 +205,12 @@ namespace varManager.Ui
         {
             get => missing;
             private set => Set(ref missing, value);
+        }
+
+        public HubViewModel? Hub
+        {
+            get => hubPage;
+            private set => Set(ref hubPage, value);
         }
 
         /// <summary>The latest library read, which also brings the linked count up to date.</summary>
@@ -339,8 +359,21 @@ namespace varManager.Ui
             {
                 Jobs.Say("Could not check what's missing: " + ex.Message);
             }
-            if (IsMissingPage)
+            if (IsMissingList)
                 await CheckMissing().ConfigureAwait(true);
+            if (IsHubPage && Hub != null)
+                await Hub.Refresh().ConfigureAwait(true);
+        }
+
+        private void BrowseHub(bool browse)
+        {
+            browsingHub = browse;
+            Changed(nameof(IsMissingList));
+            Changed(nameof(IsHubPage));
+            if (browse)
+                _ = Hub?.Open();
+            else
+                _ = CheckMissing();
         }
 
         private async Task CheckMissing()
@@ -521,6 +554,7 @@ namespace varManager.Ui
             Profiles = new ProfilesViewModel(StoreFile, paths, Jobs, Picks, () => selectedSwitch, SwitchTo, () => SelectedPage = Pages[0]);
             Health = new HealthViewModel(StoreFile, paths, Jobs, () => SelectedPage = Pages[^1]);
             Missing = new MissingViewModel(StoreFile, paths, Jobs, hub, text => System.Windows.Clipboard.SetText(text), ShowMissingCount);
+            Hub = new HubViewModel(StoreFile, paths, Jobs, browser, hub, OpenUrl, SynchronizationContext.Current);
             // Scans the folders this was opened with, not ones typed into setup and not saved.
             watch = new RepositoryWatch(VarsPath, () => Jobs.IsRunning, () => UpdateDb(paths), SynchronizationContext.Current, watchWait);
             ImportOldDatabase();
@@ -563,6 +597,11 @@ namespace varManager.Ui
             {
                 Jobs.Say("Could not start VaM: " + ex.Message);
             }
+        }
+
+        private static void OpenUrl(string url)
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
         }
 
         private static void StartVam(string vamPath)
