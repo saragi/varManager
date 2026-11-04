@@ -813,7 +813,7 @@ namespace varManager.App.Tests
             shell.SelectedPage = shell.Pages[3];
 
             Assert.True(shell.IsHealthPage);
-            Assert.False(shell.IsOtherPage);
+            Assert.False(shell.IsMissingPage);
             DateTime deadline = DateTime.UtcNow + Timeout;
             while (shell.Health.Cards.Count == 0 && DateTime.UtcNow < deadline)
                 await Task.Delay(10);

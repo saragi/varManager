@@ -52,6 +52,7 @@
                                     </Canvas>
                                 </Viewbox>
                                 <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding Badge}" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="8,0,0,0" />
                             </StackPanel>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
@@ -66,9 +67,8 @@
                              Visibility="{Binding DataContext.IsProfilesPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
             <ui:HealthView Grid.Column="1" DataContext="{Binding Health}"
                            Visibility="{Binding DataContext.IsHealthPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
-            <StackPanel Grid.Column="1" Margin="20" Visibility="{Binding IsOtherPage, Converter={StaticResource Visible}}">
-                <TextBlock Text="{Binding SelectedPage.Name}" FontSize="22" FontWeight="SemiBold" />
-            </StackPanel>
+            <ui:MissingView Grid.Column="1" DataContext="{Binding Missing}"
+                            Visibility="{Binding DataContext.IsMissingPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
         </Grid>
 
         <Border Grid.Row="1" Visibility="{Binding NeedsSetup, Converter={StaticResource Visible}}"

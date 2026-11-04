@@ -190,32 +190,11 @@ namespace varManager
         private void RepositoryTimer_Tick(object sender, EventArgs e)
         {
             // CanFocus is false while a dialog is open, and a dialog's action may assume no job runs.
-            if (!CanFocus || folderWatchPaused || backgroundWorkerInstall.IsBusy || !RepositoryVarsReady())
+            if (!CanFocus || folderWatchPaused || backgroundWorkerInstall.IsBusy || !VarTidier.RepositoryVarsReady(Settings.Default.varspath))
                 return;
             repositoryTimer.Stop();
             if (VarTidier.RepositoryVars(Settings.Default.varspath).Count > 0)
                 StartAutomaticUpdate();
-        }
-
-        /// <summary>A var still being copied can't be opened exclusively.</summary>
-        private static bool RepositoryVarsReady()
-        {
-            foreach (string file in Directory.GetFiles(Settings.Default.varspath, "*.var"))
-            {
-                try
-                {
-                    using (new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None)) { }
-                }
-                catch (IOException)
-                {
-                    return false;
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    // Update DB logs a var it can't read, so this one needn't hold the others back.
-                }
-            }
-            return true;
         }
 
         private void AddProfileButtons()

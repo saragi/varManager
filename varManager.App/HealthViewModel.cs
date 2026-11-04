@@ -136,6 +136,12 @@ namespace varManager.Ui
         public async Task Reload()
         {
             int reload = ++reloads;
+            // Opening a store creates it, and an empty one would stop the Access import from ever running.
+            if (!File.Exists(storeFile))
+            {
+                StatusText = "Run Update DB first.";
+                return;
+            }
             StatusText = "Checking the library.";
             var problems = new List<string>();
             HealthReport report = await Task.Run(() =>

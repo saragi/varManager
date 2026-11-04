@@ -564,7 +564,7 @@ namespace varManager.App.Tests
             shell.SelectedPage = shell.Pages[1];
             Assert.True(shell.IsScenesPage);
             Assert.False(shell.IsLibraryPage);
-            Assert.False(shell.IsOtherPage);
+            Assert.False(shell.IsMissingPage);
 
             Assert.Equal(SceneFit.NotInProfile, Tile(scenes, "A.B.1").Scene.Fit);
             Task before = shell.LibraryLoaded;
@@ -589,7 +589,7 @@ namespace varManager.App.Tests
             shell.Scenes.ActCommand.Execute(Tile(shell.Scenes, "A.B.1"));
             WaitUntil(() => shell.SelectedPage.Name == "Missing");
 
-            Assert.True(shell.IsOtherPage);
+            Assert.True(shell.IsMissingPage);
             WaitUntil(() => shell.LibraryLoaded != before);
             await shell.LibraryLoaded.WaitAsync(Timeout);
         }

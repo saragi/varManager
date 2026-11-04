@@ -32,8 +32,10 @@ namespace varManager.Ui
         public void Execute(object? parameter) => run();
     }
 
-    public sealed class NavPage
+    public sealed class NavPage : Observable
     {
+        private string badge = "";
+
         public NavPage(string name, string icon)
         {
             Name = name;
@@ -42,6 +44,16 @@ namespace varManager.Ui
 
         public string Name { get; }
         public string Icon { get; }
+
+        public string Badge
+        {
+            get => badge;
+            set
+            {
+                badge = value;
+                Changed();
+            }
+        }
     }
 
     /// <summary>The parts of the window that are always there: profile, buttons, side nav and job bar.</summary>
@@ -62,6 +74,10 @@ namespace varManager.Ui
         private ScenesViewModel? scenes;
         private ProfilesViewModel? profiles;
         private HealthViewModel? health;
+        private MissingViewModel? missing;
+        private RepositoryWatch? watch;
+        private readonly IHubSource hub;
+        private readonly TimeSpan watchWait;
         private readonly TempLinkRemoval tempLinks = new TempLinkRemoval();
         private readonly Func<long> vamMemory;
         private CancellationTokenSource? launchTimer;
@@ -71,9 +87,12 @@ namespace varManager.Ui
         {
         }
 
-        public ShellViewModel(string settingsFile, JobRunner jobs, Func<bool> vamRunning, Action<string> startVam, Func<long>? vamMemory = null)
+        public ShellViewModel(string settingsFile, JobRunner jobs, Func<bool> vamRunning, Action<string> startVam, Func<long>? vamMemory = null,
+            IHubSource? hub = null, TimeSpan? watchWait = null)
         {
             this.vamMemory = vamMemory ?? StartupProbe.VamMemory;
+            this.hub = hub ?? new RealHub();
+            this.watchWait = watchWait ?? TimeSpan.FromSeconds(5);
             this.settingsFile = settingsFile;
             this.vamRunning = vamRunning;
             this.startVam = startVam;
@@ -125,9 +144,11 @@ namespace varManager.Ui
                 Changed(nameof(IsScenesPage));
                 Changed(nameof(IsProfilesPage));
                 Changed(nameof(IsHealthPage));
-                Changed(nameof(IsOtherPage));
+                Changed(nameof(IsMissingPage));
                 if (IsHealthPage)
                     _ = ReadHealth();
+                if (IsMissingPage)
+                    _ = CheckMissing();
             }
         }
 
@@ -135,7 +156,7 @@ namespace varManager.Ui
         public bool IsScenesPage => selectedPage == Pages[1];
         public bool IsProfilesPage => selectedPage == Pages[2];
         public bool IsHealthPage => selectedPage == Pages[3];
-        public bool IsOtherPage => !IsLibraryPage && !IsScenesPage && !IsProfilesPage && !IsHealthPage;
+        public bool IsMissingPage => selectedPage == Pages[4];
 
         public LibraryViewModel? Library
         {
@@ -159,6 +180,12 @@ namespace varManager.Ui
         {
             get => health;
             private set => Set(ref health, value);
+        }
+
+        public MissingViewModel? Missing
+        {
+            get => missing;
+            private set => Set(ref missing, value);
         }
 
         /// <summary>The latest library read, which also brings the linked count up to date.</summary>
@@ -276,6 +303,7 @@ namespace varManager.Ui
             Task profilesRead = ReadProfiles();
             // Health reads every save, so it runs only while someone is looking at it.
             Task healthRead = IsHealthPage ? ReadHealth() : Task.CompletedTask;
+            Task missingRead = ReadMissing();
             try
             {
                 await reading.Reload().ConfigureAwait(true);
@@ -291,6 +319,42 @@ namespace varManager.Ui
             await scenesRead.ConfigureAwait(true);
             await profilesRead.ConfigureAwait(true);
             await healthRead.ConfigureAwait(true);
+            await missingRead.ConfigureAwait(true);
+        }
+
+        private async Task ReadMissing()
+        {
+            if (Missing == null)
+                return;
+            try
+            {
+                await Missing.Count().ConfigureAwait(true);
+                if (IsMissingPage)
+                    await Missing.Check().ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                Jobs.Say("Could not check what's missing: " + ex.Message);
+            }
+        }
+
+        private async Task CheckMissing()
+        {
+            if (Missing == null)
+                return;
+            try
+            {
+                await Missing.Check().ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                Jobs.Say("Could not check what's missing: " + ex.Message);
+            }
+        }
+
+        private void ShowMissingCount(int count)
+        {
+            Pages[^1].Badge = count > 0 ? count.ToString("N0") : "";
         }
 
         private async Task ReadHealth()
@@ -445,6 +509,9 @@ namespace varManager.Ui
                 () => SelectedPage = Pages[^1], ForgetTempLinks, SynchronizationContext.Current);
             Profiles = new ProfilesViewModel(StoreFile, paths, Jobs, Picks, () => selectedSwitch, SwitchTo, () => SelectedPage = Pages[0]);
             Health = new HealthViewModel(StoreFile, paths, Jobs, () => SelectedPage = Pages[^1]);
+            Missing = new MissingViewModel(StoreFile, paths, Jobs, hub, text => System.Windows.Clipboard.SetText(text), ShowMissingCount);
+            watch?.Dispose();
+            watch = new RepositoryWatch(VarsPath, () => Jobs.IsRunning, UpdateDb, SynchronizationContext.Current, watchWait);
             ImportOldDatabase();
             if (!Jobs.IsRunning)
                 ReloadLibrary();

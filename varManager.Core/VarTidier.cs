@@ -26,6 +26,27 @@ namespace varManager
         }
 
         // Real var files in the repository that aren't in a sorted folder yet.
+        /// <summary>A var still being copied can't be opened exclusively.</summary>
+        public static bool RepositoryVarsReady(string varsPath)
+        {
+            foreach (string file in Directory.GetFiles(varsPath, "*.var"))
+            {
+                try
+                {
+                    using (new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None)) { }
+                }
+                catch (IOException)
+                {
+                    return false;
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    // Update DB logs a var it can't read, so this one needn't hold the others back.
+                }
+            }
+            return true;
+        }
+
         public static List<string> RepositoryVars(string varsPath)
         {
             return Directory.GetFiles(varsPath, "*.var", SearchOption.AllDirectories)

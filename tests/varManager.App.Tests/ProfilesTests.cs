@@ -875,7 +875,7 @@ namespace varManager.App.Tests
             shell.BuildProfileCommand.Execute(null);
 
             Assert.True(shell.IsProfilesPage);
-            Assert.False(shell.IsOtherPage);
+            Assert.False(shell.IsMissingPage);
         }
 
         [Fact]
