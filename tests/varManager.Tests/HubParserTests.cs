@@ -80,5 +80,40 @@ namespace varManagerTests
         {
             Assert.Equal(expected, HubParser.VersionOf(name));
         }
+
+        [Theory]
+        [InlineData("A.Variant.1")]
+        [InlineData("Creator.VarietyPack.2")]
+        [InlineData("X.Various.1")]
+        public void DownloadLinks_cuts_only_the_file_extension(string name)
+        {
+            var links = HubParser.DownloadLinks(
+                "{\"packages\":{\"a\":{\"filename\":\"" + name + ".var\",\"downloadUrl\":\"https://hub/1\"}}}");
+
+            Assert.True(links.ContainsKey(name));
+        }
+
+        [Fact]
+        public void DownloadLinks_finds_names_in_any_case()
+        {
+            var links = HubParser.DownloadLinks(
+                "{\"packages\":{\"a\":{\"filename\":\"A.Hair.2.VAR\",\"downloadUrl\":\"https://hub/1\"}}}");
+
+            Assert.Equal("https://hub/1", links["a.hair.2"]);
+        }
+
+        [Fact]
+        public void LatestVersions_treats_case_variants_as_one_package()
+        {
+            var latest = HubParser.LatestVersions("{\"a.hair.2.VAR\":\"1\",\"A.Hair.3.var\":\"2\"}");
+
+            Assert.Equal(3, Assert.Single(latest).Value);
+        }
+
+        [Fact]
+        public void LatestVersions_skips_a_bare_number()
+        {
+            Assert.Empty(HubParser.LatestVersions("{\"5\":\"1\"}"));
+        }
     }
 }

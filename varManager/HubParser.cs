@@ -24,9 +24,8 @@ namespace varManager
                 string filename = package["filename"];
                 if (!IsValue(url) || !IsValue(filename))
                     continue;
-                int extension = filename.IndexOf(VarExtension, StringComparison.OrdinalIgnoreCase);
-                if (extension > 0)
-                    links[filename.Substring(0, extension)] = url;
+                if (filename.EndsWith(VarExtension, StringComparison.OrdinalIgnoreCase))
+                    links[filename.Substring(0, filename.Length - VarExtension.Length)] = url;
             }
             return links;
         }

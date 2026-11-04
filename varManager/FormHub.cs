@@ -18,8 +18,8 @@ namespace varManager
         private static SimpleLogger simpLog = new SimpleLogger();
         public Form1 form1;
         //private varManagerDataSet varManagerDataSet;
-        private static HttpClient httpClient;
-        private static CancellationToken cancellationToken;
+        // One per window, because a new request cancels everything pending on its client.
+        private readonly HttpClient httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
         //public varManagerDataSet VarManagerDataSet { get => varManagerDataSet; set => varManagerDataSet = value; }
         private List<string> listPayType, listLocation, listSort, listTags, listCategory, listCreator;
         private bool downlistHide = true;
@@ -34,8 +34,6 @@ namespace varManager
         {
             InitializeComponent();
             addlog = new InvokeAddLoglist(UpdateAddLoglist);
-            httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
-            cancellationToken = new CancellationToken();
             searchTimer.Tick += SearchTimer_Tick;
         }
         private void buttonScanHub_Click(object sender, EventArgs e)
@@ -163,6 +161,19 @@ namespace varManager
                 this.Close();
                 return;
             }
+            try
+            {
+                BuildFilters();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error getting HUB information! " + ex.Message);
+                this.Close();
+            }
+        }
+
+        private void BuildFilters()
+        {
             comboBoxHosted.Items.Add("All");
             foreach (string item in listLocation)
             {
@@ -352,13 +363,14 @@ namespace varManager
             string location = comboBoxHosted.Text, paytype = comboBoxPayType.Text,
              category = comboBoxCategory.Text, username = comboBoxCreator.Text,
                  tags = comboBoxTags.Text, search = SearchText;
+            bool searchChanged = search != lastSearch;
             lastSearch = search;
             string sort = comboBoxPriSort.Text;
             if (!string.IsNullOrEmpty(comboBoxSecSort.Text))
                 sort = sort + "," + comboBoxSecSort.Text;
             // A new filter starts at the first page.
             int page = 1;
-            if (!genePages && comboBoxPages.SelectedIndex >= 0)
+            if (!genePages && !searchChanged && comboBoxPages.SelectedIndex >= 0)
                 page = comboBoxPages.SelectedIndex + 1;
             // string reponse = Task<int>.Run(() => GetResources(48, location, paytype, category, username, tags, search, sort, page)).Result;
             try { GetResources(intPerPage, location, paytype, category, username, tags, search, sort, page); }
@@ -661,7 +673,12 @@ namespace varManager
                 }
             }
             if (!e.Cancel)
+            {
                 searchTimer.Dispose();
+                // Marks pending requests as replaced, so closing isn't reported as a timeout.
+                Interlocked.Increment(ref latestRequest);
+                httpClient.Dispose();
+            }
         }
 
         public void RefreshResource(string response)
@@ -791,14 +808,14 @@ namespace varManager
             }
         }
 
-        private static async Task<string> GetResponse(string url, StringContent data)
+        private async Task<string> GetResponse(string url, StringContent data)
         {
             //using (var client = new HttpClient())
             //{
             string strresponse = "";
             try
             {
-                var response = await httpClient.PostAsync(url, data, cancellationToken);
+                var response = await httpClient.PostAsync(url, data);
 
                 strresponse = await response.Content.ReadAsStringAsync();
             }
@@ -810,7 +827,7 @@ namespace varManager
             //}
         }
 
-        private static async Task<string> GetInfo()
+        private async Task<string> GetInfo()
         {
             string url = "https://hub.virtamate.com/citizenx/api.php";
 
