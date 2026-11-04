@@ -491,6 +491,7 @@ namespace varManager.App.Tests
 
             Assert.False(File.Exists(cached));
             Assert.True(File.Exists(keep));
+            LibraryHealth.ClearSceneCache();
         }
 
         [Fact]

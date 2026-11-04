@@ -181,7 +181,7 @@ try {
     Remove-Item "$Vam\___AddonPacksSwitch ___\lean\___VarsLink___\Lone.Quiet.1.var"
     Press '^Check$'
     Press '^Repair$'
-    WaitNote 'Repairing lean finished|^Switched'
+    WaitNote '^Repairing lean finished'
     Check ((Links 'lean').Count -eq 1) 'Profile Check repairs a removed link'
     Start-Sleep -Seconds 2
     Press '^Switch to this profile$'

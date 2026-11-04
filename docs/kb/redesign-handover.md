@@ -18,9 +18,7 @@ The clickable mockup is at https://claude.ai/artifact/2ugrax4vYy63wpfpRVBKWH. Th
 
 ## Resume here
 
-Step 9 is done and pushed. Next: step 10, Parity. Drive the real window for every screen: `Named`, `Press` and `WaitFor` over UI Automation, on a temp copy of `varManager.App\bin\Debug\net10.0-windows` with a settings.json pointing at fake folders.
-
-Open for step 11: on 4 November the window showed white on this PC with hardware rendering, in the pushed build as well as the new one, and correct with `RenderOptions.ProcessRenderMode = SoftwareOnly`. Earlier screenshots were fine, and the cause isn't known. Retest. If it stays, the user would see a white window, so raise it at step 12.
+Steps 0 to 11 are done and pushed. Step 12 is next: stop and tell the user it's ready. `docs/kb/parity.md` lists what still needs their decision.
 
 When the loop reaches step 12 with every earlier step ticked, reviewed clean and pushed: tell the user it's ready, then shut the PC down, as the user asked on 4 November. Not before, and not if anything failed or isn't pushed.
 
@@ -44,8 +42,8 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - [x] 7. Profiles: lean and exclude profiles, timing cards, switch, Profile Check. Also add picks to the Library, with the Build profile button in the job bar.
 - [x] 8. Health: stale, duplicates, disabled, storage. Nothing fixed without asking.
 - [x] 9. Missing: the same one-click flow. Add a "Not owned" Hub filter, image cache, and author search in place of the Creator dropdown. Also watch the repository, so a var dropped in is scanned by itself, as the old app's `WatchRepository` does.
-- [ ] 10. Parity: list every WinForms button and form, and confirm each has a home in the new app or a stated reason to drop it.
-- [ ] 11. Prove it on fake folders with a verify script like `smoke.ps1`. Include Fix Rebuild Link and temporary links, which `smoke.ps1` has never covered.
+- [x] 10. Parity: list every WinForms button and form, and confirm each has a home in the new app or a stated reason to drop it.
+- [x] 11. Prove it on fake folders with a verify script like `smoke.ps1`. Include Fix Rebuild Link and temporary links, which `smoke.ps1` has never covered.
 - [ ] 12. Stop. Tell the user it's ready and how to try it. Don't run it on the real library and don't replace `D:\X\varManagerApp` without their approval.
 
 ## Design rules from the user
@@ -141,4 +139,10 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - A store's `LoadVars` is sorted by name, so `A.B.10` comes before `A.B.9`. A test of "newest" needs versions like these.
 - The Hub is only asked while Missing is open. The side nav count comes from the database. A real Get from the real Hub worked in the real window on fake folders.
 - The stress run clashes in the two `LibraryStoreTests` import tests, because they compare a shared temp folder. Filter them out when running 4 processes.
+- `smoke_app.ps1` drives the whole new app in the real window. Run it for anything that changes a flow.
+- The window drew white on this PC with hardware rendering, in every build, and correctly in software. This PC has a Virtual Desktop monitor in Error state and two GPUs, but the cause isn't proven. Software is the default, and `HardwareRendering: true` in settings.json turns it back. Speed on 6,000 synthetic vars didn't change. Scrolling wasn't measured.
+- A file dialog can move the working directory. `SceneAnalysis.CacheBase` holds the new app's cache in place, so Clear cache can't reach a `Cache` folder somewhere else. Dialogs restore the directory too.
+- Settings pause the repository watch, and leaving runs `Open` again, which checks the folders.
+- The new app stays without migration: it refuses a real AddonPackages folder, and the old app keeps migration, undo and rollback.
+- Before step 12, the new app's data folder needs `varManager.mdb`, `varsMigrated.txt` and `varsForInstall.txt` beside it.
 - The compiler drops an unused project reference, so `GetReferencedAssemblies` won't list Core until the app calls it.

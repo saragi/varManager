@@ -498,7 +498,7 @@ namespace varManager.Ui
             string mdb = Path.Combine(dataFolder, "varManager.mdb");
             if (!File.Exists(mdb) || File.Exists(StoreFile))
                 return;
-            Jobs.Start("Importing library", context =>
+            Task? started = Jobs.Start("Importing library", context =>
             {
                 try
                 {
@@ -511,6 +511,9 @@ namespace varManager.Ui
                 }
                 return "Library imported.";
             });
+            // Another job kept it from starting, and Update DB mustn't make an empty store meanwhile.
+            if (started == null)
+                importFailed = true;
         }
 
         private void UpdateDb()

@@ -96,6 +96,26 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public void An_import_that_could_not_start_keeps_update_db_off()
+        {
+            SaveSettings();
+            File.WriteAllText(Path.Combine(root, "varManager.mdb"), "not read in this test");
+            using var release = new ManualResetEventSlim();
+            Task job = jobs.Start("Busy", "Done.", _ => release.Wait(Timeout))!;
+
+            ShellViewModel shell = Shell();
+            release.Set();
+            job.Wait(Timeout);
+            DateTime deadline = DateTime.UtcNow + Timeout;
+            while (jobs.IsRunning && DateTime.UtcNow < deadline)
+                Thread.Sleep(10);
+            shell.UpdateCommand.Execute(null);
+
+            Assert.Contains("wasn't imported", jobs.Note);
+            Assert.False(File.Exists(Path.Combine(root, "library.db")));
+        }
+
+        [Fact]
         public void Hardware_rendering_stays_off_unless_asked_for()
         {
             SaveSettings();
