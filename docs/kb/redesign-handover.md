@@ -18,7 +18,7 @@ The clickable mockup is at https://claude.ai/artifact/2ugrax4vYy63wpfpRVBKWH. Th
 
 ## Resume here
 
-Step 6 is built and committed locally, not pushed. Review round 1 is done and its fixes are in. Next: run review round 2 on the commits after `origin/release-0`, fix real findings, push, tick step 6, then go on to step 7. Drive the real window for every screen: `Named`, `Press` and `WaitFor` over UI Automation, on a temp copy of `varManager.App\bin\Debug\net10.0-windows` with a settings.json pointing at fake folders.
+Step 6 is done and pushed. Next: step 7, Profiles. Drive the real window for every screen: `Named`, `Press` and `WaitFor` over UI Automation, on a temp copy of `varManager.App\bin\Debug\net10.0-windows` with a settings.json pointing at fake folders.
 
 ## SDK
 
@@ -36,7 +36,7 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - [x] 3. Move logic out of `Form1.cs` into Core, one area per commit, keeping WinForms working. Moved: Tidy (`VarTidier`, `LibraryFolders`), reading a var for Update DB (`VarScanner`), install and link (`VarLinks`, and `Comm` now lives in Core), switches and the rescan request (`VarSwitches`, `VamBridge`), scenes and previews (`SceneAnalysis`, `ScenePreviews`, load requests in `VamBridge`), dependency analysis (`DependencyAnalysis`). `Form1.cs` went from 4,230 to about 2,880 lines. What stays there is tied to the Access DataSet, or is UI.
 - [x] 4. Build the WPF shell from the mockup: dark look, side nav, profile switcher, Update DB, Launch VaM, bottom job bar instead of popups. Update DB is `LibraryUpdate`, on `LibraryStore`. The import runs at startup when `varManager.mdb` sits beside the program and `library.db` doesn't exist yet.
 - [x] 5. Library: virtualized gallery that loads only on-screen thumbnails, search with author suggestions and tags, type and status filters, detail panel, turn on or off, Move out with undo.
-- [ ] 6. Scenes: readiness per profile, one-click Fix, Load in VaM. Also add Load in VaM to the Library's detail panel.
+- [x] 6. Scenes: readiness per profile, one-click Fix, Load in VaM. Also add Load in VaM to the Library's detail panel.
 - [ ] 7. Profiles: lean and exclude profiles, timing cards, switch, Profile Check. Also add picks to the Library, with the Build profile button in the job bar.
 - [ ] 8. Health: stale, duplicates, disabled, storage. Nothing fixed without asking.
 - [ ] 9. Missing: the same one-click flow. Add a "Not owned" Hub filter, image cache, and author search in place of the Creator dropdown. Also watch the repository, so a var dropped in is scanned by itself, as the old app's `WatchRepository` does.
@@ -113,4 +113,8 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - `Directory.GetFiles(folder, "A.B.1.*")` also matches the var `A.B.1.2`. Use `MoveOut.FilesOf`'s approach.
 - `ListBoxItem` resets text colour, so a `ListBox` row needs `Foreground` set, or its text goes black. Look at a screenshot of every new screen.
 - `dotnet test` doesn't build the WinForms app. A Core file with a link in `varManager.csproj` can't use a Core type that has none, such as `LibraryPaths`. Only MSBuild catches that, so run it every time.
+- `VarLinks.Installed` ignores case, as the file system does. Before that, a link named in another case looked off, and Load made a duplicate temp link.
+- Temp links are removed late, 20 seconds after VaM takes the request. `TempLinkRemoval` keeps one removal waiting, and a newer load replaces it, so an old list can't delete what the newer load needs. A non-scene load has an empty list, so older links wait for the next scene load. A window of milliseconds remains if the old removal fires just before the new load schedules.
+- Anything that links a var for good uses `VarLinks.InstallForGood`, so a leftover temp link doesn't show VaM the package twice.
+- Checks that pass after a failed patch prove nothing. Look at the patch's own result before reading the test run.
 - The compiler drops an unused project reference, so `GetReferencedAssemblies` won't list Core until the app calls it.
