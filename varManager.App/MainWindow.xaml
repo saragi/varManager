@@ -1,6 +1,7 @@
 <Window x:Class="varManager.Ui.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:varManager.Ui"
         Title="varManager" Width="1280" Height="800" MinWidth="900" MinHeight="560"
         Background="{StaticResource Page}" Foreground="{StaticResource Text}" FontFamily="Segoe UI" FontSize="14"
         TextOptions.TextFormattingMode="Display" UseLayoutRounding="True">
@@ -57,7 +58,9 @@
                 </ListBox>
             </Border>
 
-            <StackPanel Grid.Column="1" Margin="20">
+            <ui:LibraryView Grid.Column="1" DataContext="{Binding Library}"
+                            Visibility="{Binding DataContext.IsLibraryPage, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
+            <StackPanel Grid.Column="1" Margin="20" Visibility="{Binding IsOtherPage, Converter={StaticResource Visible}}">
                 <TextBlock Text="{Binding SelectedPage.Name}" FontSize="22" FontWeight="SemiBold" />
             </StackPanel>
         </Grid>

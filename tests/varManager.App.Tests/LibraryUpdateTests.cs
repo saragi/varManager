@@ -44,7 +44,25 @@ namespace varManager.App.Tests
         {
             store.Dispose();
             new DirectoryInfo(Path.Combine(vam, "AddonPackages")).Delete();
-            Directory.Delete(root, true);
+            DeleteRoot();
+        }
+
+        // The shell reloads the library in the background after a job, which can still hold the database open.
+        private void DeleteRoot()
+        {
+            DateTime deadline = DateTime.UtcNow + Timeout;
+            while (true)
+            {
+                try
+                {
+                    Directory.Delete(root, true);
+                    return;
+                }
+                catch (IOException) when (DateTime.UtcNow < deadline)
+                {
+                    Thread.Sleep(50);
+                }
+            }
         }
 
         private string MakeVar(string folder, string name, string depends = "", params string[] namesAndContents)

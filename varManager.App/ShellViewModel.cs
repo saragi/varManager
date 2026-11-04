@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -6,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Input;
 
 namespace varManager.Ui
@@ -56,6 +58,7 @@ namespace varManager.Ui
         private string setupProblem = "";
         private string linkedText = "";
         private bool needsSetup;
+        private LibraryViewModel? library;
 
         public ShellViewModel(string settingsFile, JobRunner jobs)
             : this(settingsFile, jobs, VamBridge.IsRunning, StartVam)
@@ -102,7 +105,21 @@ namespace varManager.Ui
         public NavPage SelectedPage
         {
             get => selectedPage;
-            set => Set(ref selectedPage, value);
+            set
+            {
+                Set(ref selectedPage, value);
+                Changed(nameof(IsLibraryPage));
+                Changed(nameof(IsOtherPage));
+            }
+        }
+
+        public bool IsLibraryPage => selectedPage == Pages[0];
+        public bool IsOtherPage => !IsLibraryPage;
+
+        public LibraryViewModel? Library
+        {
+            get => library;
+            private set => Set(ref library, value);
         }
 
         public bool NeedsSetup
@@ -174,6 +191,7 @@ namespace varManager.Ui
                 selectedSwitch = value;
                 Changed();
                 RefreshLinked();
+                ReloadLibrary();
                 VamBridge.RequestRescan(VamPath);
                 Jobs.Say("Switched to " + value + ".");
             }
@@ -197,7 +215,19 @@ namespace varManager.Ui
         private void JobChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(JobRunner.IsRunning) && !Jobs.IsRunning && IsReady && selectedSwitch != null)
+            {
                 RefreshLinked();
+                ReloadLibrary();
+            }
+        }
+
+        private void ReloadLibrary()
+        {
+            if (Library == null)
+                return;
+            Library.Reload().ContinueWith(
+                failed => Jobs.Say("Could not read the library: " + failed.Exception?.GetBaseException().Message),
+                TaskContinuationOptions.OnlyOnFaulted);
         }
 
         // Without this, a failed import would leave Update DB to create an empty store, and the import would never run again.
@@ -261,7 +291,12 @@ namespace varManager.Ui
             selectedSwitch = VarSwitches.EnsureLink(VamPath);
             Changed(nameof(SelectedSwitch));
             RefreshLinked();
+            Library = new LibraryViewModel(StoreFile, VarsPath,
+                () => new HashSet<string>(VarLinks.Installed(VarSwitches.AddonPackages(VamPath)).Keys, StringComparer.OrdinalIgnoreCase),
+                SynchronizationContext.Current);
             ImportOldDatabase();
+            if (!Jobs.IsRunning)
+                ReloadLibrary();
         }
 
         private void RefreshLinked()
