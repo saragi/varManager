@@ -39,19 +39,25 @@ namespace varManager
         // Downloads have dependencies of their own, so Get all keeps going until none are left.
         private bool followingChain;
         private readonly HashSet<string> attempted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly List<string> selected;
 
-        public FormMissing(Form1 owner, bool hasSelection)
+        // Update DB is running for this window. Checking now would read the old library.
+        private bool waitingForScan;
+
+        /// <param name="selected">The vars picked when the window opened, or null.</param>
+        public FormMissing(Form1 owner, List<string> selected)
         {
             this.owner = owner;
+            this.selected = selected;
             Text = "Missing";
             ClientSize = new Size(900, 600);
             MinimumSize = new Size(640, 400);
             StartPosition = FormStartPosition.CenterParent;
 
             scope.Items.AddRange(new object[] { "Whole library", "This profile" });
-            if (hasSelection)
+            if (selected != null)
                 scope.Items.Add("Selected vars");
-            scope.SelectedIndex = hasSelection ? 2 : 0;
+            scope.SelectedIndex = selected != null ? 2 : 0;
 
             list.Columns.Add("Package", 340);
             list.Columns.Add("Needed by", 400);
@@ -68,14 +74,19 @@ namespace varManager
 
             Load += (s, e) => Recheck();
             scope.SelectedIndexChanged += (s, e) => Recheck();
-            getAll.Click += async (s, e) =>
+            getAll.Click += (s, e) => Run(() =>
             {
                 followingChain = true;
+                scope.Enabled = false;
                 attempted.Clear();
-                await DownloadNext();
-            };
-            getUpdates.Click += async (s, e) => await Download(updates, owner.UpdatesToLink(updates));
-            turnOn.Click += (s, e) => owner.LinkAndUpdate(report.TurnedOff.Keys);
+                return DownloadNext();
+            });
+            getUpdates.Click += (s, e) => Run(() => Download(updates, owner.UpdatesToLink(updates)));
+            turnOn.Click += (s, e) => Run(() =>
+            {
+                Scan(report.TurnedOff.Keys.ToList());
+                return Task.CompletedTask;
+            });
             copyList.Click += (s, e) =>
             {
                 Clipboard.SetText(string.Join("\r\n", sources.Listed.Select(item => item.Reference)));
@@ -86,10 +97,10 @@ namespace varManager
                 followingChain = false;
                 downloading?.Cancel();
             };
-            owner.LibraryChanged += Recheck;
+            owner.LibraryChanged += LibraryChanged;
             FormClosed += (s, e) =>
             {
-                owner.LibraryChanged -= Recheck;
+                owner.LibraryChanged -= LibraryChanged;
                 followingChain = false;
                 downloading?.Cancel();
             };
@@ -108,10 +119,51 @@ namespace varManager
             return offered.Where(package => wanted.Contains(MissingPlanner.PackageOf(package.Name))).Select(package => package.Name).ToList();
         }
 
+        private void LibraryChanged()
+        {
+            waitingForScan = false;
+            Recheck();
+        }
+
         private void Recheck()
         {
-            if (downloading == null && !IsDisposed)
+            if (downloading == null && !waitingForScan && !IsDisposed)
                 Check();
+        }
+
+        private void StopChain()
+        {
+            followingChain = false;
+            scope.Enabled = true;
+        }
+
+        private async void Run(Func<Task> action)
+        {
+            try
+            {
+                await action();
+            }
+            catch (Exception ex)
+            {
+                StopChain();
+                if (!IsDisposed)
+                    status.Text = "Stopped: " + ex.Message;
+            }
+        }
+
+        /// <summary>Runs Update DB and links these vars. The next check starts when it ends.</summary>
+        private void Scan(List<string> toLink)
+        {
+            waitingForScan = true;
+            try
+            {
+                owner.LinkAndUpdate(toLink);
+            }
+            catch (Exception)
+            {
+                waitingForScan = false;
+                throw;
+            }
         }
 
         private async void Check()
@@ -119,7 +171,7 @@ namespace varManager
             int check = ++checkNumber;
             try
             {
-                report = owner.PlanMissing((string)scope.SelectedItem);
+                report = owner.PlanMissing((string)scope.SelectedItem, selected);
                 sources = new MissingSources();
                 sources.NotFound.AddRange(report.Needed);
                 offered = new List<HubPackage>();
@@ -134,7 +186,7 @@ namespace varManager
                     offered = await HubClient.FindAll(report.Needed.Select(item => item.Package + ".latest"));
                     string packageList = await HubClient.GetPackageList();
                     Dictionary<string, int> versions = await Task.Run(() => HubParser.LatestVersions(packageList));
-                    updates = (await HubClient.FindAll(MissingPlanner.UpdateRequests(owner.ScopeVars((string)scope.SelectedItem), versions)))
+                    updates = (await HubClient.FindAll(MissingPlanner.UpdateRequests(owner.ScopeVars((string)scope.SelectedItem, selected), versions)))
                         .Where(package => !owner.Owns(package.Name)).ToList();
                 }
                 catch (Exception ex)
@@ -150,7 +202,7 @@ namespace varManager
                     if (hubProblem == null)
                         await DownloadNext();
                     else
-                        followingChain = false;
+                        StopChain();
                 }
             }
             catch (Exception ex)
@@ -236,65 +288,92 @@ namespace varManager
         private async Task DownloadNext()
         {
             List<HubPackage> next = offered.Where(IsNeeded).Where(package => !attempted.Contains(package.Name)).ToList();
-            if (next.Count == 0)
+            if (next.Count > 0)
             {
-                followingChain = false;
+                attempted.UnionWith(next.Select(package => package.Name));
+                await Download(next, LinkedNeeds());
                 return;
             }
-            attempted.UnionWith(next.Select(package => package.Name));
-            await Download(next, LinkedNeeds());
+            StopChain();
+            // Stored vars the downloads need. Other turned-off vars stay off, because they may be off on purpose.
+            List<string> needed = report.TurnedOff.Where(off => off.Value.Overlaps(attempted)).Select(off => off.Key).ToList();
+            if (needed.Count > 0)
+                Scan(needed);
         }
 
         private async Task Download(List<HubPackage> packages, List<string> toLink)
         {
             string folder = Properties.Settings.Default.varspath;
             long needed = packages.Sum(package => package.Size);
-            long free = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(folder))).AvailableFreeSpace;
+            long free = FreeSpace(folder);
             if (needed + ReservedBytes > free)
             {
-                followingChain = false;
+                StopChain();
                 MessageBox.Show(this, $"This needs {Size(needed)}, but only {Size(free)} is free.", "Missing");
                 return;
             }
 
-            bool scanning = false;
+            DownloadResult result;
             owner.PauseFolderWatch(true);
-            using (downloading = new CancellationTokenSource())
-            using (HubDownloader downloader = new HubDownloader())
+            downloading = new CancellationTokenSource();
+            getAll.Enabled = getUpdates.Enabled = turnOn.Enabled = false;
+            cancel.Enabled = true;
+            progress.Maximum = Math.Max(packages.Count, 1);
+            progress.Value = 0;
+            progress.Visible = true;
+            try
             {
-                getAll.Enabled = getUpdates.Enabled = turnOn.Enabled = false;
-                cancel.Enabled = true;
-                progress.Maximum = Math.Max(packages.Count, 1);
-                progress.Value = 0;
-                progress.Visible = true;
                 int done = 0;
-                CancellationToken token = downloading.Token;
-                DownloadResult result = await downloader.DownloadAll(packages, folder, package => Post(() =>
+                using (HubDownloader downloader = new HubDownloader())
                 {
-                    progress.Value = Math.Min(++done, progress.Maximum);
-                    status.Text = $"Downloaded {done} of {packages.Count}";
-                }), token);
-
-                cancel.Enabled = false;
-                progress.Visible = false;
-                foreach (KeyValuePair<string, string> failure in result.Failed)
-                    owner.LogProblem($"{failure.Key} download failed: {failure.Value}");
-                lastResult = $"Stored {result.Stored.Count}, failed {result.Failed.Count}.";
-                if (result.Failed.Count > 0)
-                    lastResult += " First problem: " + result.Failed.First().Value;
-                if (!IsDisposed)
-                    status.Text = lastResult + " Scanning...";
-                scanning = result.Stored.Count > 0;
-                if (scanning)
-                    owner.LinkAndUpdate(toLink.Where(name => result.Stored.Contains(name, StringComparer.OrdinalIgnoreCase)));
-                else
-                    followingChain = false;
+                    result = await downloader.DownloadAll(packages, folder, package => Post(() =>
+                    {
+                        progress.Value = Math.Min(++done, progress.Maximum);
+                        status.Text = $"Downloaded {done} of {packages.Count}";
+                    }), downloading.Token);
+                }
             }
-            downloading = null;
-            owner.PauseFolderWatch(false);
-            // Once the scan ends, LibraryChanged starts the next check.
-            if (!scanning)
+            finally
+            {
+                downloading.Dispose();
+                downloading = null;
+                owner.PauseFolderWatch(false);
+                if (!IsDisposed)
+                {
+                    cancel.Enabled = false;
+                    progress.Visible = false;
+                }
+            }
+
+            foreach (KeyValuePair<string, string> failure in result.Failed)
+                owner.LogProblem($"{failure.Key} download failed: {failure.Value}");
+            lastResult = $"Stored {result.Stored.Count}, failed {result.Failed.Count}.";
+            if (result.Failed.Count > 0)
+                lastResult += " First problem: " + result.Failed.First().Value;
+            if (!IsDisposed)
+                status.Text = lastResult + " Scanning...";
+            if (result.Stored.Count > 0)
+            {
+                Scan(toLink.Where(name => result.Stored.Contains(name, StringComparer.OrdinalIgnoreCase)).ToList());
+            }
+            else
+            {
+                StopChain();
                 Recheck();
+            }
+        }
+
+        /// <summary>A network folder has no drive to ask, so it counts as having room.</summary>
+        private static long FreeSpace(string folder)
+        {
+            try
+            {
+                return new DriveInfo(Path.GetPathRoot(Path.GetFullPath(folder))).AvailableFreeSpace;
+            }
+            catch (ArgumentException)
+            {
+                return long.MaxValue;
+            }
         }
 
         private void Post(Action action)

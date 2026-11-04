@@ -66,6 +66,7 @@ namespace varManagerTests
         [Theory]
         [InlineData("<html>Bad gateway</html>")]
         [InlineData("[1,2]")]
+        [InlineData("{\"error\":\"busy\"}")]
         public void LatestVersions_rejects_a_bad_reply(string response)
         {
             Assert.Throws<InvalidDataException>(() => HubParser.LatestVersions(response));

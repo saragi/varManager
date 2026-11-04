@@ -172,7 +172,12 @@ namespace varManager
         {
             Dictionary<string, int> links = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             foreach (HubPackage package in offered)
-                links[PackageOf(package.Name)] = HubParser.VersionOf(package.Name);
+            {
+                string name = PackageOf(package.Name);
+                int known;
+                if (!links.TryGetValue(name, out known) || HubParser.VersionOf(package.Name) > known)
+                    links[name] = HubParser.VersionOf(package.Name);
+            }
 
             MissingSources sources = new MissingSources();
             foreach (MissingPackage item in needed)

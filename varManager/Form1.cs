@@ -54,7 +54,6 @@ namespace varManager
             HookIndexInvalidation();
             AddProfileButtons();
             AddMissingButton();
-            WatchRepository();
         }
 
         private Button buttonMissing;
@@ -78,7 +77,9 @@ namespace varManager
         {
             if (formMissing == null || formMissing.IsDisposed)
             {
-                formMissing = new FormMissing(this, varsViewDataGridView.SelectedRows.Count > 1);
+                List<string> selected = varsViewDataGridView.SelectedRows.Cast<DataGridViewRow>()
+                    .Select(row => row.Cells["varNameDataGridViewTextBoxColumn"].Value.ToString()).ToList();
+                formMissing = new FormMissing(this, selected.Count > 1 ? selected : null);
                 formMissing.Show(this);
             }
             else
@@ -92,7 +93,7 @@ namespace varManager
         {
             try
             {
-                int count = PlanMissing("Whole library").Count;
+                int count = PlanMissing("Whole library", null).Count;
                 buttonMissing.Text = count > 0 ? "Missing " + count : "Missing";
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
@@ -101,22 +102,18 @@ namespace varManager
             }
         }
 
-        internal IEnumerable<string> ScopeVars(string scope)
+        internal IEnumerable<string> ScopeVars(string scope, IEnumerable<string> selected)
         {
             if (scope == "This profile")
                 return GetInstalledVars().Keys.ToList();
             if (scope == "Selected vars")
-            {
-                IEnumerable<string> picks = varsViewDataGridView.SelectedRows.Cast<DataGridViewRow>()
-                    .Select(row => row.Cells["varNameDataGridViewTextBoxColumn"].Value.ToString());
-                return DependencyScanner.Closure(picks, VarLookup, varName => DependencyLookup.DependenciesOf(varName)).Vars;
-            }
+                return DependencyScanner.Closure(selected, VarLookup, varName => DependencyLookup.DependenciesOf(varName)).Vars;
             return varManagerDataSet.vars.Where(IsLive).Select(row => row.varName).ToList();
         }
 
-        internal MissingReport PlanMissing(string scope)
+        internal MissingReport PlanMissing(string scope, IEnumerable<string> selected)
         {
-            return MissingPlanner.Plan(ScopeVars(scope), varName => DependencyLookup.DependenciesOf(varName), VarLookup, GetInstalledVars().Keys);
+            return MissingPlanner.Plan(ScopeVars(scope, selected), varName => DependencyLookup.DependenciesOf(varName), VarLookup, GetInstalledVars().Keys);
         }
 
         internal bool Owns(string varName)
@@ -139,14 +136,23 @@ namespace varManager
         /// <summary>Runs Update DB, then links exactly these vars without following dependencies.</summary>
         internal void LinkAndUpdate(IEnumerable<string> varNames)
         {
-            File.AppendAllLines(migratedVarsFile, varNames);
+            pendingLinks.AddRange(varNames);
             if (backgroundWorkerInstall.IsBusy)
                 updateAfterJob = true;
             else
-                backgroundWorkerInstall.RunWorkerAsync("UpdDB");
+                StartPendingUpdate();
         }
 
+        // Held here while a job runs, because the job reads and rewrites the file on disk.
+        private readonly List<string> pendingLinks = new List<string>();
         private bool updateAfterJob;
+
+        private void StartPendingUpdate()
+        {
+            File.AppendAllLines(migratedVarsFile, pendingLinks);
+            pendingLinks.Clear();
+            backgroundWorkerInstall.RunWorkerAsync("UpdDB");
+        }
 
         internal void PauseFolderWatch(bool paused)
         {
@@ -165,6 +171,8 @@ namespace varManager
             repositoryWatcher.Created += RepositoryChanged;
             repositoryWatcher.Renamed += RepositoryChanged;
             repositoryWatcher.EnableRaisingEvents = true;
+            // Also picks up vars added while the app was closed.
+            repositoryTimer.Start();
         }
 
         private void RepositoryChanged(object sender, FileSystemEventArgs e)
@@ -175,7 +183,8 @@ namespace varManager
 
         private void RepositoryTimer_Tick(object sender, EventArgs e)
         {
-            if (folderWatchPaused || backgroundWorkerInstall.IsBusy || !RepositoryVarsReady())
+            // CanFocus is false while a dialog is open, and a dialog's action may assume no job runs.
+            if (!CanFocus || folderWatchPaused || backgroundWorkerInstall.IsBusy || !RepositoryVarsReady())
                 return;
             repositoryTimer.Stop();
             if (GetVarspathVars().Count > 0)
@@ -1977,11 +1986,20 @@ namespace varManager
             {
                 UpdateAddLoglist("Operation failed: " + e.Error.Message, LogLevel.ERROR);
             }
+            if (repositoryWatcher == null)
+                WatchRepository();
             if (updateAfterJob)
             {
                 updateAfterJob = false;
-                backgroundWorkerInstall.RunWorkerAsync("UpdDB");
-                return;
+                try
+                {
+                    StartPendingUpdate();
+                    return;
+                }
+                catch (IOException ex)
+                {
+                    UpdateAddLoglist("Could not start Update DB: " + ex.Message, LogLevel.ERROR);
+                }
             }
             RefreshMissingCount();
             LibraryChanged?.Invoke();

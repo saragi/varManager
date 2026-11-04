@@ -68,9 +68,12 @@ namespace varManager
         private const string PartExtension = ".part";
 
         private readonly HttpClient client;
+        private readonly TimeSpan idleTimeout;
 
-        public HubDownloader(HttpMessageHandler handler = null)
+        /// <param name="idleTimeout">How long a download may go without data. Default one minute.</param>
+        public HubDownloader(HttpMessageHandler handler = null, TimeSpan? idleTimeout = null)
         {
+            this.idleTimeout = idleTimeout ?? TimeSpan.FromMinutes(1);
             // With cookie handling on, the handler drops a Cookie header set by hand.
             client = new HttpClient(handler ?? new HttpClientHandler { UseCookies = false });
             client.Timeout = Timeout.InfiniteTimeSpan;
@@ -133,22 +136,7 @@ namespace varManager
             string part = target + PartExtension;
             try
             {
-                using (HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, package.Url))
-                {
-                    request.Headers.Add("Cookie", ConsentCookie);
-                    using (HttpResponseMessage response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false))
-                    {
-                        response.EnsureSuccessStatusCode();
-                        using (Stream source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
-                        using (FileStream file = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.None))
-                        {
-                            await source.CopyToAsync(file, 81920, token).ConfigureAwait(false);
-                        }
-                        long? expected = response.Content.Headers.ContentLength;
-                        if (expected.HasValue && new FileInfo(part).Length != expected.Value)
-                            throw new IOException("The download stopped early.");
-                    }
-                }
+                await Fetch(package.Url, part, token).ConfigureAwait(false);
                 if (!LooksLikeVar(part))
                     throw new InvalidDataException("The Hub sent something other than a var.");
                 File.Move(part, target);
@@ -157,6 +145,50 @@ namespace varManager
             {
                 if (File.Exists(part))
                     File.Delete(part);
+            }
+        }
+
+        /// <summary>A stalled connection ignores cancellation, so dropping the response is what ends the read.</summary>
+        private async Task Fetch(string url, string part, CancellationToken token)
+        {
+            using (CancellationTokenSource idle = CancellationTokenSource.CreateLinkedTokenSource(token))
+            {
+                try
+                {
+                    idle.CancelAfter(idleTimeout);
+                    using (HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, url))
+                    {
+                        request.Headers.Add("Cookie", ConsentCookie);
+                        using (HttpResponseMessage response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, idle.Token).ConfigureAwait(false))
+                        using (idle.Token.Register(response.Dispose))
+                        {
+                            response.EnsureSuccessStatusCode();
+                            long received = 0;
+                            using (Stream source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                            using (FileStream file = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.None))
+                            {
+                                byte[] buffer = new byte[81920];
+                                while (true)
+                                {
+                                    idle.CancelAfter(idleTimeout);
+                                    int read = await source.ReadAsync(buffer, 0, buffer.Length, idle.Token).ConfigureAwait(false);
+                                    if (read == 0)
+                                        break;
+                                    await file.WriteAsync(buffer, 0, read, token).ConfigureAwait(false);
+                                    received += read;
+                                }
+                            }
+                            long? expected = response.Content.Headers.ContentLength;
+                            if (expected.HasValue && received != expected.Value)
+                                throw new IOException("The download stopped early.");
+                        }
+                    }
+                }
+                catch (Exception ex) when (idle.IsCancellationRequested)
+                {
+                    token.ThrowIfCancellationRequested();
+                    throw new IOException("The download stalled.", ex);
+                }
             }
         }
 

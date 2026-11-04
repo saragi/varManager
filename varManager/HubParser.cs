@@ -61,7 +61,7 @@ namespace varManager
         public static Dictionary<string, int> LatestVersions(string response)
         {
             JSONClass packages = Parse(response) as JSONClass;
-            if (packages == null)
+            if (packages == null || packages.HasKey("error"))
                 throw new InvalidDataException("The Hub returned no package list.");
 
             Dictionary<string, int> latest = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);

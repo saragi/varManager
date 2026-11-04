@@ -298,5 +298,118 @@ namespace varManagerTests
             }
             Assert.Empty(Directory.GetFiles(root));
         }
+
+        [Fact]
+        public void Sort_uses_the_highest_version_offered_in_any_case()
+        {
+            HubPackage[] offered = { new HubPackage("a.hair.3", "u", 1), new HubPackage("a.hair.1", "u", 1) };
+
+            MissingSources sources = MissingPlanner.Sort(new[] { Needed("A.Hair", 3) }, offered, new HashSet<string>());
+
+            Assert.Single(sources.OnHub);
+        }
+
+        [Fact]
+        public void UpdateRequests_ignores_the_order_owned_vars_arrive_in()
+        {
+            Dictionary<string, int> hub = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["A.Hair"] = 2 };
+
+            Assert.Empty(MissingPlanner.UpdateRequests(new[] { "A.Hair.2", "A.Hair.1" }, hub));
+        }
+
+        [Fact]
+        public void A_later_unlinked_user_keeps_the_linked_mark()
+        {
+            MissingReport report = Plan(new[] { "A.Linked.1", "A.Off.1" }, new[] { "A.Linked.1" },
+                new Dictionary<string, string[]> { ["A.Linked.1"] = new[] { "B.Hair.1" }, ["A.Off.1"] = new[] { "B.Hair.1" } });
+
+            Assert.True(Assert.Single(report.Needed).NeededByLinkedVar);
+        }
+
+        [Fact]
+        public void A_linked_version_below_the_minimum_leaves_the_stored_one_turned_off()
+        {
+            MissingReport report = Plan(new[] { "A.Scene.1", "B.Hair.1", "B.Hair.3" }, new[] { "A.Scene.1", "B.Hair.1" },
+                new Dictionary<string, string[]> { ["A.Scene.1"] = new[] { "B.Hair.min3" } });
+
+            Assert.True(report.TurnedOff.ContainsKey("B.Hair.3"));
+        }
+
+        [Fact]
+        public async Task Download_rejects_a_short_file()
+        {
+            FakeHub hub = new FakeHub
+            {
+                Reply = request =>
+                {
+                    HttpResponseMessage response = Var();
+                    response.Content.Headers.ContentLength = 100;
+                    return response;
+                }
+            };
+            using (HubDownloader downloader = new HubDownloader(hub))
+                await Assert.ThrowsAsync<IOException>(() => downloader.Download(new HubPackage("A.Hair.1", "https://hub.test/1", 1), root, CancellationToken.None));
+
+            Assert.Empty(Directory.GetFiles(root));
+        }
+
+        private sealed class NeverEndingStream : MemoryStream
+        {
+            public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken token)
+            {
+                TaskCompletionSource<int> never = new TaskCompletionSource<int>();
+                token.Register(() => never.TrySetCanceled());
+                return never.Task;
+            }
+        }
+
+        [Fact]
+        public async Task A_stalled_download_fails_and_leaves_nothing()
+        {
+            FakeHub hub = new FakeHub { Reply = request => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new NeverEndingStream()) } };
+            using (HubDownloader downloader = new HubDownloader(hub, TimeSpan.FromMilliseconds(200)))
+                await Assert.ThrowsAsync<IOException>(() => downloader.Download(new HubPackage("A.Hair.1", "https://hub.test/1", 1), root, CancellationToken.None));
+
+            Assert.Empty(Directory.GetFiles(root));
+        }
+
+        [Fact]
+        public async Task Cancelling_a_stalled_download_counts_as_cancelled()
+        {
+            FakeHub hub = new FakeHub { Reply = request => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new NeverEndingStream()) } };
+            using (CancellationTokenSource cancel = new CancellationTokenSource(200))
+            using (HubDownloader downloader = new HubDownloader(hub))
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => downloader.Download(new HubPackage("A.Hair.1", "https://hub.test/1", 1), root, cancel.Token));
+
+            Assert.Empty(Directory.GetFiles(root));
+        }
+
+        private sealed class CountingHub : HttpMessageHandler
+        {
+            private int running;
+            public int Peak { get; private set; }
+
+            protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+            {
+                int now = Interlocked.Increment(ref running);
+                lock (this)
+                    Peak = Math.Max(Peak, now);
+                await Task.Delay(30);
+                Interlocked.Decrement(ref running);
+                return Var();
+            }
+        }
+
+        [Fact]
+        public async Task DownloadAll_runs_at_most_three_at_once()
+        {
+            CountingHub hub = new CountingHub();
+            HubPackage[] packages = Enumerable.Range(1, 9).Select(number => new HubPackage("A.Pack" + number + ".1", "https://hub.test/" + number, 1)).ToArray();
+            using (HubDownloader downloader = new HubDownloader(hub))
+                await downloader.DownloadAll(packages, root, null, CancellationToken.None);
+
+            Assert.InRange(hub.Peak, 1, 3);
+            Assert.Equal(9, Directory.GetFiles(root).Length);
+        }
     }
 }
