@@ -524,6 +524,36 @@ namespace Smoke {
     Check (-not (Test-Path -LiteralPath (Split-Path $leanLinks))) 'Del removes the switch folder'
     Check (Test-Path -LiteralPath $tidied) 'Del leaves var files in place'
     Check (([string](Get-Item -LiteralPath $Pack).Target) -match 'default$') 'AddonPackages returns to the default switch'
+
+    # An exclude profile is default minus the selected var, and Profile Check treats it as a profile.
+    [void][Smoke.Mouse]::PostMessage($gridHandle, 0x0201, [IntPtr]1, $point)
+    [void][Smoke.Mouse]::PostMessage($gridHandle, 0x0202, [IntPtr]::Zero, $point)
+    Start-Sleep -Seconds 1
+    [Win]::Click((Find-Child $main '^Exclude Profile$'))
+    $excludeForm = Wait-Window '^Exclude profile$' 'exclude profile window' 15
+    Save-Shot $excludeForm 'exclude-profile'
+    $excludeText = ([Win]::Children($excludeForm) | ForEach-Object { [Win]::Text($_) }) -join "`n"
+    Check ($excludeText -match 'Left out:') 'exclude profile window shows what is left out'
+    [Win]::Click((Find-Child $excludeForm '^Create profile$'))
+    $trimFile = Join-Path $Vars '___Profiles___\trimmed.profile'
+    $trimLinks = Join-Path $VaM '___AddonPacksSwitch ___\trimmed\___VarsLink___'
+    $deadline = (Get-Date).AddSeconds(20)
+    while ((Get-Date) -lt $deadline -and -not (Test-Path -LiteralPath $trimFile)) { Start-Sleep -Milliseconds 300 }
+    Start-Sleep -Seconds 3
+    Check ((Get-Content -LiteralPath $trimFile) -contains "exclude`tSmoke.Alpha.1") 'exclude profile records the exclusion'
+    Check (-not (Test-Path -LiteralPath (Join-Path $trimLinks 'Smoke.Alpha.1.var'))) 'exclude profile leaves the var unlinked'
+    Check (Test-Path -LiteralPath (Join-Path $VaM '___AddonPacksSwitch ___\default\___VarsLink___\Smoke.Alpha.1.var')) 'exclude profile leaves default alone'
+    Check (([string](Get-Item -LiteralPath $Pack).Target) -match 'trimmed$') 'AddonPackages points at the exclude profile'
+    Check ((Get-FileHash -LiteralPath $tidied).Hash -eq $alphaHash) 'exclude profile leaves var files unchanged'
+    [Win]::Click((Find-Child $main '^Profile Check$'))
+    $checkForm = Wait-Window '^Profile check$' 'exclude profile check window' 15
+    [Win]::Click((Find-Child $checkForm '^Close$'))
+    Start-Sleep -Seconds 1
+    [Win]::Click((Find-Child $main '^Del$'))
+    $deleteBox = Wait-Window '^delete switch$' 'delete exclude switch confirmation' 10
+    [Win]::Click((Find-Child $deleteBox '^&?Yes$'))
+    Start-Sleep -Seconds 3
+    Check (([string](Get-Item -LiteralPath $Pack).Target) -match 'default$') 'AddonPackages returns to default after the exclude profile'
     [Win]::Close($main)
     Wait-Exit
     Check (-not (Select-String -LiteralPath $logFile -Pattern 'ERROR|FATAL' -Quiet)) 'app log has no errors after profile work'

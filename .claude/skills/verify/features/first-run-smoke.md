@@ -9,6 +9,7 @@ A new user starts varManager with a real `AddonPackages` folder. The app shows w
 - `migrate`: `Move files` stores the vars, writes a log, and makes `AddonPackages` a symlink.
 - `update-db`: `UPD_DB` tidies vars, fills the database, and links enabled vars.
 - `lean-profile`: `Lean Profile` builds a links-only switch from the selected row, and `Profile Check` reports on it.
+- `exclude-profile`: `Exclude Profile` previews a switch of everything in default except the selected row.
 
 ## How to get to it (user POV)
 
@@ -27,6 +28,7 @@ Preconditions: doctor passes and VaM is not running. The script creates all seed
 - Stored state: after the app closes, the `vars` table has `Smoke.Alpha.1` with `scenes = 1`, and `Smoke.Beta.1`. Beta has no link, `readme.txt` is still reachable through `AddonPackages`, and `varManager.log` has no `ERROR` or `FATAL`. `Smoke.Beta.1` depends on `Smoke.Alpha.1`.
 
 - Lean profile: runs after the stored-state checks, and it repoints `AddonPackages`. Relaunch, click the first row header, click `Lean Profile`, then `Create profile`. `___Profiles___\lean.profile` records `Smoke.Alpha.1`, the `lean` switch holds only links, and the var hash is unchanged. `Profile Check` lists the missing packages.
+- Exclude profile: back on default, click the first row header, click `Exclude Profile`, then `Create profile`. `___Profiles___\trimmed.profile` records the exclusion, the `trimmed` switch lacks `Smoke.Alpha.1`, default keeps it, and the var hash is unchanged.
 - Repair and restore: delete a lean link and `Repair` brings it back. Create a version from the second row, then `Restore previous` brings the first back and removes the extra link. `Del` removes the switch and profile files, keeps the var, and returns to `default`. The app log still has no errors.
 - Rollback: run `varManager.exe --rollback-migration <log>`. `AddonPackages` is a real folder again, with the var, disabled var and `readme.txt`, and no `___VarsLink___`.
 

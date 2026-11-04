@@ -60,7 +60,8 @@ namespace varManager
             Control parent = buttonSetting.Parent;
             AddSideButton(parent, "Lean Profile", 9, 670, 66, 36, buttonLeanProfile_Click);
             AddSideButton(parent, "Profile Check", 78, 670, 66, 36, buttonProfileCheck_Click);
-            AddSideButton(parent, "Launch VaM", 33, 709, 89, 36, buttonLaunchVaM_Click);
+            AddSideButton(parent, "Exclude Profile", 9, 709, 66, 36, buttonExcludeProfile_Click);
+            AddSideButton(parent, "Launch VaM", 78, 709, 66, 36, buttonLaunchVaM_Click);
         }
 
         private static void AddSideButton(Control parent, string text, int x, int y, int width, int height, EventHandler click)
@@ -99,11 +100,16 @@ namespace varManager
 
         private ProfilePlan PlanProfile(LeanProfile profile)
         {
-            return LeanProfiles.Plan(profile, VarLookup, varName => DependencyLookup.DependenciesOf(varName), varName =>
+            Func<string, IEnumerable<string>> referencesOf = varName => DependencyLookup.DependenciesOf(varName);
+            Func<string, long> sizeOf = varName =>
             {
                 varManagerDataSet.varsRow row = varManagerDataSet.vars.FindByvarName(varName);
                 return row == null || row.IsfilesizeNull() ? 0 : (long)row.filesize;
-            });
+            };
+            if (profile.Exclude.Count == 0)
+                return LeanProfiles.Plan(profile, VarLookup, referencesOf, sizeOf);
+            IEnumerable<string> linked = LeanProfiles.Links(SwitchLinkPath("default")).Select(Path.GetFileNameWithoutExtension);
+            return LeanProfiles.PlanExcluding(profile, linked, VarLookup, referencesOf, sizeOf);
         }
 
         private static bool CreateVarLink(string link, string target)
@@ -198,6 +204,50 @@ namespace varManager
             });
         }
 
+        private void buttonExcludeProfile_Click(object sender, EventArgs e)
+        {
+            RunProfileAction(() =>
+            {
+                string current = (string)comboBoxPacksSwitch.SelectedItem;
+                string path = string.IsNullOrEmpty(current) ? null : ProfilePath(current);
+                LeanProfile existing = path != null && File.Exists(path) ? LeanProfiles.Load(path) : null;
+                bool editing = existing != null && existing.Exclude.Count > 0;
+
+                SortedSet<string> exclusions = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (editing)
+                    exclusions.UnionWith(existing.Exclude);
+                foreach (DataGridViewRow row in varsViewDataGridView.SelectedRows)
+                    exclusions.Add(row.Cells["varNameDataGridViewTextBoxColumn"].Value.ToString());
+                if (exclusions.Count == 0)
+                {
+                    MessageBox.Show("Select the vars you want to leave out in the list first.");
+                    return;
+                }
+
+                List<string> baseReferences = BaseReferences();
+                Func<List<string>, LeanProfile> profileOf = picks =>
+                {
+                    LeanProfile profile = new LeanProfile();
+                    profile.Base.AddRange(baseReferences);
+                    profile.Exclude.AddRange(picks);
+                    return profile;
+                };
+                using (FormExcludeProfile form = new FormExcludeProfile(editing ? current : "trimmed", exclusions, (name, picks) =>
+                {
+                    ProfilePlan plan = PlanProfile(profileOf(picks));
+                    return LeanProfiles.Describe(plan, LeanProfiles.Diff(plan.Closure.Vars,
+                        LeanProfiles.Links(SwitchLinkPath(name)).Select(Path.GetFileNameWithoutExtension)));
+                }))
+                {
+                    if (form.ShowDialog(this) == DialogResult.OK)
+                    {
+                        LeanProfile profile = profileOf(form.Exclusions);
+                        ApplyProfile(form.ProfileName, PlanProfile(profile), profile);
+                    }
+                }
+            });
+        }
+
         private void buttonProfileCheck_Click(object sender, EventArgs e)
         {
             RunProfileAction(() =>
@@ -205,7 +255,7 @@ namespace varManager
                 string name = (string)comboBoxPacksSwitch.SelectedItem;
                 string path = string.IsNullOrEmpty(name) ? null : ProfilePath(name);
                 LeanProfile profile = path != null && File.Exists(path) ? LeanProfiles.Load(path) : null;
-                if (profile == null || profile.Direct.Count == 0)
+                if (profile == null || profile.Direct.Count + profile.Exclude.Count == 0)
                 {
                     MessageBox.Show("The current switch isn't a lean profile.");
                     return;

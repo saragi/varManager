@@ -11,6 +11,9 @@ namespace varManager
     {
         public List<string> Direct { get; } = new List<string>();
         public List<string> Base { get; } = new List<string>();
+
+        /// <summary>When not empty, the profile is the default switch minus these vars.</summary>
+        public List<string> Exclude { get; } = new List<string>();
     }
 
     public sealed class ProfilePlan
@@ -23,6 +26,17 @@ namespace varManager
 
         public DependencyClosure Closure { get; }
         public long Bytes { get; }
+
+        public List<string> LeftOut { get; } = new List<string>();
+
+        /// <summary>Dependencies dropped because only left-out vars used them.</summary>
+        public List<string> AlsoLeftOut { get; } = new List<string>();
+
+        /// <summary>Exclusions that stay linked, each with what needs it.</summary>
+        public List<string> StillNeeded { get; } = new List<string>();
+
+        /// <summary>Exclusions the default switch doesn't link anyway.</summary>
+        public List<string> AlreadyOff { get; } = new List<string>();
     }
 
     public sealed class ProfileDiff
@@ -49,12 +63,92 @@ namespace varManager
     {
         private const string DirectPrefix = "direct\t";
         private const string BasePrefix = "base\t";
+        private const string ExcludePrefix = "exclude\t";
 
         public static ProfilePlan Plan(LeanProfile profile, VarIndex index,
             Func<string, IEnumerable<string>> referencesOf, Func<string, long> sizeOf)
         {
             DependencyClosure closure = DependencyScanner.Closure(profile.Direct.Concat(profile.Base), index, referencesOf);
             return new ProfilePlan(closure, closure.Vars.Sum(sizeOf));
+        }
+
+        /// <summary>
+        /// Plans a profile as what the default switch links, minus the exclusions and the
+        /// dependencies only they use. A var something else needs stays. References resolve
+        /// among linked vars only, as VaM would see them, so disabled vars stay off.
+        /// </summary>
+        public static ProfilePlan PlanExcluding(LeanProfile profile, IEnumerable<string> linkedVars, VarIndex library,
+            Func<string, IEnumerable<string>> referencesOf, Func<string, long> sizeOf)
+        {
+            HashSet<string> linked = new HashSet<string>(linkedVars, StringComparer.OrdinalIgnoreCase);
+            VarIndex visible = new VarIndex(linked.SelectMany(ToEntry));
+            HashSet<string> excluded = new HashSet<string>(profile.Exclude.Where(linked.Contains), StringComparer.OrdinalIgnoreCase);
+            Func<IEnumerable<string>, IEnumerable<string>> resolved = references => references
+                .Select(visible.ResolveReference)
+                .Where(resolution => resolution.Status != DependencyStatus.Missing)
+                .Select(resolution => resolution.VarName);
+            Func<string, IEnumerable<string>> uses = name => resolved(referencesOf(name));
+
+            List<string> related = Walk(excluded, uses).Keys.Where(name => !excluded.Contains(name)).ToList();
+            IEnumerable<string> roots = linked.Except(excluded, StringComparer.OrdinalIgnoreCase)
+                .Except(related, StringComparer.OrdinalIgnoreCase)
+                .Concat(resolved(profile.Base));
+            Dictionary<string, string> wanted = Walk(roots, uses);
+
+            DependencyClosure closure = new DependencyClosure();
+            closure.Vars.AddRange(wanted.Keys.OrderBy(name => name, StringComparer.OrdinalIgnoreCase));
+            foreach (string reference in profile.Base.Concat(closure.Vars.SelectMany(referencesOf)))
+            {
+                DependencyResolution resolution = visible.ResolveReference(reference);
+                if (resolution.Status == DependencyStatus.Fallback)
+                    closure.Substitutions[reference] = resolution.VarName;
+                else if (resolution.Status == DependencyStatus.Missing && library.ResolveReference(reference).Status == DependencyStatus.Missing)
+                    closure.Missing.Add(reference);
+            }
+
+            ProfilePlan plan = new ProfilePlan(closure, closure.Vars.Sum(sizeOf));
+            plan.LeftOut.AddRange(excluded.Where(name => !wanted.ContainsKey(name)).OrderBy(name => name, StringComparer.OrdinalIgnoreCase));
+            plan.AlsoLeftOut.AddRange(related.Where(name => !wanted.ContainsKey(name)).OrderBy(name => name, StringComparer.OrdinalIgnoreCase));
+            plan.StillNeeded.AddRange(excluded.Where(wanted.ContainsKey).OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .Select(name => name + " needed by " + (wanted[name] ?? "the base set")));
+            plan.AlreadyOff.AddRange(profile.Exclude.Where(name => !linked.Contains(name)).OrderBy(name => name, StringComparer.OrdinalIgnoreCase));
+            return plan;
+        }
+
+        private static IEnumerable<VarEntry> ToEntry(string varName)
+        {
+            string[] parts = varName.Split('.');
+            int version;
+            if (parts.Length == 3 && int.TryParse(parts[2], out version))
+                yield return new VarEntry(varName, parts[0], parts[1], version);
+        }
+
+        /// <summary>Everything reachable from the starts, mapped to the var that first reached it.</summary>
+        private static Dictionary<string, string> Walk(IEnumerable<string> starts, Func<string, IEnumerable<string>> uses)
+        {
+            Dictionary<string, string> reachedFrom = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            Stack<string> pending = new Stack<string>();
+            foreach (string start in starts)
+            {
+                if (!reachedFrom.ContainsKey(start))
+                {
+                    reachedFrom.Add(start, null);
+                    pending.Push(start);
+                }
+            }
+            while (pending.Count > 0)
+            {
+                string name = pending.Pop();
+                foreach (string next in uses(name))
+                {
+                    if (!reachedFrom.ContainsKey(next))
+                    {
+                        reachedFrom.Add(next, name);
+                        pending.Push(next);
+                    }
+                }
+            }
+            return reachedFrom;
         }
 
         public static ProfileDiff Diff(IEnumerable<string> wanted, IEnumerable<string> linked)
@@ -139,7 +233,8 @@ namespace varManager
             Directory.CreateDirectory(Path.GetDirectoryName(path));
             // Sorted, because selection order says nothing about the profile.
             string[] lines = profile.Direct.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).Select(name => DirectPrefix + name)
-                .Concat(profile.Base.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).Select(name => BasePrefix + name)).ToArray();
+                .Concat(profile.Base.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).Select(name => BasePrefix + name))
+                .Concat(profile.Exclude.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).Select(name => ExcludePrefix + name)).ToArray();
             if (File.Exists(path))
             {
                 // Saving the same picks again must not overwrite the real restore point.
@@ -184,6 +279,8 @@ namespace varManager
                     profile.Direct.Add(line.Substring(DirectPrefix.Length));
                 else if (line.StartsWith(BasePrefix, StringComparison.Ordinal))
                     profile.Base.Add(line.Substring(BasePrefix.Length));
+                else if (line.StartsWith(ExcludePrefix, StringComparison.Ordinal))
+                    profile.Exclude.Add(line.Substring(ExcludePrefix.Length));
             }
             return profile;
         }
@@ -196,9 +293,14 @@ namespace varManager
             text.AppendLine($"Missing packages: {plan.Closure.Missing.Count}");
             text.AppendLine($"Using a different version: {plan.Closure.Substitutions.Count}");
             text.AppendLine();
+            AppendList(text, "Left out", plan.LeftOut);
+            AppendList(text, "Also left out, only used by what you left out", plan.AlsoLeftOut);
+            AppendList(text, "Staying, because something needs them", plan.StillNeeded);
+            AppendList(text, "Already off in default", plan.AlreadyOff);
             AppendList(text, "Missing", plan.Closure.Missing);
             AppendList(text, "Different version", plan.Closure.Substitutions.Select(s => s.Key + " uses " + s.Value));
-            AppendList(text, "Vars", plan.Closure.Vars.OrderBy(name => name, StringComparer.OrdinalIgnoreCase));
+            if (plan.LeftOut.Count + plan.StillNeeded.Count + plan.AlreadyOff.Count == 0)
+                AppendList(text, "Vars", plan.Closure.Vars.OrderBy(name => name, StringComparer.OrdinalIgnoreCase));
             return text.ToString();
         }
 

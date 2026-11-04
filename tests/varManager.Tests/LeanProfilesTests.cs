@@ -310,5 +310,160 @@ namespace varManagerTests
             Assert.Contains("Links to add: 1, links to remove: 0", text);
             Assert.Contains("Gone.X.latest", text);
         }
+
+        private static ProfilePlan Excluding(string[] exclude, string[] linked, Dictionary<string, string[]> references,
+            string[] library = null, string[] baseVars = null)
+        {
+            LeanProfile profile = new LeanProfile();
+            profile.Exclude.AddRange(exclude);
+            profile.Base.AddRange(baseVars ?? new string[0]);
+            return LeanProfiles.PlanExcluding(profile, linked, Index(library ?? linked),
+                name => references.TryGetValue(name, out string[] found) ? found : new string[0], name => 1);
+        }
+
+        [Fact]
+        public void Excluding_links_everything_else()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Scene.1" }, new[] { "A.Scene.1", "B.Other.1" }, new Dictionary<string, string[]>());
+
+            Assert.Equal(new[] { "B.Other.1" }, plan.Closure.Vars);
+            Assert.Equal(new[] { "A.Scene.1" }, plan.LeftOut);
+        }
+
+        [Fact]
+        public void Excluding_also_drops_dependencies_only_it_uses()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Scene.1" }, new[] { "A.Scene.1", "A.Hair.1", "A.Inner.1", "B.Other.1" },
+                new Dictionary<string, string[]>
+                {
+                    ["A.Scene.1"] = new[] { "A.Hair.1" },
+                    ["A.Hair.1"] = new[] { "A.Inner.1" }
+                });
+
+            Assert.Equal(new[] { "B.Other.1" }, plan.Closure.Vars);
+            Assert.Equal(new[] { "A.Hair.1", "A.Inner.1" }, plan.AlsoLeftOut);
+        }
+
+        [Fact]
+        public void Excluding_keeps_a_dependency_another_var_uses()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Scene.1" }, new[] { "A.Scene.1", "A.Hair.1", "B.Other.1" },
+                new Dictionary<string, string[]>
+                {
+                    ["A.Scene.1"] = new[] { "A.Hair.1" },
+                    ["B.Other.1"] = new[] { "A.Hair.1" }
+                });
+
+            Assert.Equal(new[] { "A.Hair.1", "B.Other.1" }, plan.Closure.Vars);
+            Assert.Empty(plan.AlsoLeftOut);
+        }
+
+        [Fact]
+        public void Excluding_keeps_a_var_something_needs_and_says_what()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Plugin.1" }, new[] { "A.Plugin.1", "B.Scene.1" },
+                new Dictionary<string, string[]> { ["B.Scene.1"] = new[] { "A.Plugin.1" } });
+
+            Assert.Contains("A.Plugin.1", plan.Closure.Vars);
+            Assert.Empty(plan.LeftOut);
+            Assert.Equal(new[] { "A.Plugin.1 needed by B.Scene.1" }, plan.StillNeeded);
+        }
+
+        [Fact]
+        public void Excluding_never_removes_the_base_set()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Session.1" }, new[] { "A.Session.1", "A.Dep.1" },
+                new Dictionary<string, string[]> { ["A.Session.1"] = new[] { "A.Dep.1" } }, baseVars: new[] { "A.Session.latest" });
+
+            Assert.Equal(new[] { "A.Dep.1", "A.Session.1" }, plan.Closure.Vars);
+            Assert.Equal(new[] { "A.Session.1 needed by the base set" }, plan.StillNeeded);
+        }
+
+        [Fact]
+        public void Excluding_leaves_disabled_vars_off()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Scene.1" }, new[] { "A.Scene.1", "B.Other.1" },
+                new Dictionary<string, string[]> { ["B.Other.1"] = new[] { "C.Disabled.1" } },
+                new[] { "A.Scene.1", "B.Other.1", "C.Disabled.1" });
+
+            Assert.Equal(new[] { "B.Other.1" }, plan.Closure.Vars);
+            Assert.Empty(plan.Closure.Missing);
+        }
+
+        [Fact]
+        public void Excluding_reports_an_exclusion_default_does_not_link()
+        {
+            ProfilePlan plan = Excluding(new[] { "C.Disabled.1" }, new[] { "B.Other.1" }, new Dictionary<string, string[]>(),
+                new[] { "B.Other.1", "C.Disabled.1" });
+
+            Assert.Equal(new[] { "B.Other.1" }, plan.Closure.Vars);
+            Assert.Equal(new[] { "C.Disabled.1" }, plan.AlreadyOff);
+        }
+
+        [Fact]
+        public void Excluding_resolves_latest_among_linked_versions()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Hair.1" }, new[] { "A.Hair.1", "B.Scene.1" },
+                new Dictionary<string, string[]> { ["B.Scene.1"] = new[] { "A.Hair.latest" } },
+                new[] { "A.Hair.1", "A.Hair.2", "B.Scene.1" });
+
+            Assert.Equal(new[] { "A.Hair.1", "B.Scene.1" }, plan.Closure.Vars);
+        }
+
+        [Fact]
+        public void Excluding_handles_dependency_loops()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.One.1" }, new[] { "A.One.1", "A.Two.1", "B.Other.1" },
+                new Dictionary<string, string[]>
+                {
+                    ["A.One.1"] = new[] { "A.Two.1" },
+                    ["A.Two.1"] = new[] { "A.One.1" }
+                });
+
+            Assert.Equal(new[] { "B.Other.1" }, plan.Closure.Vars);
+        }
+
+        [Fact]
+        public void Excluding_reports_packages_nothing_has()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Scene.1" }, new[] { "A.Scene.1", "B.Other.1" },
+                new Dictionary<string, string[]> { ["B.Other.1"] = new[] { "Gone.Pack.1" } });
+
+            Assert.Equal(new[] { "Gone.Pack.1" }, plan.Closure.Missing);
+        }
+
+        [Fact]
+        public void Exclusions_survive_save_and_load()
+        {
+            string path = Path.Combine(root, "trim.profile");
+            LeanProfile profile = new LeanProfile();
+            profile.Base.Add("A.Base.1");
+            profile.Exclude.Add("Spaced Creator.Scene.1");
+
+            LeanProfiles.Save(profile, path);
+            LeanProfile loaded = LeanProfiles.Load(path);
+
+            Assert.Equal(new[] { "Spaced Creator.Scene.1" }, loaded.Exclude);
+            Assert.Equal(new[] { "A.Base.1" }, loaded.Base);
+            Assert.Empty(loaded.Direct);
+        }
+
+        [Fact]
+        public void Describe_lists_what_an_exclusion_changes_but_not_every_var()
+        {
+            ProfilePlan plan = Excluding(new[] { "A.Scene.1", "A.Plugin.1" }, new[] { "A.Scene.1", "A.Hair.1", "A.Plugin.1", "B.Other.1" },
+                new Dictionary<string, string[]>
+                {
+                    ["A.Scene.1"] = new[] { "A.Hair.1" },
+                    ["B.Other.1"] = new[] { "A.Plugin.1" }
+                });
+
+            string text = LeanProfiles.Describe(plan, new ProfileDiff());
+
+            Assert.Contains("Left out:", text);
+            Assert.Contains("Also left out", text);
+            Assert.Contains("A.Plugin.1 needed by B.Other.1", text);
+            Assert.DoesNotContain("Vars:", text);
+        }
     }
 }
