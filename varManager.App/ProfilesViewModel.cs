@@ -351,7 +351,7 @@ namespace varManager.Ui
             int preview = ++previews;
             CheckName();
             List<string> picked = Picks.Names.ToList();
-            if (picked.Count == 0 || nameProblem.Length > 0)
+            if (picked.Count == 0 || nameProblem.Length > 0 || !File.Exists(storeFile))
             {
                 PlanText = "";
                 PreviewText = "";
@@ -457,7 +457,7 @@ namespace varManager.Ui
 
         private async Task Build()
         {
-            if (!CanSave)
+            if (!CanSave || NoStore())
                 return;
             string typed = name.Trim();
             List<string> picked = Picks.Names.ToList();

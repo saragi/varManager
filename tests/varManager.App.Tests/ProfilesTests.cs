@@ -907,6 +907,13 @@ namespace varManager.App.Tests
             shell.Profiles.CheckCommand.Execute(Card(shell, "foo"));
             await shell.Profiles.Work.WaitAsync(Timeout);
 
+            shell.Picks.Toggle("A.B.1");
+            shell.Profiles.Name = "another";
+            await Task.Delay(100);
+            shell.Profiles.SaveCommand.Execute(null);
+            await shell.Profiles.Work.WaitAsync(Timeout);
+
+            Assert.Equal("Run Update DB first.", jobs.Note);
             Assert.False(File.Exists(storeFile));
         }
 

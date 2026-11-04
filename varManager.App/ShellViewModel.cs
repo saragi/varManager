@@ -515,7 +515,7 @@ namespace varManager.Ui
             });
             // Another job kept it from starting, and Update DB mustn't make an empty store meanwhile.
             if (started == null)
-                importFailed = true;
+                importFailed = !File.Exists(StoreFile);
         }
 
         private void UpdateDb()
