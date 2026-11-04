@@ -137,8 +137,9 @@ namespace varManager
         public static void Save(LeanProfile profile, string path)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path));
-            string[] lines = profile.Direct.Select(name => DirectPrefix + name)
-                .Concat(profile.Base.Select(name => BasePrefix + name)).ToArray();
+            // Sorted, because selection order says nothing about the profile.
+            string[] lines = profile.Direct.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).Select(name => DirectPrefix + name)
+                .Concat(profile.Base.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).Select(name => BasePrefix + name)).ToArray();
             if (File.Exists(path))
             {
                 // Saving the same picks again must not overwrite the real restore point.
@@ -147,6 +148,27 @@ namespace varManager
                 File.Copy(path, PreviousPath(path), true);
             }
             File.WriteAllLines(path, lines);
+        }
+
+        /// <summary>Deletes a profile and its prior version, if present.</summary>
+        public static void DeleteFiles(string path)
+        {
+            foreach (string file in new[] { path, PreviousPath(path) })
+            {
+                if (File.Exists(file))
+                    File.Delete(file);
+            }
+        }
+
+        /// <summary>Moves a profile and its prior version, replacing leftovers at the new name.</summary>
+        public static void RenameFiles(string oldPath, string newPath)
+        {
+            if (!File.Exists(oldPath))
+                return;
+            DeleteFiles(newPath);
+            File.Move(oldPath, newPath);
+            if (File.Exists(PreviousPath(oldPath)))
+                File.Move(PreviousPath(oldPath), PreviousPath(newPath));
         }
 
         public static string PreviousPath(string path)

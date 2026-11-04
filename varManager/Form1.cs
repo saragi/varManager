@@ -127,12 +127,22 @@ namespace varManager
         {
             string switchName = comboBoxPacksSwitch.Items.Cast<string>()
                 .FirstOrDefault(item => string.Equals(item, name, StringComparison.OrdinalIgnoreCase));
-            if (switchName == null)
+            bool isNew = switchName == null;
+            if (isNew)
             {
                 switchName = name;
                 comboBoxPacksSwitch.Items.Add(switchName);
             }
-            LeanProfiles.ApplyLinks(plan.Closure.Vars, SwitchLinkPath(switchName), getVarFilePath, CreateVarLink);
+            try
+            {
+                LeanProfiles.ApplyLinks(plan.Closure.Vars, SwitchLinkPath(switchName), getVarFilePath, CreateVarLink);
+            }
+            catch (Exception)
+            {
+                if (isNew && !LeanProfiles.Links(SwitchLinkPath(switchName)).Any())
+                    comboBoxPacksSwitch.Items.Remove(switchName);
+                throw;
+            }
             if (toSave != null)
                 LeanProfiles.Save(toSave, ProfilePath(switchName));
             if (string.Equals((string)comboBoxPacksSwitch.SelectedItem, switchName, StringComparison.OrdinalIgnoreCase))
@@ -143,21 +153,6 @@ namespace varManager
             else
             {
                 comboBoxPacksSwitch.SelectedItem = switchName;
-            }
-        }
-
-        private void DeleteProfileFiles(string name)
-        {
-            File.Delete(ProfilePath(name));
-            File.Delete(LeanProfiles.PreviousPath(ProfilePath(name)));
-        }
-
-        private void RenameProfileFiles(string oldName, string newName)
-        {
-            foreach (Func<string, string> path in new Func<string, string>[] { ProfilePath, name => LeanProfiles.PreviousPath(ProfilePath(name)) })
-            {
-                if (File.Exists(path(oldName)))
-                    File.Move(path(oldName), path(newName));
             }
         }
 
@@ -174,6 +169,7 @@ namespace varManager
             }
             catch (Exception ex)
             {
+                UpdateAddLoglist("Profile action failed: " + ex.Message, LogLevel.ERROR);
                 MessageBox.Show("The profile action failed: " + ex.Message);
             }
         }
@@ -235,19 +231,23 @@ namespace varManager
 
         private void buttonLaunchVaM_Click(object sender, EventArgs e)
         {
-            RunProfileAction(() =>
+            if (Process.GetProcessesByName("vam").Length > 0)
             {
-                if (Process.GetProcessesByName("vam").Length > 0)
-                {
-                    MessageBox.Show("VaM is already running.");
-                    return;
-                }
+                MessageBox.Show("VaM is already running.");
+                return;
+            }
+            try
+            {
                 Process.Start(new ProcessStartInfo(Path.Combine(Settings.Default.vampath, "VaM.exe"), "-vrmode None")
                 {
                     WorkingDirectory = Settings.Default.vampath,
                     UseShellExecute = false
                 });
-            });
+            }
+            catch (Win32Exception ex)
+            {
+                MessageBox.Show("Could not start VaM: " + ex.Message);
+            }
         }
 
         private volatile VarIndex varIndexCache;
@@ -3279,7 +3279,7 @@ namespace varManager
                     string packsSwitchpath = new DirectoryInfo(Path.Combine(Settings.Default.vampath, addonPacksSwitch)).FullName.ToLower();
                     DirectoryInfo diswitch = new DirectoryInfo(Path.Combine(packsSwitchpath, curswitch));
                     diswitch.Delete(true);
-                    DeleteProfileFiles(curswitch);
+                    LeanProfiles.DeleteFiles(ProfilePath(curswitch));
                     comboBoxPacksSwitch.Items.Remove(curswitch);
                     comboBoxPacksSwitch.SelectedItem = "default";
                 }
@@ -3300,9 +3300,9 @@ namespace varManager
                     string packsSwitchpath = new DirectoryInfo(Path.Combine(Settings.Default.vampath, addonPacksSwitch)).FullName.ToLower();
                     DirectoryInfo diswitch = new DirectoryInfo(Path.Combine(packsSwitchpath, curswitch));
                     diswitch.MoveTo(Path.Combine(packsSwitchpath, newName));
-                    RenameProfileFiles(curswitch, newName);
                     comboBoxPacksSwitch.Items[comboBoxPacksSwitch.SelectedIndex] = newName;
                     this.varpacksSwitch(newName);
+                    LeanProfiles.RenameFiles(ProfilePath(curswitch), ProfilePath(newName));
                 }
             }
         }

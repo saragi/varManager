@@ -504,6 +504,17 @@ namespace Smoke {
     Start-Sleep -Seconds 3
     Check ((Get-Content -LiteralPath $profileFile) -contains "direct`tSmoke.Alpha.1") 'Restore previous brings back the saved picks'
     Check (-not (Test-Path -LiteralPath $betaLeanLink)) 'Restore previous removes links it no longer needs'
+    Check (Test-Path -LiteralPath $alphaLeanLink) 'Restore previous keeps links it needs'
+
+    # Deleting the switch removes its links and profile files, and returns to default.
+    [Win]::Click((Find-Child $main '^Del$'))
+    $deleteBox = Wait-Window '^delete switch$' 'delete switch confirmation' 10
+    [Win]::Click((Find-Child $deleteBox '^&?Yes$'))
+    Start-Sleep -Seconds 3
+    Check (-not (Test-Path -LiteralPath $profileFile)) 'Del removes the profile file'
+    Check (-not (Test-Path -LiteralPath (Split-Path $leanLinks))) 'Del removes the switch folder'
+    Check (Test-Path -LiteralPath $tidied) 'Del leaves var files in place'
+    Check (([string](Get-Item -LiteralPath $Pack).Target) -match 'default$') 'AddonPackages returns to the default switch'
     [Win]::Close($main)
     Wait-Exit
     Check (-not (Select-String -LiteralPath $logFile -Pattern 'ERROR|FATAL' -Quiet)) 'app log has no errors after profile work'

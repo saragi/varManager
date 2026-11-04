@@ -206,6 +206,53 @@ namespace varManagerTests
         }
 
         [Fact]
+        public void Saving_the_same_picks_in_another_order_keeps_the_restore_point()
+        {
+            string path = Path.Combine(root, "profiles", "megan.profile");
+            LeanProfiles.Save(Profile(new[] { "Old.A.1" }), path);
+            LeanProfiles.Save(Profile(new[] { "B.B.1", "A.A.1" }), path);
+            LeanProfiles.Save(Profile(new[] { "A.A.1", "B.B.1" }), path);
+            Assert.Equal(new[] { "Old.A.1" }, LeanProfiles.Load(LeanProfiles.PreviousPath(path)).Direct);
+        }
+
+        [Fact]
+        public void DeleteFiles_is_safe_when_the_folder_does_not_exist()
+        {
+            LeanProfiles.DeleteFiles(Path.Combine(root, "no-such-folder", "a.profile"));
+        }
+
+        [Fact]
+        public void DeleteFiles_removes_the_profile_and_prior_version()
+        {
+            string path = Path.Combine(root, "profiles", "a.profile");
+            LeanProfiles.Save(Profile(new[] { "A.A.1" }), path);
+            LeanProfiles.Save(Profile(new[] { "B.B.1" }), path);
+            LeanProfiles.DeleteFiles(path);
+            Assert.False(File.Exists(path));
+            Assert.False(File.Exists(LeanProfiles.PreviousPath(path)));
+        }
+
+        [Fact]
+        public void RenameFiles_moves_both_files_and_replaces_leftovers()
+        {
+            string oldPath = Path.Combine(root, "profiles", "old.profile");
+            string newPath = Path.Combine(root, "profiles", "new.profile");
+            LeanProfiles.Save(Profile(new[] { "A.A.1" }), oldPath);
+            LeanProfiles.Save(Profile(new[] { "B.B.1" }), oldPath);
+            LeanProfiles.Save(Profile(new[] { "Leftover.L.1" }), newPath);
+            LeanProfiles.RenameFiles(oldPath, newPath);
+            Assert.False(File.Exists(oldPath));
+            Assert.Equal(new[] { "B.B.1" }, LeanProfiles.Load(newPath).Direct);
+            Assert.Equal(new[] { "A.A.1" }, LeanProfiles.Load(LeanProfiles.PreviousPath(newPath)).Direct);
+        }
+
+        [Fact]
+        public void RenameFiles_of_a_plain_switch_does_nothing()
+        {
+            LeanProfiles.RenameFiles(Path.Combine(root, "none", "a.profile"), Path.Combine(root, "none", "b.profile"));
+        }
+
+        [Fact]
         public void Load_of_an_unrelated_file_has_no_direct_vars()
         {
             string path = Path.Combine(root, "notes.txt");
