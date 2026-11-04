@@ -139,21 +139,9 @@ namespace varManager
             }
         }
 
-        private static async Task<string> FindPackages(string packages)
+        private static Task<string> FindPackages(string packages)
         {
-            string url = "https://hub.virtamate.com/citizenx/api.php";
-            JSONClass jns = new JSONClass();
-            jns.Add("source", "VaM");
-            jns.Add("action", "findPackages");
-            jns.Add("packages", packages);
-            var data = new StringContent(jns.ToString(), Encoding.UTF8, "application/json");
-
-            using (var client = new HttpClient())
-            {
-                var response = await client.PostAsync(url, data);
-                response.EnsureSuccessStatusCode();
-                return await response.Content.ReadAsStringAsync();
-            }
+            return HubClient.FindPackages(packages);
         }
 
         private async void FormHub_Load(object sender, EventArgs e)
@@ -592,16 +580,9 @@ namespace varManager
             }
         }
 
-        private static async Task<string> GetHubPackages()
+        private static Task<string> GetHubPackages()
         {
-            string url = "https://s3cdn.virtamate.com/data/packages.json";
-            
-            using (var client = new HttpClient())
-            {
-                var response = await client.GetAsync(url);
-                response.EnsureSuccessStatusCode();
-                return await response.Content.ReadAsStringAsync();
-            }
+            return HubClient.GetPackageList();
         }
 
         private void ShowDownList()

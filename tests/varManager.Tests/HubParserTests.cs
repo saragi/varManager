@@ -142,5 +142,14 @@ namespace varManagerTests
             Assert.Throws<InvalidDataException>(() => HubParser.DownloadLinks(response));
             Assert.Throws<InvalidDataException>(() => HubParser.LatestVersions(response));
         }
+
+        [Fact]
+        public void Packages_reads_the_size()
+        {
+            var package = Assert.Single(HubParser.Packages(
+                "{\"packages\":{\"a\":{\"filename\":\"A.One.1.var\",\"downloadUrl\":\"https://hub/1\",\"file_size\":\"610993\"}}}"));
+
+            Assert.Equal(610993, package.Size);
+        }
     }
 }

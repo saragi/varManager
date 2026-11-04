@@ -5,6 +5,22 @@ using System.IO;
 
 namespace varManager
 {
+    /// <summary>A package the Hub offers a link for.</summary>
+    public sealed class HubPackage
+    {
+        public HubPackage(string name, string url, long size)
+        {
+            Name = name;
+            Url = url;
+            Size = size;
+        }
+
+        /// <summary>The var name, without .var.</summary>
+        public string Name { get; }
+        public string Url { get; }
+        public long Size { get; }
+    }
+
     /// <summary>Reads Hub replies. A reply that isn't what we asked for throws InvalidDataException.</summary>
     public static class HubParser
     {
@@ -13,21 +29,32 @@ namespace varManager
         /// <summary>Maps var names to download links, from a findPackages reply.</summary>
         public static Dictionary<string, string> DownloadLinks(string response)
         {
+            Dictionary<string, string> links = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (HubPackage package in Packages(response))
+                links[package.Name] = package.Url;
+            return links;
+        }
+
+        /// <summary>Reads the packages with a link from a findPackages reply.</summary>
+        public static List<HubPackage> Packages(string response)
+        {
             JSONClass packages = Parse(response)["packages"] as JSONClass;
             if (packages == null)
                 throw new InvalidDataException("The Hub returned no package list.");
 
-            Dictionary<string, string> links = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            List<HubPackage> found = new List<HubPackage>();
             foreach (JSONNode package in packages.Childs)
             {
                 string url = package["downloadUrl"];
                 string filename = package["filename"];
                 if (!IsValue(url) || !IsValue(filename))
                     continue;
+                long size;
+                long.TryParse(package["file_size"].Value, out size);
                 if (filename.EndsWith(VarExtension, StringComparison.OrdinalIgnoreCase))
-                    links[filename.Substring(0, filename.Length - VarExtension.Length)] = url;
+                    found.Add(new HubPackage(filename.Substring(0, filename.Length - VarExtension.Length), url, size));
             }
-            return links;
+            return found;
         }
 
         /// <summary>Maps creator.package to its highest version, from the Hub's package list.</summary>

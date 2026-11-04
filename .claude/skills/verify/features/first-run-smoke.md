@@ -10,6 +10,7 @@ A new user starts varManager with a real `AddonPackages` folder. The app shows w
 - `update-db`: `UPD_DB` tidies vars, fills the database, and links enabled vars.
 - `lean-profile`: `Lean Profile` builds a links-only switch from the selected row, and `Profile Check` reports on it.
 - `exclude-profile`: `Exclude Profile` previews a switch of everything in default except the selected row.
+- `missing`: `Missing` opens and finishes its check, online or offline.
 
 ## How to get to it (user POV)
 

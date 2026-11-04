@@ -53,6 +53,150 @@ namespace varManager
             Regex.CacheSize = 64;
             HookIndexInvalidation();
             AddProfileButtons();
+            AddMissingButton();
+            WatchRepository();
+        }
+
+        private Button buttonMissing;
+        private FormMissing formMissing;
+        private FileSystemWatcher repositoryWatcher;
+        private System.Windows.Forms.Timer repositoryTimer;
+        private bool folderWatchPaused;
+
+        /// <summary>Raised on the window's thread after any background job finishes.</summary>
+        internal event Action LibraryChanged;
+
+        private void AddMissingButton()
+        {
+            buttonMissing = new Button { Text = "Missing", Size = buttonHub.Size, Margin = buttonHub.Margin };
+            buttonMissing.Click += buttonMissing_Click;
+            buttonHub.Parent.Controls.Add(buttonMissing);
+            buttonHub.Parent.Controls.SetChildIndex(buttonMissing, buttonHub.Parent.Controls.GetChildIndex(buttonHub) + 1);
+        }
+
+        private void buttonMissing_Click(object sender, EventArgs e)
+        {
+            if (formMissing == null || formMissing.IsDisposed)
+            {
+                formMissing = new FormMissing(this, varsViewDataGridView.SelectedRows.Count > 1);
+                formMissing.Show(this);
+            }
+            else
+            {
+                formMissing.Activate();
+            }
+        }
+
+        /// <summary>Updates the count on the button. It reads the database only, so it needs no network.</summary>
+        private void RefreshMissingCount()
+        {
+            try
+            {
+                int count = PlanMissing("Whole library").Count;
+                buttonMissing.Text = count > 0 ? "Missing " + count : "Missing";
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                UpdateAddLoglist("Could not check missing packages: " + ex.Message, LogLevel.WARNING);
+            }
+        }
+
+        internal IEnumerable<string> ScopeVars(string scope)
+        {
+            if (scope == "This profile")
+                return GetInstalledVars().Keys.ToList();
+            if (scope == "Selected vars")
+            {
+                IEnumerable<string> picks = varsViewDataGridView.SelectedRows.Cast<DataGridViewRow>()
+                    .Select(row => row.Cells["varNameDataGridViewTextBoxColumn"].Value.ToString());
+                return DependencyScanner.Closure(picks, VarLookup, varName => DependencyLookup.DependenciesOf(varName)).Vars;
+            }
+            return varManagerDataSet.vars.Where(IsLive).Select(row => row.varName).ToList();
+        }
+
+        internal MissingReport PlanMissing(string scope)
+        {
+            return MissingPlanner.Plan(ScopeVars(scope), varName => DependencyLookup.DependenciesOf(varName), VarLookup, GetInstalledVars().Keys);
+        }
+
+        internal bool Owns(string varName)
+        {
+            return VarLookup.Contains(varName);
+        }
+
+        /// <summary>Links an update when an older version of its package is linked.</summary>
+        internal List<string> UpdatesToLink(IEnumerable<HubPackage> updates)
+        {
+            HashSet<string> linked = new HashSet<string>(GetInstalledVars().Keys.Select(MissingPlanner.PackageOf), StringComparer.OrdinalIgnoreCase);
+            return updates.Select(update => update.Name).Where(name => linked.Contains(MissingPlanner.PackageOf(name))).ToList();
+        }
+
+        internal void LogProblem(string message)
+        {
+            UpdateAddLoglist(message, LogLevel.WARNING);
+        }
+
+        /// <summary>Runs Update DB, then links exactly these vars without following dependencies.</summary>
+        internal void LinkAndUpdate(IEnumerable<string> varNames)
+        {
+            File.AppendAllLines(migratedVarsFile, varNames);
+            if (backgroundWorkerInstall.IsBusy)
+                updateAfterJob = true;
+            else
+                backgroundWorkerInstall.RunWorkerAsync("UpdDB");
+        }
+
+        private bool updateAfterJob;
+
+        internal void PauseFolderWatch(bool paused)
+        {
+            folderWatchPaused = paused;
+        }
+
+        /// <summary>Vars placed in the repository are scanned without asking, once they finish arriving.</summary>
+        private void WatchRepository()
+        {
+            string folder = Settings.Default.varspath;
+            if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
+                return;
+            repositoryTimer = new System.Windows.Forms.Timer { Interval = 5000 };
+            repositoryTimer.Tick += RepositoryTimer_Tick;
+            repositoryWatcher = new FileSystemWatcher(folder, "*.var") { SynchronizingObject = this, IncludeSubdirectories = false };
+            repositoryWatcher.Created += RepositoryChanged;
+            repositoryWatcher.Renamed += RepositoryChanged;
+            repositoryWatcher.EnableRaisingEvents = true;
+        }
+
+        private void RepositoryChanged(object sender, FileSystemEventArgs e)
+        {
+            repositoryTimer.Stop();
+            repositoryTimer.Start();
+        }
+
+        private void RepositoryTimer_Tick(object sender, EventArgs e)
+        {
+            if (folderWatchPaused || backgroundWorkerInstall.IsBusy || !RepositoryVarsReady())
+                return;
+            repositoryTimer.Stop();
+            if (GetVarspathVars().Count > 0)
+                backgroundWorkerInstall.RunWorkerAsync("UpdDB");
+        }
+
+        /// <summary>A var still being copied can't be opened exclusively.</summary>
+        private static bool RepositoryVarsReady()
+        {
+            foreach (string file in Directory.GetFiles(Settings.Default.varspath, "*.var"))
+            {
+                try
+                {
+                    using (new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.None)) { }
+                }
+                catch (IOException)
+                {
+                    return false;
+                }
+            }
+            return true;
         }
 
         private void AddProfileButtons()
@@ -1833,6 +1977,14 @@ namespace varManager
             {
                 UpdateAddLoglist("Operation failed: " + e.Error.Message, LogLevel.ERROR);
             }
+            if (updateAfterJob)
+            {
+                updateAfterJob = false;
+                backgroundWorkerInstall.RunWorkerAsync("UpdDB");
+                return;
+            }
+            RefreshMissingCount();
+            LibraryChanged?.Invoke();
         }
 
         private void buttonMissingDepends_Click(object sender, EventArgs e)

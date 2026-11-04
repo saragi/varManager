@@ -136,7 +136,7 @@ namespace varManager
             return versionDot < 0 ? varName : varName.Substring(0, versionDot);
         }
 
-        private static IEnumerable<VarEntry> ToEntry(string varName)
+        internal static IEnumerable<VarEntry> ToEntry(string varName)
         {
             string[] parts = varName.Split('.');
             int version;

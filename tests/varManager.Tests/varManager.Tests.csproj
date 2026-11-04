@@ -11,6 +11,8 @@
     <Compile Include="..\..\varManager\DependencyScanner.cs" Link="DependencyScanner.cs" />
     <Compile Include="..\..\varManager\LeanProfiles.cs" Link="LeanProfiles.cs" />
     <Compile Include="..\..\varManager\HubParser.cs" Link="HubParser.cs" />
+    <Compile Include="..\..\varManager\HubDownloader.cs" Link="HubDownloader.cs" />
+    <Compile Include="..\..\varManager\MissingPlanner.cs" Link="MissingPlanner.cs" />
     <Compile Include="..\..\varManager\SimpleJSON\*.cs" Link="SimpleJSON\%(Filename)%(Extension)" />
   </ItemGroup>
 
@@ -21,4 +23,7 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.4.3" PrivateAssets="all" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
 </Project>

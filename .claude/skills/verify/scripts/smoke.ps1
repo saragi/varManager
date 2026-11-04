@@ -573,6 +573,16 @@ namespace Smoke {
     [Win]::Click((Find-Child $deleteBox '^&?Yes$'))
     Start-Sleep -Seconds 3
     Check (([string](Get-Item -LiteralPath $Pack).Target) -match 'default$') 'AddonPackages returns to default after the exclude profile'
+
+    # The Missing window opens by itself into a checked list, with or without a network.
+    [Win]::Click((Find-Child $main '^Missing( \d+)?$'))
+    $missingForm = Wait-Window '^Missing$' 'missing window' 15
+    Start-Sleep -Seconds 12
+    Save-Shot $missingForm 'missing'
+    $missingText = ([Win]::Children($missingForm) | ForEach-Object { [Win]::Text($_) }) -join "`n"
+    Check ($missingText -match 'Checked\.|couldn.t be reached') 'missing window finishes its check'
+    [Win]::Close($missingForm)
+    Start-Sleep -Seconds 1
     [Win]::Close($main)
     Wait-Exit
     Check (-not (Select-String -LiteralPath $logFile -Pattern 'ERROR|FATAL' -Quiet)) 'app log has no errors after profile work'

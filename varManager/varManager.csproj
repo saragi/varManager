@@ -84,7 +84,12 @@
     <Compile Include="Comm.cs" />
     <Compile Include="VarIndex.cs" />
     <Compile Include="DependencyScanner.cs" />
+    <Compile Include="FormMissing.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="HubDownloader.cs" />
     <Compile Include="HubParser.cs" />
+    <Compile Include="MissingPlanner.cs" />
     <Compile Include="LeanProfiles.cs" />
     <Compile Include="FormLeanProfile.cs">
       <SubType>Form</SubType>
