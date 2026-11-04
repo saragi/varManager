@@ -39,6 +39,7 @@ namespace varManager
         // Downloads have dependencies of their own, so Get all keeps going until none are left.
         private bool followingChain;
         private readonly HashSet<string> attempted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> turnedOnInChain = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly List<string> selected;
 
         // Update DB is running for this window. Checking now would read the old library.
@@ -79,6 +80,7 @@ namespace varManager
                 followingChain = true;
                 scope.Enabled = false;
                 attempted.Clear();
+                turnedOnInChain.Clear();
                 return DownloadNext();
             });
             getUpdates.Click += (s, e) => Run(() => Download(updates, owner.UpdatesToLink(updates)));
@@ -299,11 +301,12 @@ namespace varManager
             }
             // Stored vars the downloads need, and what those need in turn. Other turned-off vars
             // stay off, because they may be off on purpose.
-            List<string> needed = report.TurnedOff.Where(off => !attempted.Contains(off.Key) && off.Value.Overlaps(attempted))
+            List<string> needed = report.TurnedOff
+                .Where(off => !turnedOnInChain.Contains(off.Key) && (off.Value.Overlaps(attempted) || off.Value.Overlaps(turnedOnInChain)))
                 .Select(off => off.Key).ToList();
             if (needed.Count > 0)
             {
-                attempted.UnionWith(needed);
+                turnedOnInChain.UnionWith(needed);
                 Scan(needed);
             }
             else

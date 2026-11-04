@@ -61,6 +61,7 @@ namespace varManager
         private FileSystemWatcher repositoryWatcher;
         private System.Windows.Forms.Timer repositoryTimer;
         private bool folderWatchPaused;
+        private volatile bool libraryLoaded;
 
         /// <summary>Raised on the window's thread after any background job finishes.</summary>
         internal event Action LibraryChanged;
@@ -157,7 +158,7 @@ namespace varManager
         /// <summary>Nobody asked for this job, so nobody knows not to switch profile while it links.</summary>
         private void StartAutomaticUpdate()
         {
-            comboBoxPacksSwitch.Enabled = false;
+            groupBoxSwitch.Enabled = false;
             backgroundWorkerInstall.RunWorkerAsync("UpdDB");
         }
 
@@ -1921,6 +1922,7 @@ namespace varManager
                 thread3.Join();
                 */
                 FillDataTables();
+                libraryLoaded = true;
             } 
             if (job == "UpdDB")
             {
@@ -1997,9 +1999,9 @@ namespace varManager
             {
                 UpdateAddLoglist("Operation failed: " + e.Error.Message, LogLevel.ERROR);
             }
-            comboBoxPacksSwitch.Enabled = true;
+            groupBoxSwitch.Enabled = true;
             // After a failed load the tables are empty, and a scan would redo every var.
-            if (repositoryWatcher == null && e.Error == null)
+            if (repositoryWatcher == null && libraryLoaded)
                 WatchRepository();
             if (updateAfterJob)
             {
