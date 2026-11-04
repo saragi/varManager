@@ -48,7 +48,9 @@ namespace varManager.Ui
         private readonly string settingsFile;
         private readonly Func<bool> vamRunning;
         private readonly Action<string> startVam;
+        private readonly string dataFolder;
         private AppSettings settings;
+        private bool importFailed;
         private NavPage selectedPage;
         private string? selectedSwitch;
         private string setupProblem = "";
@@ -66,9 +68,12 @@ namespace varManager.Ui
             this.vamRunning = vamRunning;
             this.startVam = startVam;
             Jobs = jobs;
+            dataFolder = Path.GetDirectoryName(settingsFile) ?? AppContext.BaseDirectory;
+            jobs.PropertyChanged += JobChanged;
             settings = AppSettings.Load(settingsFile);
             selectedPage = Pages[0];
             LaunchCommand = new Command(Launch);
+            UpdateCommand = new Command(UpdateDb);
             CancelCommand = new Command(jobs.Cancel);
             SaveSetupCommand = new Command(SaveSetup);
             Open();
@@ -90,6 +95,7 @@ namespace varManager.Ui
         public ObservableCollection<string> Switches { get; } = new ObservableCollection<string>();
 
         public ICommand LaunchCommand { get; }
+        public ICommand UpdateCommand { get; }
         public ICommand CancelCommand { get; }
         public ICommand SaveSetupCommand { get; }
 
@@ -156,10 +162,10 @@ namespace varManager.Ui
                     RevertSwitchBox();
                     return;
                 }
-                int errorCode;
-                if (VarSwitches.Point(VamPath, value, out errorCode) == SwitchChange.Failed)
+                string? failure = PointAt(value);
+                if (failure != null)
                 {
-                    Jobs.Say($"Could not switch to {value}. AddonPackages has no link now, so choose a profile to try again. (Error {errorCode})");
+                    Jobs.Say($"Could not switch to {value}. Choose a profile to try again. ({failure})");
                     selectedSwitch = null;
                     LinkedText = "Nothing linked";
                     RevertSwitchBox();
@@ -171,6 +177,63 @@ namespace varManager.Ui
                 VamBridge.RequestRescan(VamPath);
                 Jobs.Say("Switched to " + value + ".");
             }
+        }
+
+        private string StoreFile => Path.Combine(dataFolder, "library.db");
+
+        private string? PointAt(string name)
+        {
+            try
+            {
+                int errorCode;
+                return VarSwitches.Point(VamPath, name, out errorCode) == SwitchChange.Failed ? "Error " + errorCode : null;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return ex.Message;
+            }
+        }
+
+        private void JobChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(JobRunner.IsRunning) && !Jobs.IsRunning && IsReady && selectedSwitch != null)
+                RefreshLinked();
+        }
+
+        // Without this, a failed import would leave Update DB to create an empty store, and the import would never run again.
+        private void ImportOldDatabase()
+        {
+            string mdb = Path.Combine(dataFolder, "varManager.mdb");
+            if (!File.Exists(mdb) || File.Exists(StoreFile))
+                return;
+            Jobs.Start("Importing library", context =>
+            {
+                try
+                {
+                    AccessDatabase.ImportOnce(mdb, StoreFile);
+                }
+                catch (Exception)
+                {
+                    importFailed = true;
+                    throw;
+                }
+                return "Library imported.";
+            });
+        }
+
+        private void UpdateDb()
+        {
+            if (importFailed)
+            {
+                Jobs.Say("The old database wasn't imported, so Update DB is off. Restart to try the import again.");
+                return;
+            }
+            var paths = new LibraryPaths(VarsPath, VamPath, dataFolder);
+            Jobs.Start("Update DB", context =>
+            {
+                using LibraryStore store = LibraryStore.Open(StoreFile);
+                return LibraryUpdate.Run(store, paths, context.Report, context.Token).Summary;
+            });
         }
 
         // A ComboBox ignores a change raised while it is still setting the value, so this waits until it has finished.
@@ -197,6 +260,7 @@ namespace varManager.Ui
             selectedSwitch = VarSwitches.EnsureLink(VamPath);
             Changed(nameof(SelectedSwitch));
             RefreshLinked();
+            ImportOldDatabase();
         }
 
         private void RefreshLinked()

@@ -81,6 +81,16 @@ namespace varManager.Ui
         /// <summary>Starts a job, or returns null if one is already running.</summary>
         public Task? Start(string jobName, string doneNote, Action<JobContext> work)
         {
+            return Start(jobName, context =>
+            {
+                work(context);
+                return doneNote;
+            });
+        }
+
+        /// <summary>Starts a job that says how it went, or returns null if one is already running.</summary>
+        public Task? Start(string jobName, Func<JobContext, string> work)
+        {
             if (cancel != null)
                 return null;
 
@@ -96,8 +106,7 @@ namespace varManager.Ui
                 string result;
                 try
                 {
-                    work(context);
-                    result = doneNote;
+                    result = work(context);
                 }
                 catch (OperationCanceledException)
                 {

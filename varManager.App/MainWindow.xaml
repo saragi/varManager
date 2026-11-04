@@ -25,7 +25,7 @@
                     <TextBlock Text="{Binding LinkedText}" Style="{StaticResource MutedText}" Margin="12,0,0,0" />
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Visibility="{Binding IsReady, Converter={StaticResource Visible}}">
-                    <Button Content="Update DB" IsEnabled="False" ToolTip="Not built yet" Margin="0,0,12,0" />
+                    <Button Content="Update DB" Command="{Binding UpdateCommand}" IsEnabled="{Binding Jobs.IsIdle}" Margin="0,0,12,0" />
                     <Button Content="Launch VaM" Style="{StaticResource PrimaryButton}" Command="{Binding LaunchCommand}" />
                 </StackPanel>
             </DockPanel>

@@ -28,6 +28,14 @@ namespace varManager
         public bool Disabled { get; set; }
     }
 
+    public sealed class ScenePreview
+    {
+        public string VarName { get; set; }
+        public string Type { get; set; }
+        public string ScenePath { get; set; }
+        public string Picture { get; set; }
+    }
+
     // The new app's database. It keeps the Access table and column names, and var names ignore case as they do there.
     public sealed class LibraryStore : IDisposable
     {
@@ -144,9 +152,120 @@ CREATE INDEX savedepens_dependency ON savedepens (dependency);";
             return vars;
         }
 
+        public List<KeyValuePair<string, string>> LoadDependencies()
+        {
+            var dependencies = new List<KeyValuePair<string, string>>();
+            using (SqliteCommand command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT varName, dependency FROM dependencies WHERE varName IS NOT NULL AND dependency IS NOT NULL";
+                using (SqliteDataReader reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                        dependencies.Add(new KeyValuePair<string, string>(reader.GetString(0), reader.GetString(1)));
+                }
+            }
+            return dependencies;
+        }
+
+        public List<ScenePreview> LoadPreviews()
+        {
+            var previews = new List<ScenePreview>();
+            using (SqliteCommand command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT varName, atomType, scenePath, previewPic FROM scenes WHERE previewPic IS NOT NULL AND previewPic <> ''";
+                using (SqliteDataReader reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        previews.Add(new ScenePreview
+                        {
+                            VarName = reader.GetString(0),
+                            Type = reader.GetString(1),
+                            ScenePath = reader.GetString(2),
+                            Picture = reader.GetString(3),
+                        });
+                    }
+                }
+            }
+            return previews;
+        }
+
+        /// <summary>Replaces a var's record with a fresh scan, all or nothing.</summary>
+        public void SaveVar(string varName, string varPath, VarScan scan)
+        {
+            using (SqliteTransaction transaction = connection.BeginTransaction())
+            {
+                DeleteRecords(transaction, varName);
+                Execute(transaction,
+                    @"INSERT INTO vars (varName, varPath, creatorName, packageName, version, metaDate, varDate, filesize,
+                                        scenes, looks, clothing, hairstyle, plugins, assets, morphs, pose, skin)
+                      VALUES (@p0, @p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15, @p16)",
+                    varName, varPath, scan.CreatorName, scan.PackageName, scan.Version, scan.MetaDate, scan.VarDate, (double)scan.FileSize,
+                    scan.Scenes, scan.Looks, scan.Clothing, scan.Hairstyle, scan.Plugins, scan.Assets, scan.Morphs, scan.Pose, scan.Skin);
+                foreach (VarItem item in scan.Items)
+                {
+                    Execute(transaction,
+                        "INSERT INTO scenes (varName, atomType, isPreset, scenePath, previewPic) VALUES (@p0, @p1, @p2, @p3, @p4)",
+                        varName, item.Type, item.IsPreset, item.EntryName, item.Preview);
+                }
+                foreach (string dependency in scan.Dependencies)
+                    Execute(transaction, "INSERT INTO dependencies (varName, dependency) VALUES (@p0, @p1)", varName, dependency);
+                transaction.Commit();
+            }
+        }
+
+        public void UpdateVarPath(string varName, string varPath)
+        {
+            using (SqliteTransaction transaction = connection.BeginTransaction())
+            {
+                Execute(transaction, "UPDATE vars SET varPath = @p0 WHERE varName = @p1", varPath, varName);
+                transaction.Commit();
+            }
+        }
+
+        public void DeleteVars(IEnumerable<string> varNames)
+        {
+            using (SqliteTransaction transaction = connection.BeginTransaction())
+            {
+                foreach (string varName in varNames)
+                    DeleteRecords(transaction, varName);
+                transaction.Commit();
+            }
+        }
+
+        /// <summary>Replaces the install status of every var. The value says whether the link is disabled.</summary>
+        public void SetInstallStatus(IEnumerable<KeyValuePair<string, bool>> linked)
+        {
+            using (SqliteTransaction transaction = connection.BeginTransaction())
+            {
+                Execute(transaction, "DELETE FROM installStatus");
+                foreach (KeyValuePair<string, bool> link in linked)
+                    Execute(transaction, "INSERT INTO installStatus (varName, Installed, Disabled) VALUES (@p0, 1, @p1)", link.Key, link.Value);
+                transaction.Commit();
+            }
+        }
+
         public void Dispose()
         {
             connection.Dispose();
+        }
+
+        private void DeleteRecords(SqliteTransaction transaction, string varName)
+        {
+            foreach (string table in new[] { "dependencies", "scenes", "vars" })
+                Execute(transaction, "DELETE FROM [" + table + "] WHERE varName = @p0", varName);
+        }
+
+        private void Execute(SqliteTransaction transaction, string sql, params object[] values)
+        {
+            using (SqliteCommand command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = sql;
+                for (int i = 0; i < values.Length; i++)
+                    command.Parameters.AddWithValue("@p" + i, values[i] ?? DBNull.Value);
+                command.ExecuteNonQuery();
+            }
         }
 
         private static void CreateSchema(SqliteConnection connection)
