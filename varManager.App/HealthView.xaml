@@ -66,7 +66,7 @@
 
             <Border Style="{StaticResource PanelBox}" Visibility="{Binding HasMissing, Converter={StaticResource Visible}}">
                 <StackPanel>
-                    <TextBlock Text="Missing dependencies" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <TextBlock Text="Missing dependencies in this profile" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
                     <ItemsControl AutomationProperties.Name="Missing dependencies" ItemsSource="{Binding Missing}" Focusable="False">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>

@@ -33,7 +33,20 @@ namespace varManager.App.Tests
             string packs = Path.Combine(vam, "AddonPackages");
             if (Directory.Exists(packs) && new DirectoryInfo(packs).Attributes.HasFlag(FileAttributes.ReparsePoint))
                 new DirectoryInfo(packs).Delete();
-            Directory.Delete(root, true);
+            // A read the shell started in the background can still hold the store open for a moment.
+            DateTime deadline = DateTime.UtcNow + Timeout;
+            while (true)
+            {
+                try
+                {
+                    Directory.Delete(root, true);
+                    return;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && DateTime.UtcNow < deadline)
+                {
+                    Thread.Sleep(50);
+                }
+            }
         }
 
         private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);

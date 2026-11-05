@@ -101,11 +101,13 @@ namespace varManager
                     report.Held.Add(group);
             }
 
-            report.BrokenLinks.AddRange(VarLinks.ReadInstalled(paths.AddonPackages).Values.Where(link => !LeanProfiles.LinkResolves(link)).OrderBy(link => link, StringComparer.OrdinalIgnoreCase));
+            Dictionary<string, string> installed = VarLinks.ReadInstalled(paths.AddonPackages);
+            report.BrokenLinks.AddRange(installed.Values.Where(link => !LeanProfiles.LinkResolves(link)).OrderBy(link => link, StringComparer.OrdinalIgnoreCase));
             // No vars at all means the folder can't be reached, which says nothing about any one var.
             if (present.Count > 0)
                 report.GoneRecords.AddRange(records.Select(v => v.VarName).Where(name => !present.ContainsKey(name)));
-            report.Missing.AddRange(MissingNeeds(vars, dependencies));
+            var inProfile = new HashSet<string>(installed.Keys, StringComparer.OrdinalIgnoreCase);
+            report.Missing.AddRange(MissingNeeds(vars, dependencies.Where(pair => inProfile.Contains(pair.Key))));
             // Only what a repair can bring back: a var that's gone has nothing to take the picture from.
             report.MissingPreviews = store.LoadPreviews()
                 .Where(preview => present.ContainsKey(preview.VarName))
@@ -169,7 +171,7 @@ namespace varManager
                 .OrderBy(name => name, StringComparer.OrdinalIgnoreCase);
         }
 
-        private static IEnumerable<MissingNeed> MissingNeeds(VarIndex vars, List<KeyValuePair<string, string>> dependencies)
+        private static IEnumerable<MissingNeed> MissingNeeds(VarIndex vars, IEnumerable<KeyValuePair<string, string>> dependencies)
         {
             return dependencies
                 .GroupBy(pair => pair.Value, StringComparer.OrdinalIgnoreCase)

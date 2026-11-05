@@ -20,7 +20,7 @@ Every button and form in the old app, and where it went in the new one. The old 
 | Stale Vars, `FormStaleVars` | Health: Old versions nothing uses, moved with undo |
 | Fix Preview | Health: Preview pictures missing |
 | Rebuild symlink | Health: Broken links in this profile. It repairs broken links only, because a working link needs nothing |
-| Installed Packages, All Packages, `FormMissing` | Missing page: This profile, Whole library |
+| Installed Packages, All Packages, `FormMissing` | Missing page: This profile, which it opens on and its badge counts, and Whole library |
 | "Saves" JsonFile | Missing page: Your saves |
 | Brow, `FormHub`, `HubItem` | Missing page: Browse the Hub |
 | Scan Hub for updates | Missing page: Updates on the Hub |

@@ -75,6 +75,11 @@ namespace varManager.App.Tests
             zip.CloseEntry();
         }
 
+        private void Link(string name)
+        {
+            Assert.True(VarLinks.Create(Path.Combine(links, name + ".var"), Tidied(name)));
+        }
+
         private UpdateReport Update()
         {
             using LibraryStore store = LibraryStore.Open(storeFile);
@@ -168,11 +173,30 @@ namespace varManager.App.Tests
             MakeVar("C.D.1", "Gone.Two.1:/Custom/a.vap");
             MakeVar("E.F.1", "Gone.Two.1:/Custom/a.vap");
             Update();
+            Link("A.B.1");
+            Link("C.D.1");
+            Link("E.F.1");
 
             List<MissingNeed> missing = Report().Missing;
 
             Assert.Equal(new[] { "Gone.Two.1", "Gone.One.1" }, missing.Select(need => need.Reference));
             Assert.Equal(2, missing[0].NeededBy);
+        }
+
+        [Fact]
+        public void Missing_dependencies_count_only_what_the_selected_profile_links()
+        {
+            MakeVar("A.B.1", "Gone.One.1:/Custom/a.vap");
+            MakeVar("C.D.1", "Gone.One.1:/Custom/a.vap");
+            MakeVar("E.F.1", "Gone.Two.1:/Custom/a.vap");
+            Update();
+            Link("A.B.1");
+
+            MissingNeed need = Assert.Single(Report().Missing);
+
+            Assert.Equal("Gone.One.1", need.Reference);
+            Assert.Equal(1, need.NeededBy);
+            Assert.Equal("A.B.1", need.Example);
         }
 
         [Fact]

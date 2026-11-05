@@ -47,7 +47,7 @@ namespace varManager.Ui
         private MissingState view = new MissingState();
         private IReadOnlyList<MissingGroup> groups = new MissingGroup[0];
         private MissingGroup? open;
-        private MissingScope scope = MissingScope.Library;
+        private MissingScope scope = MissingScope.Profile;
         private string title = "Checking";
         private string statusText = "";
         private int checks;
@@ -64,8 +64,8 @@ namespace varManager.Ui
             ToggleLinesCommand = new ArgCommand<MissingGroup>(group => OpenGroup = open == group ? null : group);
             ScopePills = new[]
             {
-                new Pill(WholeLibrary, new Command(() => SetScope(MissingScope.Library, WholeLibrary))) { IsActive = true },
-                new Pill(ThisProfile, new Command(() => SetScope(MissingScope.Profile, ThisProfile))),
+                new Pill(WholeLibrary, new Command(() => SetScope(MissingScope.Library, WholeLibrary))),
+                new Pill(ThisProfile, new Command(() => SetScope(MissingScope.Profile, ThisProfile))) { IsActive = true },
                 new Pill(Saves, new Command(() => SetScope(MissingScope.Saves, Saves))),
             };
         }
@@ -134,7 +134,7 @@ namespace varManager.Ui
             int count = await Task.Run(() =>
             {
                 using LibraryStore store = LibraryStore.Open(storeFile);
-                return new MissingLibrary(store, paths).Plan(MissingScope.Library).Count;
+                return new MissingLibrary(store, paths).Plan(MissingScope.Profile).Count;
             }).ConfigureAwait(true);
             countChanged(count);
         }

@@ -177,6 +177,14 @@ namespace varManager.App.Tests
             return missing;
         }
 
+        private async Task<MissingViewModel> OpenWholeLibrary()
+        {
+            var missing = new MissingViewModel(storeFile, paths, jobs, hub, copied.Add, value => count = value);
+            missing.ScopePills.Single(pill => pill.Label == "Whole library").Command.Execute(null);
+            await missing.Checked.WaitAsync(Timeout);
+            return missing;
+        }
+
         private static MissingGroup Group(MissingViewModel missing, string title)
         {
             return missing.Groups.Single(group => group.Title == title);
@@ -232,7 +240,7 @@ namespace varManager.App.Tests
             Update();
             hub.Packages["Wanted.Pack.1"] = "";
 
-            MissingViewModel missing = await Open();
+            MissingViewModel missing = await OpenWholeLibrary();
 
             Assert.False(missing.CanGetAll);
             Assert.Equal(1, Group(missing, "Already covered").Count);
@@ -245,7 +253,7 @@ namespace varManager.App.Tests
             Update();
             hub.Packages["Wanted.Pack.3"] = "";
 
-            MissingViewModel missing = await Open();
+            MissingViewModel missing = await OpenWholeLibrary();
 
             Assert.False(missing.CanGetAll);
             Assert.Equal(1, Group(missing, "Not found anywhere").Count);
@@ -258,7 +266,7 @@ namespace varManager.App.Tests
             Update();
             hub.Down = true;
 
-            MissingViewModel missing = await Open();
+            MissingViewModel missing = await OpenWholeLibrary();
 
             Assert.Contains("The Hub couldn't be reached", missing.StatusText);
             Assert.False(missing.CanGetAll);
@@ -295,7 +303,7 @@ namespace varManager.App.Tests
             MakeVar("A.B.1", "Hub.Pack.1:/Custom/a.vap");
             Update();
             hub.Packages["Hub.Pack.1"] = "";
-            MissingViewModel missing = await Open();
+            MissingViewModel missing = await OpenWholeLibrary();
             Assert.True(missing.CanGetAll);
 
             File.Delete(storeFile);
@@ -386,7 +394,7 @@ namespace varManager.App.Tests
             MakeVar("A.B.1", "Hub.Pack.1:/Custom/a.vap");
             Update();
             hub.Packages["Hub.Pack.1"] = "";
-            MissingViewModel missing = await Open();
+            MissingViewModel missing = await OpenWholeLibrary();
 
             missing.GetAllCommand.Execute(null);
             WaitForJob();
@@ -512,7 +520,7 @@ namespace varManager.App.Tests
             Update();
             hub.Packages["Hub.Pack.1"] = "";
             hub.Broken.Add("Hub.Pack.1");
-            MissingViewModel missing = await Open();
+            MissingViewModel missing = await OpenWholeLibrary();
 
             missing.GetAllCommand.Execute(null);
             WaitForJob();
@@ -559,7 +567,7 @@ namespace varManager.App.Tests
             hub.Packages["Linked.Pack.2"] = "";
             hub.Packages["Stored.Pack.2"] = "";
             hub.Packages["Same.Pack.1"] = "";
-            MissingViewModel missing = await Open();
+            MissingViewModel missing = await OpenWholeLibrary();
 
             Assert.Equal(2, Group(missing, "Updates on the Hub").Count);
             Assert.Empty(hub.Downloaded);
@@ -609,7 +617,7 @@ namespace varManager.App.Tests
             string install = Path.Combine(root, "SharpVaMTools");
             Directory.CreateDirectory(Path.Combine(install, "_Download_Links"));
             File.WriteAllLines(Path.Combine(install, "_Download_Links", "links.txt"), new[] { "Listed.Pack.1.var https://example" });
-            MissingViewModel missing = await Open();
+            MissingViewModel missing = await OpenWholeLibrary();
 
             Group(missing, "Listed in SharpVaMTools").Action!.Execute(null);
 
@@ -625,7 +633,7 @@ namespace varManager.App.Tests
             MakeVar("Stored.Pack.1", "Gone.Two.1:/Custom/a.vap");
             Update();
             Link("Linked.Pack.1");
-            MissingViewModel missing = await Open();
+            MissingViewModel missing = await OpenWholeLibrary();
             Assert.Equal(2, Group(missing, "Not found anywhere").Count);
 
             missing.ScopePills.Single(pill => pill.Label == "This profile").Command.Execute(null);
@@ -672,7 +680,7 @@ namespace varManager.App.Tests
             Directory.CreateDirectory(Path.GetDirectoryName(scene)!);
             File.WriteAllText(scene, "{\"a\":\"Stored.Pack.1:/Custom/a.vap\"}");
             hub.Packages["Stored.Pack.2"] = "";
-            MissingViewModel missing = await Open();
+            MissingViewModel missing = await OpenWholeLibrary();
             Assert.Equal(1, Group(missing, "Updates on the Hub").Count);
 
             missing.ScopePills.Single(pill => pill.Label == "Your saves").Command.Execute(null);
@@ -712,7 +720,7 @@ namespace varManager.App.Tests
         {
             MakeVar("A.B.1", "Gone.One.1:/Custom/a.vap");
             Update();
-            MissingViewModel missing = await Open();
+            MissingViewModel missing = await OpenWholeLibrary();
             MissingGroup group = Group(missing, "Not found anywhere");
 
             missing.ToggleLinesCommand.Execute(group);
@@ -742,6 +750,7 @@ namespace varManager.App.Tests
         {
             MakeVar("A.B.1", "Gone.One.1:/Custom/a.vap");
             Update();
+            Link("A.B.1");
             hub.Down = true;
             var missing = new MissingViewModel(storeFile, paths, jobs, hub, copied.Add, value => count = value);
 
@@ -751,10 +760,32 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public async Task The_count_follows_the_selected_profile()
+        {
+            MakeVar("A.B.1", "Hub.Pack.1:/Custom/a.vap");
+            Update();
+            Link("A.B.1");
+            Directory.CreateDirectory(VarSwitches.LinkFolder(vam, "lean"));
+            string settingsFile = Path.Combine(data, "settings.json");
+            new AppSettings { VamPath = vam, VarsPath = vars }.Save(settingsFile);
+            var shell = new ShellViewModel(settingsFile, jobs, () => false, _ => { }, () => 0, hub, TimeSpan.FromHours(1));
+            shells.Add(shell);
+            await shell.LibraryLoaded.WaitAsync(Timeout);
+            Assert.Equal("1", shell.Pages[^1].Badge);
+
+            shell.SelectedSwitch = "lean";
+
+            WaitUntil(() => shell.Pages[^1].Badge == "");
+            shell.SelectedSwitch = "default";
+            WaitUntil(() => shell.Pages[^1].Badge == "1");
+        }
+
+        [Fact]
         public async Task The_shell_shows_the_count_and_checks_when_the_page_opens()
         {
             MakeVar("A.B.1", "Hub.Pack.1:/Custom/a.vap");
             Update();
+            Link("A.B.1");
             hub.Packages["Hub.Pack.1"] = "";
             string settingsFile = Path.Combine(data, "settings.json");
             new AppSettings { VamPath = vam, VarsPath = vars }.Save(settingsFile);
@@ -762,7 +793,8 @@ namespace varManager.App.Tests
             shells.Add(shell);
             await shell.LibraryLoaded.WaitAsync(Timeout);
             Assert.Equal("1", shell.Pages[^1].Badge);
-            Assert.Empty(shell.Missing!.Groups);
+            Assert.Equal("This profile", shell.Missing!.ScopePills.Single(pill => pill.IsActive).Label);
+            Assert.Empty(shell.Missing.Groups);
 
             shell.SelectedPage = shell.Pages[^1];
 
