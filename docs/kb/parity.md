@@ -40,7 +40,7 @@ Every button and form in the old app, and where it went in the new one. The old 
 | Move SeleLinks To SubDir, `FormVarsMove` | It sorted links into subfolders by hand. Profiles replace that, and linked vars in subfolders still count as linked |
 | Stale Vars' old-version option | It moved versions other vars still need and repointed links. Health only moves what nothing uses, so a scene can't break |
 | Filtered Packages, Selected vars in `FormMissing` | The new app has no multi-select in the Library. This profile and Whole library cover the same need, and a lean profile makes a smaller scope |
-| Google button in `FormMissingVars` | Built-in help for finding a package stays on the Hub |
+| Google button in `FormMissingVars` | Built-in help for finding a package is the Hub and the community links |
 | `FormMigrationPreview`, `--undo-migration`, `--rollback-migration` | The library is already migrated. The new app refuses a real AddonPackages and sends the user to the old app, which keeps these |
 | Mockup's "references only the deep scan found" card | Nothing stores that count, and there's nothing to act on |
 | `Form2` | An empty form |

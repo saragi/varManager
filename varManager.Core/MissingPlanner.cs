@@ -47,6 +47,9 @@ namespace varManager
     public sealed class MissingSources
     {
         public List<MissingPackage> OnHub { get; } = new List<MissingPackage>();
+
+        /// <summary>Not on the Hub, but the community list has a direct link.</summary>
+        public List<MissingPackage> Mirror { get; } = new List<MissingPackage>();
         public List<MissingPackage> Listed { get; } = new List<MissingPackage>();
         public List<MissingPackage> NotFound { get; } = new List<MissingPackage>();
     }
@@ -194,13 +197,53 @@ namespace varManager
         }
     }
 
-    /// <summary>Reads package names from a local SharpVaMTools install. Names only, and never its settings.</summary>
+    /// <summary>What a local SharpVaMTools install knows: package names, and direct links for some of them.</summary>
+    public sealed class CommunityList
+    {
+        // A guess near the library's average, because the list holds no sizes.
+        private const long TypicalSize = 64L << 20;
+
+        private readonly Dictionary<string, SortedDictionary<int, string>> links =
+            new Dictionary<string, SortedDictionary<int, string>>(StringComparer.OrdinalIgnoreCase);
+
+        public HashSet<string> Packages { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        public void AddLink(string varName, string url)
+        {
+            string package = MissingPlanner.PackageOf(varName);
+            SortedDictionary<int, string> versions;
+            if (!links.TryGetValue(package, out versions))
+            {
+                versions = new SortedDictionary<int, string>();
+                links.Add(package, versions);
+            }
+            versions[HubParser.VersionOf(varName)] = url;
+        }
+
+        /// <summary>The newest linked version that serves what's wanted, or null.</summary>
+        public HubPackage Best(MissingPackage item)
+        {
+            SortedDictionary<int, string> versions;
+            if (!links.TryGetValue(item.Package, out versions))
+                return null;
+            KeyValuePair<int, string> newest = versions.Last();
+            return newest.Key >= item.WantedVersion ? new HubPackage(item.Package + "." + newest.Key, newest.Value, TypicalSize) : null;
+        }
+    }
+
+    /// <summary>Reads a local SharpVaMTools install's names and links, and never its settings.</summary>
     public static class SharpVaMToolsData
     {
         private const string LinksFolder = "_Download_Links";
         private const string DatabaseFile = "_Database.txt";
         private static readonly Regex LinkLine =
             new Regex(@"^\s*(.+?)\.var(\s|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        private static readonly Regex ZipLink =
+            new Regex(@"https://pixeldrain\.com/api/file/[^/\s]+/info/zip/.+?(?=\s+https?://|\s*$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        private static readonly Regex PageLink =
+            new Regex(@"https://pixeldrain\.com/u/([A-Za-z0-9_-]+)(?=\s|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        private static readonly Regex MediafireLink =
+            new Regex(@"https://www\.mediafire\.com/file/\S+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         /// <summary>Finds an install beside the given folder, or null.</summary>
         public static string FindBeside(string folder)
@@ -244,9 +287,47 @@ namespace varManager
             return packages;
         }
 
+        /// <summary>The names, plus the links the app can fetch, with Pixeldrain preferred on a line that has both.</summary>
+        public static CommunityList Read(string install)
+        {
+            CommunityList list = new CommunityList();
+            list.Packages.UnionWith(Packages(install));
+            string links = Path.Combine(install, LinksFolder);
+            if (!Directory.Exists(links))
+                return list;
+            foreach (string file in Directory.GetFiles(links, "*.txt"))
+            {
+                foreach (string line in File.ReadLines(file))
+                {
+                    Match name = LinkLine.Match(line);
+                    string url = DirectUrl(line);
+                    if (name.Success && url != null && HasVersion(name.Groups[1].Value))
+                        list.AddLink(name.Groups[1].Value, url);
+                }
+            }
+            return list;
+        }
+
+        private static string DirectUrl(string line)
+        {
+            Match zip = ZipLink.Match(line);
+            if (zip.Success)
+                return zip.Value;
+            Match page = PageLink.Match(line);
+            if (page.Success)
+                return "https://pixeldrain.com/api/file/" + page.Groups[1].Value;
+            Match mediafire = MediafireLink.Match(line);
+            return mediafire.Success ? mediafire.Value : null;
+        }
+
+        private static bool HasVersion(string varName)
+        {
+            return varName.Count(character => character == '.') == 2 && HubParser.VersionOf(varName) >= 0;
+        }
+
         private static void AddName(HashSet<string> packages, string varName)
         {
-            if (varName.Count(character => character == '.') == 2 && HubParser.VersionOf(varName) >= 0)
+            if (HasVersion(varName))
                 packages.Add(MissingPlanner.PackageOf(varName));
         }
     }

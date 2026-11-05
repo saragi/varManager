@@ -73,7 +73,7 @@ Missing replaces a separate Downloads screen. The rule is as few clicks as possi
 - Updates are never automatic, because a new version can change a scene.
 - Hub login is asked once and remembered, if the Hub needs it. This is not checked yet.
 - It only stops to ask when the download won't fit on the disk.
-- The app can read names in a local SharpVaMTools install to show which packages it lists, and `Copy list` exports them. The app doesn't download from mirrors, and that data stays out of this repo.
+- The app can read names in a local SharpVaMTools install to show which packages it lists, and `Copy list` exports them. The new app also downloads Pixeldrain and Mediafire links from that install for what the Hub lacks, and drops any var marked paid. That data stays out of this repo.
 - Files added to the repository by hand are found and scanned automatically.
 
 ### Performance rules
@@ -89,7 +89,7 @@ Missing replaces a separate Downloads screen. The rule is as few clicks as possi
 - varManager is the only owner of the library.
 - Vars are never rewritten. No editing, repackaging or in-place deduplication.
 - Enable and disable through links, not by moving files.
-- Built-in downloads use the VaM Hub only.
+- Built-in downloads use the VaM Hub first, then the community's Pixeldrain and Mediafire links. Vars marked paid are never kept.
 - No AI features, LAN mode or Electron rewrite.
 - VaM internals aren't patched. VPB can be tested alongside varManager later. It is GPL-3.0, so reuse ideas only.
 - Upstream `feelfar/varManager` shows no license on GitHub. Ask its author before publishing builds.

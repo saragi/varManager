@@ -156,7 +156,7 @@ namespace varManager
     {
         private const string VarExtension = ".var";
 
-        /// <summary>Built-in downloads stay on the VaM Hub, whatever a response says. Pictures come from its CDN, so they aren't held to this.</summary>
+        /// <summary>A Hub answer can only point at the Hub, whatever it says. Pictures come from its CDN, so they aren't held to this.</summary>
         public static bool IsHubUrl(string url)
         {
             Uri uri;

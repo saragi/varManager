@@ -59,7 +59,7 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 
 ## Decided, don't reopen
 
-- Built-in downloads are Hub only. The user wanted SharpVaMTools mirror links built in. That was declined, because re-uploads may include paid content. The app may read names from a local install and export a list, and the user fetches those by hand.
+- Built-in downloads use the Hub first, then Pixeldrain and Mediafire links from a local SharpVaMTools install, as the user decided on 5 November. Re-uploads may include paid content, so `HubDownloader` drops any mirror var whose `meta.json` says `PC` or `PC EA`. That gate stays. It can't catch a var with a wrong license, and the file is fetched before it can be checked. Mediafire links open a page, so `HubDownloader` reads the file address from it. That page format is from memory, not from a real page. About 132 packages are only on Mediafire. Pixeldrain is fetched anonymously, and the API key in `_Settings.txt` is never read. No real mirror download has been tried yet.
 - Never read or print `D:\X\SharpVaMTools_V3_Release\_Settings.txt`, even filtered. It holds an API key that leaked twice. The user will replace the key after the redesign, so don't remind them.
 - Free Hub packages need no login, only the `vamhubconsent=1` cookie VaM sends. On .NET Framework the handler needs `UseCookies = false`, or it drops that header.
 - Ask the Hub with `findPackages`. `packages.json` overcounts. Of 347 missing packages, 24 had real links, 290 are in SharpVaMTools data, and 34 are nowhere.

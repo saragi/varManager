@@ -7,6 +7,7 @@ using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using ICSharpCode.SharpZipLib.Zip;
 using varManager;
 using Xunit;
 
@@ -189,6 +190,146 @@ namespace varManagerTests
             HashSet<string> packages = SharpVaMToolsData.Packages(install);
 
             Assert.Equal(new[] { "B.Look", "C.Morph", "Spaced One.Hair" }, packages.OrderBy(name => name));
+        }
+
+        [Fact]
+        public void Community_links_keep_only_the_mirrors_the_app_can_fetch()
+        {
+            string install = Path.Combine(root, "SharpVaMTools_V3");
+            Directory.CreateDirectory(Path.Combine(install, "_Download_Links"));
+            File.WriteAllLines(Path.Combine(install, "_Download_Links", "A.txt"), new[]
+            {
+                "Spaced One.Hair.2.var   https://pixeldrain.com/api/file/abc/info/zip/Spaced One.Hair.2.var   https://www.mediafire.com/file/x/y/file",
+                "B.Look.1.var   https://pixeldrain.com/u/def",
+                "C.Morph.3.var   https://www.mediafire.com/file/x/C.Morph.3.var/file",
+                "D.Other.1.var   https://pixeldrain.com.evil.test/u/ghi",
+            });
+
+            CommunityList list = SharpVaMToolsData.Read(install);
+
+            Assert.Equal("https://pixeldrain.com/api/file/abc/info/zip/Spaced One.Hair.2.var", list.Best(new MissingPackage("Spaced One.Hair")).Url);
+            Assert.Equal("https://pixeldrain.com/api/file/def", list.Best(new MissingPackage("B.Look")).Url);
+            Assert.Equal("https://www.mediafire.com/file/x/C.Morph.3.var/file", list.Best(new MissingPackage("C.Morph")).Url);
+            Assert.Null(list.Best(new MissingPackage("D.Other")));
+            Assert.Contains("D.Other", list.Packages);
+        }
+
+        [Fact]
+        public void Community_links_give_the_newest_version_and_never_one_too_old()
+        {
+            CommunityList list = new CommunityList();
+            list.AddLink("A.Hair.2", "https://pixeldrain.com/api/file/two");
+            list.AddLink("A.Hair.10", "https://pixeldrain.com/api/file/ten");
+
+            Assert.Equal("A.Hair.10", list.Best(new MissingPackage("A.Hair") { WantedVersion = 3 }).Name);
+            Assert.Null(list.Best(new MissingPackage("A.Hair") { WantedVersion = 11 }));
+        }
+
+        private static HttpResponseMessage Zipped(string meta)
+        {
+            MemoryStream bytes = new MemoryStream();
+            using (ZipOutputStream zip = new ZipOutputStream(bytes) { IsStreamOwner = false })
+            {
+                zip.PutNextEntry(new ZipEntry("meta.json"));
+                byte[] text = Encoding.UTF8.GetBytes(meta);
+                zip.Write(text, 0, text.Length);
+                zip.CloseEntry();
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes.ToArray()) };
+        }
+
+        [Theory]
+        [InlineData("PC")]
+        [InlineData("PC EA")]
+        [InlineData("pc ea")]
+        public async Task A_mirror_var_marked_paid_is_not_kept(string license)
+        {
+            FakeHub mirror = new FakeHub { Reply = request => Zipped("{\"licenseType\":\"" + license + "\"}") };
+            using (HubDownloader downloader = new HubDownloader(mirror))
+                await Assert.ThrowsAsync<InvalidDataException>(() => downloader.Download(new HubPackage("A.Hair.2", "https://pixeldrain.com/api/file/x", 1), root, CancellationToken.None));
+
+            Assert.Empty(Directory.GetFiles(root));
+        }
+
+        [Fact]
+        public async Task A_free_mirror_var_is_kept_and_gets_no_hub_cookie()
+        {
+            FakeHub mirror = new FakeHub { Reply = request => Zipped("{\"licenseType\":\"CC BY\"}") };
+            using (HubDownloader downloader = new HubDownloader(mirror))
+                await downloader.Download(new HubPackage("A.Hair.2", "https://pixeldrain.com/api/file/x", 1), root, CancellationToken.None);
+
+            Assert.True(File.Exists(Path.Combine(root, "A.Hair.2.var")));
+            Assert.Null(mirror.LastCookie);
+        }
+
+        [Fact]
+        public async Task A_mirror_file_that_is_not_a_real_var_is_not_kept()
+        {
+            FakeHub mirror = new FakeHub { Reply = request => Var() };
+            using (HubDownloader downloader = new HubDownloader(mirror))
+                await Assert.ThrowsAsync<InvalidDataException>(() => downloader.Download(new HubPackage("A.Hair.2", "https://pixeldrain.com/api/file/x", 1), root, CancellationToken.None));
+
+            Assert.Empty(Directory.GetFiles(root));
+        }
+
+        private const string MediafirePage = "https://www.mediafire.com/file/abc/A.Hair.2.var/file";
+
+        [Theory]
+        [InlineData("<a id=\"downloadButton\" href=\"https://download99.mediafire.com/k/A.Hair.2.var\">")]
+        [InlineData("<a data-scrambled-url=\"aHR0cHM6Ly9kb3dubG9hZDk5Lm1lZGlhZmlyZS5jb20vay9BLkhhaXIuMi52YXI=\">")]
+        public async Task A_mediafire_page_leads_to_its_file(string html)
+        {
+            FakeHub mirror = new FakeHub
+            {
+                Reply = request => request.RequestUri.Host == "www.mediafire.com"
+                    ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(html) }
+                    : Zipped("{\"licenseType\":\"CC BY\"}"),
+            };
+            using (HubDownloader downloader = new HubDownloader(mirror))
+                await downloader.Download(new HubPackage("A.Hair.2", MediafirePage, 1), root, CancellationToken.None);
+
+            Assert.True(File.Exists(Path.Combine(root, "A.Hair.2.var")));
+            Assert.Equal(2, mirror.Calls);
+            Assert.Null(mirror.LastCookie);
+        }
+
+        [Fact]
+        public async Task A_paid_var_from_mediafire_is_not_kept()
+        {
+            FakeHub mirror = new FakeHub
+            {
+                Reply = request => request.RequestUri.Host == "www.mediafire.com"
+                    ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("href=\"https://download99.mediafire.com/k/x\"") }
+                    : Zipped("{\"licenseType\":\"PC\"}"),
+            };
+            using (HubDownloader downloader = new HubDownloader(mirror))
+                await Assert.ThrowsAsync<InvalidDataException>(() => downloader.Download(new HubPackage("A.Hair.2", MediafirePage, 1), root, CancellationToken.None));
+
+            Assert.Empty(Directory.GetFiles(root));
+        }
+
+        [Fact]
+        public async Task A_mediafire_page_with_no_link_says_so()
+        {
+            FakeHub mirror = new FakeHub { Reply = request => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("<html>removed</html>") } };
+            using (HubDownloader downloader = new HubDownloader(mirror))
+                await Assert.ThrowsAsync<InvalidDataException>(() => downloader.Download(new HubPackage("A.Hair.2", MediafirePage, 1), root, CancellationToken.None));
+
+            Assert.Equal(1, mirror.Calls);
+        }
+
+        [Theory]
+        [InlineData("https://pixeldrain.com/api/file/x", true)]
+        [InlineData("http://pixeldrain.com/api/file/x", false)]
+        [InlineData("https://pixeldrain.com/u/x", false)]
+        [InlineData("https://pixeldrain.com.evil.test/api/file/x", false)]
+        [InlineData("https://www.mediafire.com/file/x", true)]
+        [InlineData("https://download123.mediafire.com/abc/x.var", true)]
+        [InlineData("https://www.mediafire.com/folder/x", false)]
+        [InlineData("https://download123.mediafire.com.evil.test/x", false)]
+        public void Only_known_mirror_addresses_count(string url, bool allowed)
+        {
+            Assert.Equal(allowed, HubDownloader.IsMirrorUrl(url));
         }
 
         [Fact]

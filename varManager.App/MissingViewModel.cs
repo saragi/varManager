@@ -29,7 +29,7 @@ namespace varManager.Ui
         public bool HasLines => Lines.Count > 0;
     }
 
-    /// <summary>Checks what the library needs and gets it in one click. Downloads stay Hub only.</summary>
+    /// <summary>Checks what the library needs and gets it in one click, from the Hub first and then the community links.</summary>
     public sealed class MissingViewModel : Observable
     {
         private const string WholeLibrary = "Whole library";
@@ -43,7 +43,7 @@ namespace varManager.Ui
         private readonly IHubSource hub;
         private readonly Action<string> copy;
         private readonly Action<int> countChanged;
-        private HashSet<string>? listed;
+        private CommunityList? community;
         private MissingState view = new MissingState();
         private IReadOnlyList<MissingGroup> groups = new MissingGroup[0];
         private MissingGroup? open;
@@ -122,8 +122,9 @@ namespace varManager.Ui
             }
         }
 
-        public bool CanGetAll => view.Sources.OnHub.Count > 0;
-        public string GetAllLabel => "Get all " + view.Sources.OnHub.Count;
+        private int Ready => view.Sources.OnHub.Count + view.Sources.Mirror.Count;
+        public bool CanGetAll => Ready > 0;
+        public string GetAllLabel => "Get all " + Ready;
 
         /// <summary>Counts from the database alone, so this is cheap enough after every change.</summary>
         public async Task Count()
@@ -161,11 +162,11 @@ namespace varManager.Ui
             {
                 MissingState checkedView = await Task.Run(async () =>
                 {
-                    listed ??= MissingCheck.ListedPackages(paths.VamPath);
+                    community ??= MissingCheck.ReadCommunity(paths.VamPath);
                     MissingLibrary library;
                     using (LibraryStore store = LibraryStore.Open(storeFile))
                         library = new MissingLibrary(store, paths);
-                    return await MissingCheck.Run(library, checking, hub, listed, default).ConfigureAwait(false);
+                    return await MissingCheck.Run(library, checking, hub, community, default).ConfigureAwait(false);
                 }).ConfigureAwait(true);
                 if (check != checks)
                     return;
@@ -194,9 +195,10 @@ namespace varManager.Ui
 
         private void Show()
         {
-            int ready = view.Sources.OnHub.Count;
-            Title = ready > 0 ? $"{ready} packages ready on the Hub ({MissingCheck.Size(view.HubBytes)})"
-                : view.Report.Count == 0 ? "Nothing is missing" : "Nothing to download from the Hub";
+            int ready = Ready;
+            Title = view.Sources.Mirror.Count > 0 ? $"{ready} packages ready to download"
+                : ready > 0 ? $"{ready} packages ready on the Hub ({MissingCheck.Size(view.HubBytes)})"
+                : view.Report.Count == 0 ? "Nothing is missing" : "Nothing to download";
             StatusText = view.HubProblem ?? (ready > 0 ? "One click downloads, scans and links them to the current profile. You keep using the app." : "");
             Changed(nameof(CanGetAll));
             Changed(nameof(GetAllLabel));
@@ -207,6 +209,7 @@ namespace varManager.Ui
             Groups = new[]
             {
                 new MissingGroup("Ready on the Hub", sources.OnHub.Count, "Downloaded, scanned and linked by Get all.", Lines(sources.OnHub)),
+                new MissingGroup("Ready from community links", sources.Mirror.Count, "Re-uploads the Hub hasn't checked. Get all fetches them from Pixeldrain or Mediafire and drops anything marked paid.", Lines(sources.Mirror)),
                 new MissingGroup("Turned off in your library", report.TurnedOff.Count, "Already stored, so nothing to download.",
                     Lines(report.TurnedOff.Select(off => $"{off.Key}, needed by {Users(off.Value)}"), report.TurnedOff.Count), "Turn on all", new Command(TurnOnAll)),
                 new MissingGroup("Updates on the Hub", view.Updates.Count, "Never automatic, because a new version can change a scene.",
@@ -241,17 +244,17 @@ namespace varManager.Ui
         private void GetAll()
         {
             MissingScope chosen = scope;
-            HashSet<string> names = listed ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            jobs.Start("Getting packages from the Hub", context =>
-                MissingCheck.GetAll(storeFile, paths, chosen, hub, names, MissingCheck.FreeSpace, context.Report, context.Token));
+            CommunityList known = community ?? new CommunityList();
+            jobs.Start("Getting packages", context =>
+                MissingCheck.GetAll(storeFile, paths, chosen, hub, known, MissingCheck.FreeSpace, context.Report, context.Token));
         }
 
         private void GetUpdates()
         {
             MissingScope chosen = scope;
-            HashSet<string> names = listed ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            CommunityList known = community ?? new CommunityList();
             jobs.Start("Getting updates from the Hub", context =>
-                MissingCheck.GetUpdates(storeFile, paths, chosen, hub, names, MissingCheck.FreeSpace, context.Report, context.Token));
+                MissingCheck.GetUpdates(storeFile, paths, chosen, hub, known, MissingCheck.FreeSpace, context.Report, context.Token));
         }
 
         private void TurnOnAll()

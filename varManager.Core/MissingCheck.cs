@@ -133,6 +133,9 @@ namespace varManager
         public MissingSources Sources { get; set; } = new MissingSources();
         public List<HubPackage> Offered { get; set; } = new List<HubPackage>();
         public List<HubPackage> Updates { get; set; } = new List<HubPackage>();
+
+        /// <summary>Direct links for what's in Sources.Mirror.</summary>
+        public List<HubPackage> Mirrored { get; } = new List<HubPackage>();
         public string HubProblem { get; set; }
 
         public bool IsNeeded(HubPackage package)
@@ -146,8 +149,8 @@ namespace varManager
         /// <summary>Downloads that something linked needs. The rest stay stored and off.</summary>
         public List<string> LinkedNeeds()
         {
-            var wanted = new HashSet<string>(Sources.OnHub.Where(item => item.NeededByLinkedVar).Select(item => item.Package), StringComparer.OrdinalIgnoreCase);
-            return Offered.Where(package => wanted.Contains(MissingPlanner.PackageOf(package.Name))).Select(package => package.Name).ToList();
+            var wanted = new HashSet<string>(Sources.OnHub.Concat(Sources.Mirror).Where(item => item.NeededByLinkedVar).Select(item => item.Package), StringComparer.OrdinalIgnoreCase);
+            return Offered.Concat(Mirrored).Where(package => wanted.Contains(MissingPlanner.PackageOf(package.Name))).Select(package => package.Name).ToList();
         }
     }
 
@@ -157,7 +160,7 @@ namespace varManager
         private const long ReservedBytes = 1L << 30;
 
         /// <summary>Asks the Hub about what the library lacks. A Hub that can't be reached isn't an error here.</summary>
-        public static async Task<MissingState> Run(MissingLibrary library, MissingScope scope, IHubSource hub, ISet<string> listed, CancellationToken token)
+        public static async Task<MissingState> Run(MissingLibrary library, MissingScope scope, IHubSource hub, CommunityList community, CancellationToken token)
         {
             var view = new MissingState { Report = library.Plan(scope) };
             view.Sources.NotFound.AddRange(view.Report.Needed);
@@ -177,28 +180,37 @@ namespace varManager
                 view.HubProblem = "The Hub couldn't be reached: " + ex.Message;
                 return view;
             }
-            view.Sources = MissingPlanner.Sort(view.Report.Needed, view.Offered, listed);
+            view.Sources = MissingPlanner.Sort(view.Report.Needed, view.Offered, community.Packages);
+            foreach (MissingPackage item in view.Sources.Listed.ToList())
+            {
+                HubPackage link = community.Best(item);
+                if (link == null)
+                    continue;
+                view.Sources.Listed.Remove(item);
+                view.Sources.Mirror.Add(item);
+                view.Mirrored.Add(link);
+            }
             return view;
         }
 
-        /// <summary>Package names from a local SharpVaMTools install, if there is one. Names only.</summary>
-        public static HashSet<string> ListedPackages(string vamPath)
+        /// <summary>The names and links in a local SharpVaMTools install, if there is one.</summary>
+        public static CommunityList ReadCommunity(string vamPath)
         {
             string install = SharpVaMToolsData.FindBeside(vamPath);
             if (install == null)
-                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                return new CommunityList();
             try
             {
-                return SharpVaMToolsData.Packages(install);
+                return SharpVaMToolsData.Read(install);
             }
             catch (IOException)
             {
-                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                return new CommunityList();
             }
         }
 
         /// <summary>Downloads what's needed, and keeps going until the downloads need nothing more.</summary>
-        public static string GetAll(string storeFile, LibraryPaths paths, MissingScope scope, IHubSource hub, ISet<string> listed,
+        public static string GetAll(string storeFile, LibraryPaths paths, MissingScope scope, IHubSource hub, CommunityList community,
             Func<string, long> freeSpace, Action<int, int> progress, CancellationToken token)
         {
             var attempted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -209,11 +221,11 @@ namespace varManager
             while (true)
             {
                 token.ThrowIfCancellationRequested();
-                MissingState view = Check(storeFile, paths, scope, hub, listed, token);
+                MissingState view = Check(storeFile, paths, scope, hub, community, token);
                 if (view.HubProblem != null)
                     return view.HubProblem;
 
-                List<HubPackage> next = view.Offered.Where(view.IsNeeded).Where(package => !attempted.Contains(package.Name)).ToList();
+                List<HubPackage> next = view.Offered.Where(view.IsNeeded).Concat(view.Mirrored).Where(package => !attempted.Contains(package.Name)).ToList();
                 if (next.Count > 0)
                 {
                     attempted.UnionWith(next.Select(package => package.Name));
@@ -243,10 +255,10 @@ namespace varManager
         }
 
         /// <summary>Gets the updates the user asked for. Never runs by itself, because a new version can change a scene.</summary>
-        public static string GetUpdates(string storeFile, LibraryPaths paths, MissingScope scope, IHubSource hub, ISet<string> listed,
+        public static string GetUpdates(string storeFile, LibraryPaths paths, MissingScope scope, IHubSource hub, CommunityList community,
             Func<string, long> freeSpace, Action<int, int> progress, CancellationToken token)
         {
-            MissingState view = Check(storeFile, paths, scope, hub, listed, token);
+            MissingState view = Check(storeFile, paths, scope, hub, community, token);
             if (view.HubProblem != null)
                 return view.HubProblem;
             string noRoom = NoRoom(view.Updates, paths.VarsPath, freeSpace);
@@ -289,12 +301,12 @@ namespace varManager
             return off.Count == 1 ? "Turned on 1 var." : $"Turned on {off.Count} vars.";
         }
 
-        private static MissingState Check(string storeFile, LibraryPaths paths, MissingScope scope, IHubSource hub, ISet<string> listed, CancellationToken token)
+        private static MissingState Check(string storeFile, LibraryPaths paths, MissingScope scope, IHubSource hub, CommunityList community, CancellationToken token)
         {
             MissingLibrary library;
             using (LibraryStore store = LibraryStore.Open(storeFile))
                 library = new MissingLibrary(store, paths);
-            return Run(library, scope, hub, listed, token).GetAwaiter().GetResult();
+            return Run(library, scope, hub, community, token).GetAwaiter().GetResult();
         }
 
         private static string NoRoom(IReadOnlyCollection<HubPackage> packages, string folder, Func<string, long> freeSpace)

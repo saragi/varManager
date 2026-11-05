@@ -1,3 +1,4 @@
+using ICSharpCode.SharpZipLib.Zip;
 using SimpleJSON;
 using System;
 using System.Collections.Generic;
@@ -5,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -59,13 +61,18 @@ namespace varManager
         public Dictionary<string, string> Failed { get; } = new Dictionary<string, string>();
     }
 
-    /// <summary>Downloads free Hub packages into a folder. A var appears only once it is complete.</summary>
+    /// <summary>Downloads free packages into a folder. A var appears only once it is complete.</summary>
     public sealed class HubDownloader : IDisposable
     {
         private const int ParallelDownloads = 3;
         // VaM's own Hub browser sends this after the user turns the Hub on. Without it the Hub returns a web page.
         private const string ConsentCookie = "vamhubconsent=1";
         private const string PartExtension = ".part";
+        private const string MirrorHost = "pixeldrain.com";
+        private const string PageHost = "www.mediafire.com";
+        private static readonly Regex FileHost = new Regex(@"^download\d+\.mediafire\.com$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        private static readonly Regex PageFileLink = new Regex(@"href=\x22(https://download\d+\.mediafire\.com/[^\x22]+)\x22", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        private static readonly Regex ScrambledLink = new Regex(@"data-scrambled-url=\x22([A-Za-z0-9+/=]+)\x22", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         private readonly HttpClient client;
         private readonly TimeSpan idleTimeout;
@@ -82,6 +89,47 @@ namespace varManager
         public void Dispose()
         {
             client.Dispose();
+        }
+
+        /// <summary>A link on a mirror the community list can be fetched from.</summary>
+        public static bool IsMirrorUrl(string url)
+        {
+            Uri uri;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out uri) || uri.Scheme != Uri.UriSchemeHttps)
+                return false;
+            return string.Equals(uri.Host, MirrorHost, StringComparison.OrdinalIgnoreCase) && uri.AbsolutePath.StartsWith("/api/file/", StringComparison.Ordinal)
+                || IsMirrorPage(url)
+                || FileHost.IsMatch(uri.Host);
+        }
+
+        private static bool IsMirrorPage(string url)
+        {
+            Uri uri;
+            return Uri.TryCreate(url, UriKind.Absolute, out uri) && uri.Scheme == Uri.UriSchemeHttps
+                && string.Equals(uri.Host, PageHost, StringComparison.OrdinalIgnoreCase)
+                && uri.AbsolutePath.StartsWith("/file/", StringComparison.Ordinal);
+        }
+
+        // Mediafire links open a page, and the file's address is only in that page.
+        private async Task<string> FileUrlOnPage(string page, CancellationToken token)
+        {
+            using (CancellationTokenSource idle = CancellationTokenSource.CreateLinkedTokenSource(token))
+            {
+                idle.CancelAfter(idleTimeout);
+                using (HttpResponseMessage response = await client.GetAsync(page, idle.Token).ConfigureAwait(false))
+                {
+                    response.EnsureSuccessStatusCode();
+                    string html = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    Match link = PageFileLink.Match(html);
+                    if (link.Success)
+                        return link.Groups[1].Value;
+                    Match scrambled = ScrambledLink.Match(html);
+                    string decoded = scrambled.Success ? Encoding.UTF8.GetString(Convert.FromBase64String(scrambled.Groups[1].Value)) : null;
+                    if (decoded != null && IsMirrorUrl(decoded) && !IsMirrorPage(decoded))
+                        return decoded;
+                    throw new InvalidDataException("The Mediafire page had no file link, so the file may be gone.");
+                }
+            }
         }
 
         /// <summary>Downloads everything it can, and reports each finished package.</summary>
@@ -136,9 +184,12 @@ namespace varManager
             string part = target + PartExtension;
             try
             {
-                await Fetch(package.Url, part, token).ConfigureAwait(false);
+                string url = IsMirrorPage(package.Url) ? await FileUrlOnPage(package.Url, token).ConfigureAwait(false) : package.Url;
+                await Fetch(url, part, token).ConfigureAwait(false);
                 if (!LooksLikeVar(part))
-                    throw new InvalidDataException("The Hub sent something other than a var.");
+                    throw new InvalidDataException("The download was something other than a var.");
+                if (IsMirrorUrl(package.Url))
+                    RequireFreeContent(part);
                 File.Move(part, target);
             }
             finally
@@ -158,7 +209,8 @@ namespace varManager
                     idle.CancelAfter(idleTimeout);
                     using (HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, url))
                     {
-                        request.Headers.Add("Cookie", ConsentCookie);
+                        if (!IsMirrorUrl(url))
+                            request.Headers.Add("Cookie", ConsentCookie);
                         using (HttpResponseMessage response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, idle.Token).ConfigureAwait(false))
                         using (idle.Token.Register(response.Dispose))
                         {
@@ -192,6 +244,29 @@ namespace varManager
                     throw new IOException("The download stalled.", ex);
                 }
             }
+        }
+
+        // A re-upload can be a creator's paid work, and only the var itself says so.
+        private static void RequireFreeContent(string path)
+        {
+            string license;
+            try
+            {
+                using (ZipFile zip = new ZipFile(path))
+                {
+                    ZipEntry meta = zip.GetEntry("meta.json");
+                    if (meta == null)
+                        throw new InvalidDataException("The var has no meta.json.");
+                    using (StreamReader reader = new StreamReader(zip.GetInputStream(meta)))
+                        license = JSON.Parse(reader.ReadToEnd())["licenseType"].Value.Trim();
+                }
+            }
+            catch (ZipException ex)
+            {
+                throw new InvalidDataException("The var can't be read.", ex);
+            }
+            if (string.Equals(license, "PC", StringComparison.OrdinalIgnoreCase) || string.Equals(license, "PC EA", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("Paid content, so it wasn't kept.");
         }
 
         private static bool LooksLikeVar(string path)

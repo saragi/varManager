@@ -94,7 +94,7 @@ namespace varManager.Ui
         public IReadOnlyList<HubTile> Tiles { get; }
     }
 
-    /// <summary>Browses the Hub page by page, and gets what the user picks. Downloads stay Hub only.</summary>
+    /// <summary>Browses the Hub page by page, and gets what the user picks.</summary>
     public sealed class HubViewModel : Observable
     {
         private const string All = "All";

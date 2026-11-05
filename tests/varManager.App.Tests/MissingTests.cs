@@ -33,6 +33,9 @@ namespace varManager.App.Tests
             public Dictionary<string, string> Packages { get; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             public HashSet<string> Broken { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+            /// <summary>Packages Find won't offer, though Download can still store them.</summary>
+            public HashSet<string> HiddenFromFind { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             /// <summary>Names only the package list claims, as when the list runs ahead of what the Hub serves.</summary>
             public List<string> ListedOnly { get; } = new List<string>();
 
@@ -62,7 +65,7 @@ namespace varManager.App.Tests
                     string package = MissingPlanner.PackageOf(reference);
                     string? newest = Packages.Keys.Where(name => string.Equals(MissingPlanner.PackageOf(name), package, StringComparison.OrdinalIgnoreCase))
                         .OrderByDescending(HubParser.VersionOf).FirstOrDefault();
-                    if (newest != null)
+                    if (newest != null && !HiddenFromFind.Contains(package))
                         found.Add(new HubPackage(newest, "https://hub.example/" + newest, Size));
                 }
                 return found;
@@ -232,6 +235,66 @@ namespace varManager.App.Tests
             Assert.StartsWith("1 packages ready on the Hub", missing.Title);
         }
 
+        private void CommunityLink(string line)
+        {
+            string install = Path.Combine(root, "SharpVaMTools");
+            Directory.CreateDirectory(Path.Combine(install, "_Download_Links"));
+            File.AppendAllLines(Path.Combine(install, "_Download_Links", "links.txt"), new[] { line });
+        }
+
+        [Fact]
+        public async Task Get_all_fetches_community_links_and_links_what_the_profile_needs()
+        {
+            MakeVar("A.B.1", "Mirror.Pack.1:/Custom/a.vap");
+            Update();
+            Link("A.B.1");
+            hub.Packages["Mirror.Pack.1"] = "";
+            hub.HiddenFromFind.Add("Mirror.Pack");
+            CommunityLink("Mirror.Pack.1.var   https://pixeldrain.com/u/abc");
+            MissingViewModel missing = await Open();
+
+            Assert.Equal(1, Group(missing, "Ready from community links").Count);
+            Assert.Equal(0, Group(missing, "Listed in SharpVaMTools").Count);
+            Assert.Equal("Get all 1", missing.GetAllLabel);
+            Assert.Equal("1 packages ready to download", missing.Title);
+
+            missing.GetAllCommand.Execute(null);
+            WaitForJob();
+
+            Assert.Equal(new[] { "Mirror.Pack.1" }, hub.Downloaded);
+            Assert.True(IsLinked("Mirror.Pack.1"));
+            Assert.Contains("Stored 1, failed 0", jobs.Note);
+        }
+
+        [Fact]
+        public async Task The_hub_wins_over_a_community_link()
+        {
+            MakeVar("A.B.1", "Both.Pack.1:/Custom/a.vap");
+            Update();
+            Link("A.B.1");
+            hub.Packages["Both.Pack.1"] = "";
+            CommunityLink("Both.Pack.1.var   https://pixeldrain.com/u/abc");
+
+            MissingViewModel missing = await Open();
+
+            Assert.Equal(1, Group(missing, "Ready on the Hub").Count);
+            Assert.Equal(0, Group(missing, "Ready from community links").Count);
+        }
+
+        [Fact]
+        public async Task A_mediafire_only_package_is_ready_too()
+        {
+            MakeVar("A.B.1", "Fire.Pack.1:/Custom/a.vap");
+            Update();
+            Link("A.B.1");
+            CommunityLink("Fire.Pack.1.var   https://www.mediafire.com/file/x/Fire.Pack.1.var/file");
+
+            MissingViewModel missing = await Open();
+
+            Assert.Equal(1, Group(missing, "Ready from community links").Count);
+            Assert.True(missing.CanGetAll);
+        }
+
         [Fact]
         public async Task An_older_version_is_never_fetched_over_a_newer_one()
         {
@@ -326,7 +389,7 @@ namespace varManager.App.Tests
             cancel.Cancel();
 
             Assert.ThrowsAny<OperationCanceledException>(() =>
-                MissingCheck.Run(library, MissingScope.Library, hub, new HashSet<string>(), cancel.Token).GetAwaiter().GetResult());
+                MissingCheck.Run(library, MissingScope.Library, hub, new CommunityList(), cancel.Token).GetAwaiter().GetResult());
         }
 
         [Fact]
@@ -537,7 +600,7 @@ namespace varManager.App.Tests
             hub.Packages["Hub.Pack.1"] = "";
             hub.Size = 500L << 20;
 
-            string text = MissingCheck.GetAll(storeFile, paths, MissingScope.Library, hub, new HashSet<string>(), _ => (1L << 30) + (100L << 20), (done, total) => { }, default);
+            string text = MissingCheck.GetAll(storeFile, paths, MissingScope.Library, hub, new CommunityList(), _ => (1L << 30) + (100L << 20), (done, total) => { }, default);
 
             Assert.Contains("but only", text);
             Assert.Empty(hub.Downloaded);
@@ -553,7 +616,7 @@ namespace varManager.App.Tests
             cancel.Cancel();
 
             Assert.Throws<OperationCanceledException>(() =>
-                MissingCheck.GetAll(storeFile, paths, MissingScope.Library, hub, new HashSet<string>(), _ => long.MaxValue, (done, total) => { }, cancel.Token));
+                MissingCheck.GetAll(storeFile, paths, MissingScope.Library, hub, new CommunityList(), _ => long.MaxValue, (done, total) => { }, cancel.Token));
         }
 
         [Fact]
@@ -610,7 +673,7 @@ namespace varManager.App.Tests
         }
 
         [Fact]
-        public async Task Copy_list_copies_the_names_and_nothing_downloads_from_mirrors()
+        public async Task Copy_list_copies_the_names_that_have_no_direct_link()
         {
             MakeVar("A.B.1", "Listed.Pack.1:/Custom/a.vap");
             Update();
