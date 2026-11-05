@@ -19,6 +19,9 @@ namespace varManager
     /// <summary>What the Missing screen needs from the Hub, so tests can stand in for it.</summary>
     public interface IHubSource
     {
+        /// <summary>Raised on the download's thread.</summary>
+        event Action<DownloadUpdate> Downloading;
+
         Task<List<HubPackage>> Find(IEnumerable<string> references);
         Task<string> PackageList();
         Task<DownloadResult> Download(IReadOnlyList<HubPackage> packages, string folder, Action<HubPackage> finished, CancellationToken token);
@@ -26,6 +29,8 @@ namespace varManager
 
     public sealed class RealHub : IHubSource
     {
+        public event Action<DownloadUpdate> Downloading;
+
         public async Task<List<HubPackage>> Find(IEnumerable<string> references)
         {
             List<HubPackage> found = await HubClient.FindAll(references).ConfigureAwait(false);
@@ -39,7 +44,7 @@ namespace varManager
 
         public async Task<DownloadResult> Download(IReadOnlyList<HubPackage> packages, string folder, Action<HubPackage> finished, CancellationToken token)
         {
-            using (var downloader = new HubDownloader())
+            using (var downloader = new HubDownloader { Watch = update => Downloading?.Invoke(update) })
                 return await downloader.DownloadAll(packages, folder, finished, token).ConfigureAwait(false);
         }
     }

@@ -97,6 +97,7 @@ namespace varManager.Ui
             this.browser = browser ?? new RealHubBrowser();
             this.vamMemory = vamMemory ?? StartupProbe.VamMemory;
             this.hub = hub ?? new RealHub();
+            Downloads = new DownloadsViewModel(this.hub, SynchronizationContext.Current);
             this.watchWait = watchWait ?? TimeSpan.FromSeconds(5);
             this.settingsFile = settingsFile;
             this.vamRunning = vamRunning;
@@ -127,6 +128,7 @@ namespace varManager.Ui
         }
 
         public JobRunner Jobs { get; }
+        public DownloadsViewModel Downloads { get; }
 
         public ObservableCollection<NavPage> Pages { get; } = new ObservableCollection<NavPage>
         {
@@ -320,6 +322,8 @@ namespace varManager.Ui
 
         private void JobChanged(object? sender, PropertyChangedEventArgs e)
         {
+            if (e.PropertyName == nameof(JobRunner.IsRunning) && !Jobs.IsRunning)
+                Downloads.JobEnded();
             if (e.PropertyName == nameof(JobRunner.IsRunning) && !Jobs.IsRunning && IsReady && selectedSwitch != null)
                 ReloadLibrary();
         }

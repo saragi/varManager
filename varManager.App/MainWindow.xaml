@@ -14,6 +14,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <Border Background="{StaticResource Bar}" BorderBrush="{StaticResource Edge}" BorderThickness="0,0,0,1" Padding="20,10">
@@ -99,6 +100,42 @@
         </Border>
 
         <Border Grid.Row="2" Background="{StaticResource Bar}" BorderBrush="{StaticResource Edge}" BorderThickness="0,1,0,0"
+                Padding="20,8" Visibility="{Binding Downloads.HasRows, Converter={StaticResource Visible}}">
+            <StackPanel>
+                <DockPanel LastChildFill="False">
+                    <TextBlock Text="Downloads" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,14,0" />
+                    <TextBlock Text="{Binding Downloads.Summary}" Style="{StaticResource MutedText}" VerticalAlignment="Center" />
+                    <Button DockPanel.Dock="Right" Content="{Binding Downloads.ToggleLabel}" Command="{Binding Downloads.ToggleCommand}" Margin="12,0,0,0" />
+                    <Button DockPanel.Dock="Right" Content="Clear finished" Command="{Binding Downloads.ClearCommand}" />
+                </DockPanel>
+                <ScrollViewer MaxHeight="220" Margin="0,8,0,0" VerticalScrollBarVisibility="Auto"
+                              Visibility="{Binding Downloads.IsOpen, Converter={StaticResource Visible}}">
+                    <ItemsControl AutomationProperties.Name="Downloads" ItemsSource="{Binding Downloads.Rows}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,3">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="2*" />
+                                        <ColumnDefinition Width="3*" />
+                                        <ColumnDefinition Width="170" />
+                                        <ColumnDefinition Width="220" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Url}" Style="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Url}"
+                                               VerticalAlignment="Center" Margin="0,0,12,0" />
+                                    <ProgressBar Grid.Column="2" Value="{Binding Percent, Mode=OneWay}" Maximum="100" IsIndeterminate="{Binding IsEndless, Mode=OneWay}"
+                                                 Width="Auto" VerticalAlignment="Center" Margin="0,0,12,0" />
+                                    <TextBlock Grid.Column="3" Text="{Binding Status}" Style="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Status}"
+                                               VerticalAlignment="Center" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="3" Background="{StaticResource Bar}" BorderBrush="{StaticResource Edge}" BorderThickness="0,1,0,0"
                 Padding="20,8" MinHeight="60">
             <DockPanel LastChildFill="False">
                 <Button DockPanel.Dock="Right" Content="Build profile" Style="{StaticResource PrimaryButton}" Command="{Binding BuildProfileCommand}" Margin="12,0,0,0"

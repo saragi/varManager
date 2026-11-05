@@ -30,6 +30,13 @@ namespace varManager.App.Tests
 
         private sealed class FakeHub : IHubSource
         {
+            public event Action<DownloadUpdate>? Downloading;
+
+            public void Tell(DownloadUpdate update)
+            {
+                Downloading?.Invoke(update);
+            }
+
             public Dictionary<string, string> Packages { get; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             public HashSet<string> Broken { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -264,6 +271,79 @@ namespace varManager.App.Tests
             Assert.Equal(new[] { "Mirror.Pack.1" }, hub.Downloaded);
             Assert.True(IsLinked("Mirror.Pack.1"));
             Assert.Contains("Stored 1, failed 0", jobs.Note);
+        }
+
+        [Fact]
+        public void The_panel_shows_each_package_with_its_link_and_progress()
+        {
+            var one = new HubPackage("A.One.1", "https://pixeldrain.com/api/file/one", 1);
+            var two = new HubPackage("B.Two.1", "https://www.mediafire.com/file/two", 1);
+            var three = new HubPackage("C.Three.1", "https://pixeldrain.com/api/file/three", 1);
+            var panel = new DownloadsViewModel(hub, null);
+
+            hub.Tell(new DownloadUpdate(one, DownloadStage.Waiting));
+            hub.Tell(new DownloadUpdate(two, DownloadStage.Waiting));
+            hub.Tell(new DownloadUpdate(three, DownloadStage.Waiting));
+            hub.Tell(new DownloadUpdate(one, DownloadStage.Downloading, 1 << 20, 4 << 20));
+            hub.Tell(new DownloadUpdate(two, DownloadStage.Downloading, 1 << 20));
+            hub.Tell(new DownloadUpdate(three, DownloadStage.Failed, problem: "Paid content, so it wasn't kept."));
+
+            Assert.True(panel.HasRows);
+            Assert.Equal(new[] { "A.One.1", "B.Two.1", "C.Three.1" }, panel.Rows.Select(row => row.Name));
+            DownloadRow first = panel.Rows[0];
+            Assert.Equal(one.Url, first.Url);
+            Assert.Equal(25, first.Percent);
+            Assert.False(first.IsEndless);
+            Assert.Equal("1.0 MB of 4.0 MB", first.Status);
+            Assert.True(panel.Rows[1].IsEndless);
+            Assert.Equal("1.0 MB", panel.Rows[1].Status);
+            Assert.Equal("Failed: Paid content, so it wasn't kept.", panel.Rows[2].Status);
+            Assert.Equal("0 of 3 stored, 2 downloading, 1 failed", panel.Summary);
+        }
+
+        [Fact]
+        public void A_finished_panel_can_be_cleared_and_keeps_what_is_still_running()
+        {
+            var done = new HubPackage("A.One.1", "https://pixeldrain.com/api/file/one", 1);
+            var running = new HubPackage("B.Two.1", "https://pixeldrain.com/api/file/two", 1);
+            var panel = new DownloadsViewModel(hub, null);
+            hub.Tell(new DownloadUpdate(done, DownloadStage.Stored));
+            hub.Tell(new DownloadUpdate(running, DownloadStage.Downloading));
+            Assert.Equal(100, panel.Rows[0].Percent);
+
+            panel.ClearCommand.Execute(null);
+
+            Assert.Equal("B.Two.1", Assert.Single(panel.Rows).Name);
+        }
+
+        [Fact]
+        public void A_job_that_ends_stops_what_never_finished()
+        {
+            var waiting = new HubPackage("A.One.1", "https://pixeldrain.com/api/file/one", 1);
+            var stored = new HubPackage("B.Two.1", "https://pixeldrain.com/api/file/two", 1);
+            var panel = new DownloadsViewModel(hub, null);
+            hub.Tell(new DownloadUpdate(waiting, DownloadStage.Waiting));
+            hub.Tell(new DownloadUpdate(stored, DownloadStage.Stored));
+
+            panel.JobEnded();
+
+            Assert.Equal("Stopped", panel.Rows[0].Status);
+            Assert.False(panel.Rows[0].IsEndless);
+            Assert.Equal("Stored", panel.Rows[1].Status);
+            panel.ClearCommand.Execute(null);
+            Assert.False(panel.HasRows);
+        }
+
+        [Fact]
+        public void A_retried_package_reuses_its_row()
+        {
+            var package = new HubPackage("A.One.1", "https://pixeldrain.com/api/file/one", 1);
+            var panel = new DownloadsViewModel(hub, null);
+            hub.Tell(new DownloadUpdate(package, DownloadStage.Failed, problem: "no"));
+
+            hub.Tell(new DownloadUpdate(package, DownloadStage.Waiting));
+
+            Assert.Equal("Waiting", Assert.Single(panel.Rows).Status);
         }
 
         [Fact]

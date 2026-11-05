@@ -72,6 +72,12 @@ namespace varManager.App.Tests
 
         private sealed class FakeDownloads : IHubSource
         {
+            public event Action<DownloadUpdate>? Downloading
+            {
+                add { }
+                remove { }
+            }
+
             public List<string> Names { get; } = new List<string>();
             public bool Fail { get; set; }
 

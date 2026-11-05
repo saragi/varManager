@@ -309,6 +309,22 @@ namespace varManagerTests
         }
 
         [Fact]
+        public async Task Downloads_report_each_stage_with_the_link()
+        {
+            FakeHub server = new FakeHub { Reply = request => request.RequestUri.AbsolutePath.EndsWith("bad") ? new HttpResponseMessage(HttpStatusCode.NotFound) : Var() };
+            List<DownloadUpdate> updates = new List<DownloadUpdate>();
+            using (HubDownloader downloader = new HubDownloader(server) { Watch = update => { lock (updates) updates.Add(update); } })
+                await downloader.DownloadAll(new[] { new HubPackage("A.Good.1", "https://hub.test/good", 1), new HubPackage("B.Bad.1", "https://hub.test/bad", 1) }, root, null, CancellationToken.None);
+
+            Assert.Equal(new[] { DownloadStage.Waiting, DownloadStage.Downloading, DownloadStage.Stored },
+                updates.Where(update => update.Name == "A.Good.1").Select(update => update.Stage).Distinct());
+            DownloadUpdate failed = updates.Single(update => update.Stage == DownloadStage.Failed);
+            Assert.Equal("B.Bad.1", failed.Name);
+            Assert.Equal("https://hub.test/bad", failed.Url);
+            Assert.False(string.IsNullOrEmpty(failed.Problem));
+        }
+
+        [Fact]
         public async Task A_mediafire_page_with_no_link_says_so()
         {
             FakeHub mirror = new FakeHub { Reply = request => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("<html>removed</html>") } };

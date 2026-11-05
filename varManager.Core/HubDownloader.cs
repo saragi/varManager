@@ -61,6 +61,37 @@ namespace varManager
         public Dictionary<string, string> Failed { get; } = new Dictionary<string, string>();
     }
 
+    public enum DownloadStage
+    {
+        Waiting,
+        Downloading,
+        Stored,
+        Failed,
+    }
+
+    /// <summary>Where one package's download has got to.</summary>
+    public sealed class DownloadUpdate
+    {
+        public DownloadUpdate(HubPackage package, DownloadStage stage, long received = 0, long? total = null, string problem = null)
+        {
+            Name = package.Name;
+            Url = package.Url;
+            Stage = stage;
+            Received = received;
+            Total = total;
+            Problem = problem;
+        }
+
+        public string Name { get; }
+        public string Url { get; }
+        public DownloadStage Stage { get; }
+        public long Received { get; }
+
+        /// <summary>Null when the server doesn't say how big the file is.</summary>
+        public long? Total { get; }
+        public string Problem { get; }
+    }
+
     /// <summary>Downloads free packages into a folder. A var appears only once it is complete.</summary>
     public sealed class HubDownloader : IDisposable
     {
@@ -68,6 +99,7 @@ namespace varManager
         // VaM's own Hub browser sends this after the user turns the Hub on. Without it the Hub returns a web page.
         private const string ConsentCookie = "vamhubconsent=1";
         private const string PartExtension = ".part";
+        private const int ReportEveryMilliseconds = 200;
         private const string MirrorHost = "pixeldrain.com";
         private const string PageHost = "www.mediafire.com";
         private static readonly Regex FileHost = new Regex(@"^download\d+\.mediafire\.com$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -85,6 +117,9 @@ namespace varManager
             client = new HttpClient(handler ?? new HttpClientHandler { UseCookies = false });
             client.Timeout = Timeout.InfiniteTimeSpan;
         }
+
+        /// <summary>Told about every package as it moves along. Runs on the download's thread.</summary>
+        public Action<DownloadUpdate> Watch { get; set; }
 
         public void Dispose()
         {
@@ -138,9 +173,12 @@ namespace varManager
         {
             DownloadResult result = new DownloadResult();
             object gate = new object();
+            List<HubPackage> all = packages.ToList();
+            foreach (HubPackage package in all)
+                Watch?.Invoke(new DownloadUpdate(package, DownloadStage.Waiting));
             using (SemaphoreSlim slots = new SemaphoreSlim(ParallelDownloads))
             {
-                IEnumerable<Task> work = packages.Select(async package =>
+                IEnumerable<Task> work = all.Select(async package =>
                 {
                     await slots.WaitAsync(token).ConfigureAwait(false);
                     try
@@ -153,6 +191,7 @@ namespace varManager
                     {
                         lock (gate)
                             result.Failed[package.Name] = ex.Message;
+                        Watch?.Invoke(new DownloadUpdate(package, DownloadStage.Failed, problem: ex.Message));
                     }
                     finally
                     {
@@ -179,18 +218,23 @@ namespace varManager
                 throw new InvalidDataException("Unsafe file name from the Hub: " + package.Name);
             string target = Path.Combine(folder, fileName);
             if (File.Exists(target))
+            {
+                Watch?.Invoke(new DownloadUpdate(package, DownloadStage.Stored));
                 return;
+            }
 
             string part = target + PartExtension;
+            Watch?.Invoke(new DownloadUpdate(package, DownloadStage.Downloading));
             try
             {
                 string url = IsMirrorPage(package.Url) ? await FileUrlOnPage(package.Url, token).ConfigureAwait(false) : package.Url;
-                await Fetch(url, part, token).ConfigureAwait(false);
+                await Fetch(url, part, (received, total) => Watch?.Invoke(new DownloadUpdate(package, DownloadStage.Downloading, received, total)), token).ConfigureAwait(false);
                 if (!LooksLikeVar(part))
                     throw new InvalidDataException("The download was something other than a var.");
                 if (IsMirrorUrl(package.Url))
                     RequireFreeContent(part);
                 File.Move(part, target);
+                Watch?.Invoke(new DownloadUpdate(package, DownloadStage.Stored));
             }
             finally
             {
@@ -200,7 +244,7 @@ namespace varManager
         }
 
         /// <summary>A stalled connection ignores cancellation, so dropping the response is what ends the read.</summary>
-        private async Task Fetch(string url, string part, CancellationToken token)
+        private async Task Fetch(string url, string part, Action<long, long?> progress, CancellationToken token)
         {
             using (CancellationTokenSource idle = CancellationTokenSource.CreateLinkedTokenSource(token))
             {
@@ -216,6 +260,8 @@ namespace varManager
                         {
                             response.EnsureSuccessStatusCode();
                             long received = 0;
+                            long? expected = response.Content.Headers.ContentLength;
+                            int lastReport = Environment.TickCount;
                             using (Stream source = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
                             using (FileStream file = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.None))
                             {
@@ -228,11 +274,15 @@ namespace varManager
                                         break;
                                     await file.WriteAsync(buffer, 0, read, token).ConfigureAwait(false);
                                     received += read;
+                                    if (Environment.TickCount - lastReport >= ReportEveryMilliseconds)
+                                    {
+                                        lastReport = Environment.TickCount;
+                                        progress(received, expected);
+                                    }
                                 }
                             }
                             // Dropping a stalled response can end the read as if the file were complete.
                             idle.Token.ThrowIfCancellationRequested();
-                            long? expected = response.Content.Headers.ContentLength;
                             if (expected.HasValue && received != expected.Value)
                                 throw new IOException("The download stopped early.");
                         }
