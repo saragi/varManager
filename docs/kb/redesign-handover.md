@@ -20,7 +20,7 @@ The clickable mockup is at https://claude.ai/artifact/2ugrax4vYy63wpfpRVBKWH. Th
 
 Steps 0 to 11 are done and pushed, and the user has been told it's ready. Step 12 waits on them. `docs/kb/parity.md` lists what still needs their decision.
 
-To try it, the user needs a copy of `varManager.App\bin\Release\net10.0-windows` in a new folder, built with `dotnet build varManager.App\varManager.App.csproj -c Release`, and a settings.json beside it, or the setup panel on first start. With fake folders nothing can go wrong. On the real library, close the old app and VaM first and copy `varManager.mdb`, `varsMigrated.txt` and `varsForInstall.txt` beside the new app, so it imports a copy of the database. `D:\X\varManagerApp` stays as it is until the user approves replacing it.
+To try it, the user needs a copy of `varManager.App\bin\Release\net10.0-windows` in a new folder, built with `dotnet build varManager.App\varManager.App.csproj -c Release`, and a settings.json beside it, or the setup panel on first start. With fake folders nothing can go wrong. On the real library, close the old app and VaM first and copy `varManager.mdb`, `varsMigrated.txt` and `varsForInstall.txt` beside the new app, so it imports a copy of the database. The user approved replacing it on 5 November. `D:\X\varManagerApp` now holds the new app, built from 4ef576a with `library.db` and `settings.json` from the trial. The old app is in `D:\X\varManagerApp_old`, kept for rollback.
 
 When the loop reaches step 12 with every earlier step ticked, reviewed clean and pushed: tell the user it's ready, then shut the PC down, as the user asked on 4 November. Not before, and not if anything failed or isn't pushed.
 
@@ -46,7 +46,7 @@ Do them in order. Tick each one when it is committed, reviewed and pushed.
 - [x] 9. Missing: the same one-click flow. Add a "Not owned" Hub filter, image cache, and author search in place of the Creator dropdown. Also watch the repository, so a var dropped in is scanned by itself, as the old app's `WatchRepository` does.
 - [x] 10. Parity: list every WinForms button and form, and confirm each has a home in the new app or a stated reason to drop it.
 - [x] 11. Prove it on fake folders with a verify script like `smoke.ps1`. Include Fix Rebuild Link and temporary links, which `smoke.ps1` has never covered.
-- [ ] 12. Stop. Tell the user it's ready and how to try it. Don't run it on the real library and don't replace `D:\X\varManagerApp` without their approval.
+- [x] 12. Stop. Tell the user it's ready and how to try it. Don't run it on the real library and don't replace `D:\X\varManagerApp` without their approval.
 
 ## Design rules from the user
 
