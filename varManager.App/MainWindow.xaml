@@ -90,6 +90,10 @@
                     <Button DockPanel.Dock="Right" Content="Browse" Margin="8,0,0,0" Click="BrowseVars_Click" />
                     <TextBox AutomationProperties.Name="Vars folder" Text="{Binding VarsPath, UpdateSourceTrigger=PropertyChanged}" />
                 </DockPanel>
+                <TextBlock Text="Pixeldrain API key (optional)" Style="{StaticResource MutedText}" Margin="0,0,0,4" />
+                <PasswordBox AutomationProperties.Name="Pixeldrain API key" Margin="0,0,0,4"
+                             IsVisibleChanged="PixeldrainKey_IsVisibleChanged" PasswordChanged="PixeldrainKey_PasswordChanged" />
+                <TextBlock Text="Saved encrypted for this Windows account, and sent only to pixeldrain.com." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,12" />
                 <TextBlock Text="{Binding SetupProblem}" Foreground="{StaticResource Warning}" TextWrapping="Wrap" Margin="0,0,0,12" />
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button Content="Keep as it was" Command="{Binding CancelSetupCommand}" Margin="0,0,8,0"

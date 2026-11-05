@@ -29,6 +29,14 @@ namespace varManager
 
     public sealed class RealHub : IHubSource
     {
+        private readonly Func<string> pixeldrainKey;
+
+        /// <param name="pixeldrainKey">Read at each download, so a key saved in Settings applies at once.</param>
+        public RealHub(Func<string> pixeldrainKey = null)
+        {
+            this.pixeldrainKey = pixeldrainKey;
+        }
+
         public event Action<DownloadUpdate> Downloading;
 
         public async Task<List<HubPackage>> Find(IEnumerable<string> references)
@@ -44,7 +52,7 @@ namespace varManager
 
         public async Task<DownloadResult> Download(IReadOnlyList<HubPackage> packages, string folder, Action<HubPackage> finished, CancellationToken token)
         {
-            using (var downloader = new HubDownloader { Watch = update => Downloading?.Invoke(update) })
+            using (var downloader = new HubDownloader { Watch = update => Downloading?.Invoke(update), PixeldrainKey = pixeldrainKey?.Invoke() })
                 return await downloader.DownloadAll(packages, folder, finished, token).ConfigureAwait(false);
         }
     }

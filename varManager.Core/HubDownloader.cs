@@ -4,7 +4,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -121,6 +123,9 @@ namespace varManager
         /// <summary>Told about every package as it moves along. Runs on the download's thread.</summary>
         public Action<DownloadUpdate> Watch { get; set; }
 
+        /// <summary>The user's own Pixeldrain key, sent to Pixeldrain and nowhere else. Empty downloads anonymously.</summary>
+        public string PixeldrainKey { get; set; }
+
         public void Dispose()
         {
             client.Dispose();
@@ -132,9 +137,17 @@ namespace varManager
             Uri uri;
             if (!Uri.TryCreate(url, UriKind.Absolute, out uri) || uri.Scheme != Uri.UriSchemeHttps)
                 return false;
-            return string.Equals(uri.Host, MirrorHost, StringComparison.OrdinalIgnoreCase) && uri.AbsolutePath.StartsWith("/api/file/", StringComparison.Ordinal)
+            return IsPixeldrainFile(url)
                 || IsMirrorPage(url)
                 || FileHost.IsMatch(uri.Host);
+        }
+
+        private static bool IsPixeldrainFile(string url)
+        {
+            Uri uri;
+            return Uri.TryCreate(url, UriKind.Absolute, out uri) && uri.Scheme == Uri.UriSchemeHttps
+                && string.Equals(uri.Host, MirrorHost, StringComparison.OrdinalIgnoreCase)
+                && uri.AbsolutePath.StartsWith("/api/file/", StringComparison.Ordinal);
         }
 
         private static bool IsMirrorPage(string url)
@@ -255,9 +268,14 @@ namespace varManager
                     {
                         if (!IsMirrorUrl(url))
                             request.Headers.Add("Cookie", ConsentCookie);
+                        bool sendsKey = IsPixeldrainFile(url) && !string.IsNullOrWhiteSpace(PixeldrainKey);
+                        if (sendsKey)
+                            request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes(":" + PixeldrainKey.Trim())));
                         using (HttpResponseMessage response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, idle.Token).ConfigureAwait(false))
                         using (idle.Token.Register(response.Dispose))
                         {
+                            if (sendsKey && response.StatusCode == HttpStatusCode.Unauthorized)
+                                throw new InvalidDataException("Pixeldrain refused the key in Settings.");
                             response.EnsureSuccessStatusCode();
                             long received = 0;
                             long? expected = response.Content.Headers.ContentLength;

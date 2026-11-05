@@ -251,6 +251,44 @@ namespace varManagerTests
             Assert.Empty(Directory.GetFiles(root));
         }
 
+        [Theory]
+        [InlineData("https://pixeldrain.com/api/file/x")]
+        [InlineData("https://pixeldrain.com/api/file/x/info/zip/A.Hair.2.var")]
+        public async Task The_pixeldrain_key_goes_to_pixeldrain_as_basic_auth(string url)
+        {
+            FakeHub mirror = new FakeHub { Reply = request => Zipped("{\"licenseType\":\"CC BY\"}") };
+            using (HubDownloader downloader = new HubDownloader(mirror) { PixeldrainKey = "secret" })
+                await downloader.Download(new HubPackage("A.Hair.2", url, 1), root, CancellationToken.None);
+
+            Assert.Equal("Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes(":secret")), mirror.LastAuthorization);
+        }
+
+        [Theory]
+        [InlineData("https://hub.test/1")]
+        [InlineData("https://download123.mediafire.com/x/A.Hair.2.var")]
+        [InlineData("https://pixeldrain.com.evil.test/api/file/x")]
+        [InlineData("http://pixeldrain.com/api/file/x")]
+        public async Task The_pixeldrain_key_goes_nowhere_else(string url)
+        {
+            FakeHub other = new FakeHub { Reply = request => Zipped("{\"licenseType\":\"CC BY\"}") };
+            using (HubDownloader downloader = new HubDownloader(other) { PixeldrainKey = "secret" })
+                await downloader.Download(new HubPackage("A.Hair.2", url, 1), root, CancellationToken.None);
+
+            Assert.Null(other.LastAuthorization);
+        }
+
+        [Fact]
+        public async Task A_refused_pixeldrain_key_says_so()
+        {
+            FakeHub mirror = new FakeHub { Reply = request => new HttpResponseMessage(HttpStatusCode.Unauthorized) };
+            using (HubDownloader downloader = new HubDownloader(mirror) { PixeldrainKey = "wrong" })
+            {
+                InvalidDataException problem = await Assert.ThrowsAsync<InvalidDataException>(() =>
+                    downloader.Download(new HubPackage("A.Hair.2", "https://pixeldrain.com/api/file/x", 1), root, CancellationToken.None));
+                Assert.Contains("refused the key", problem.Message);
+            }
+        }
+
         [Fact]
         public async Task A_free_mirror_var_is_kept_and_gets_no_hub_cookie()
         {
@@ -363,12 +401,14 @@ namespace varManagerTests
         {
             public Func<HttpRequestMessage, HttpResponseMessage> Reply { get; set; }
             public string LastCookie { get; private set; }
+            public string LastAuthorization { get; private set; }
             public int Calls { get; private set; }
 
             protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
             {
                 Calls++;
                 LastCookie = request.Headers.TryGetValues("Cookie", out IEnumerable<string> values) ? values.First() : null;
+                LastAuthorization = request.Headers.Authorization?.ToString();
                 token.ThrowIfCancellationRequested();
                 return Task.FromResult(Reply(request));
             }

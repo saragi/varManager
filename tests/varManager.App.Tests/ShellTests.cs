@@ -145,6 +145,28 @@ namespace varManager.App.Tests
         }
 
         [Fact]
+        public void The_pixeldrain_key_comes_back_but_is_never_in_the_file_as_text()
+        {
+            new AppSettings { VamPath = vam, VarsPath = vars, PixeldrainKey = "my-secret-key" }.Save(settingsFile);
+
+            Assert.DoesNotContain("my-secret-key", File.ReadAllText(settingsFile));
+            Assert.Equal("my-secret-key", AppSettings.Load(settingsFile).PixeldrainKey);
+        }
+
+        [Theory]
+        [InlineData("not base64!")]
+        [InlineData("AAAA")]
+        public void A_pixeldrain_key_this_account_cant_read_is_left_empty(string sealedKey)
+        {
+            File.WriteAllText(settingsFile, "{\"VamPath\":\"x\",\"SealedPixeldrainKey\":\"" + sealedKey + "\"}");
+
+            AppSettings loaded = AppSettings.Load(settingsFile);
+
+            Assert.Equal("", loaded.PixeldrainKey);
+            Assert.Equal("x", loaded.VamPath);
+        }
+
+        [Fact]
         public void Settings_round_trip_and_leave_no_part_file()
         {
             SaveSettings();

@@ -1,6 +1,9 @@
 using System;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace varManager.Ui
 {
@@ -12,6 +15,16 @@ namespace varManager.Ui
 
         /// <summary>Off by default, because the window drew white on the user's PC with it on.</summary>
         public bool HardwareRendering { get; set; }
+
+        [JsonIgnore]
+        public string PixeldrainKey { get; set; } = "";
+
+        /// <summary>The key as settings.json holds it, which only this Windows account can read back.</summary>
+        public string SealedPixeldrainKey
+        {
+            get => PixeldrainKey.Length == 0 ? "" : Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(PixeldrainKey), null, DataProtectionScope.CurrentUser));
+            set => PixeldrainKey = Unseal(value);
+        }
 
         public static string DefaultFile => Path.Combine(AppContext.BaseDirectory, "settings.json");
 
@@ -33,6 +46,19 @@ namespace varManager.Ui
             string part = file + ".part";
             File.WriteAllText(part, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
             File.Move(part, file, true);
+        }
+
+        // A file copied from another account can't be read, and downloads then stay anonymous until the key is entered again.
+        private static string Unseal(string sealedKey)
+        {
+            try
+            {
+                return sealedKey.Length == 0 ? "" : Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(sealedKey), null, DataProtectionScope.CurrentUser));
+            }
+            catch (Exception ex) when (ex is CryptographicException or FormatException)
+            {
+                return "";
+            }
         }
 
         /// <summary>Says what's wrong with the folders, or returns null if the app can use them.</summary>

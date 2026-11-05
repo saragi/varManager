@@ -96,7 +96,7 @@ namespace varManager.Ui
         {
             this.browser = browser ?? new RealHubBrowser();
             this.vamMemory = vamMemory ?? StartupProbe.VamMemory;
-            this.hub = hub ?? new RealHub();
+            this.hub = hub ?? new RealHub(() => settings.PixeldrainKey);
             Downloads = new DownloadsViewModel(this.hub, SynchronizationContext.Current);
             this.watchWait = watchWait ?? TimeSpan.FromSeconds(5);
             this.settingsFile = settingsFile;
@@ -267,6 +267,12 @@ namespace varManager.Ui
                 settings.VarsPath = value;
                 Changed();
             }
+        }
+
+        public string PixeldrainKey
+        {
+            get => settings.PixeldrainKey;
+            set => settings.PixeldrainKey = value.Trim();
         }
 
         public string LinkedText
